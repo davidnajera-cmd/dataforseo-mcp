@@ -143,8 +143,9 @@ This MCP server provides **150 SEO and search tools** across 3 APIs:
 |------|-------------|----------------|
 | `ai_optimization_llm_mentions_search` | Search LLM mentions of a domain/keyword | `domain?`, `keyword?`, `location_code?`, `language_code?`, `platform?`, `limit?` |
 | `ai_optimization_llm_mentions_top_domains` | Top domains mentioned by LLMs | `keywords[]`, `location_code?`, `language_code?` |
-| `ai_optimization_chatgpt_live` | Get ChatGPT response | `prompt` |
-| `ai_optimization_gemini_live` | Get Gemini response | `prompt` |
+| `ai_optimization_chatgpt_live` | Get ChatGPT response (reasoning auto-applied, includes reasoning chain) | `prompt` |
+| `ai_optimization_claude_live` | Get Claude response with optional reasoning mode | `prompt`, `use_reasoning?` |
+| `ai_optimization_gemini_live` | Get Gemini response with optional reasoning mode | `prompt`, `use_reasoning?` |
 | `ai_optimization_perplexity_live` | Get Perplexity response | `prompt` |
 
 ### Business Data (DataForSEO)

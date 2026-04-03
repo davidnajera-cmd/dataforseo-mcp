@@ -371,7 +371,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_chatgpt_live",
-    "Get ChatGPT response for a prompt in real-time.",
+    "Get ChatGPT response for a prompt in real-time. Reasoning is applied automatically (no use_reasoning param needed). Response includes reasoning chain in items array and reasoning_tokens count.",
     {
       prompt: z.string().describe("Prompt to send to ChatGPT"),
     },
@@ -384,15 +384,31 @@ export function registerTools(server: McpServer) {
   );
 
   server.tool(
+    "ai_optimization_claude_live",
+    "Get Claude response for a prompt in real-time. Set use_reasoning=true to enable reasoning mode and get the step-by-step reasoning chain in the response items array.",
+    {
+      prompt: z.string().describe("Prompt to send to Claude"),
+      use_reasoning: z.boolean().optional().describe("Enable reasoning mode to get step-by-step thought process (default: false)"),
+    },
+    async ({ prompt, use_reasoning }) => {
+      const body: Record<string, unknown> = { prompt };
+      if (use_reasoning) body.use_reasoning = true;
+      const result = await post("/ai_optimization/claude/llm_responses/live", body);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
     "ai_optimization_gemini_live",
-    "Get Gemini response for a prompt in real-time.",
+    "Get Gemini response for a prompt in real-time. Set use_reasoning=true to enable reasoning mode and get the step-by-step reasoning chain in the response items array.",
     {
       prompt: z.string().describe("Prompt to send to Gemini"),
+      use_reasoning: z.boolean().optional().describe("Enable reasoning mode to get step-by-step thought process (default: false)"),
     },
-    async ({ prompt }) => {
-      const result = await post("/ai_optimization/gemini/llm_responses/live", {
-        prompt,
-      });
+    async ({ prompt, use_reasoning }) => {
+      const body: Record<string, unknown> = { prompt };
+      if (use_reasoning) body.use_reasoning = true;
+      const result = await post("/ai_optimization/gemini/llm_responses/live", body);
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
   );
