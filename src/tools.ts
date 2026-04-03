@@ -329,13 +329,13 @@ export function registerTools(server: McpServer) {
     "ai_optimization_llm_mentions_search",
     "Search for LLM mentions of a domain or brand across AI models.",
     {
-      keyword: z.string().describe("Brand or domain to search"),
+      targets: z.array(z.string()).describe("Array of domains to search (e.g., ['dnamusic.edu.co'])"),
       location_code: z.number().optional(),
       language_code: z.string().optional(),
     },
-    async ({ keyword, location_code, language_code }) => {
+    async ({ targets, location_code, language_code }) => {
       const result = await post("/ai_optimization/llm_mentions/search/live", {
-        keyword,
+        target: targets,
         location_code: location_code ?? 2840,
         language_code: language_code ?? "en",
       });
@@ -347,13 +347,13 @@ export function registerTools(server: McpServer) {
     "ai_optimization_llm_mentions_top_domains",
     "Get top domains mentioned by LLMs for a keyword.",
     {
-      keyword: z.string().describe("Keyword to analyze"),
+      keywords: z.array(z.string()).describe("Keywords to analyze"),
       location_code: z.number().optional(),
       language_code: z.string().optional(),
     },
-    async ({ keyword, location_code, language_code }) => {
+    async ({ keywords, location_code, language_code }) => {
       const result = await post("/ai_optimization/llm_mentions/top_domains/live", {
-        keyword,
+        keywords,
         location_code: location_code ?? 2840,
         language_code: language_code ?? "en",
       });
