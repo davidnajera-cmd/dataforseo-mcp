@@ -329,15 +329,23 @@ export function registerTools(server: McpServer) {
     "ai_optimization_llm_mentions_search",
     "Search for LLM mentions of a domain or brand across AI models.",
     {
-      targets: z.array(z.string()).describe("Array of domains to search (e.g., ['dnamusic.edu.co'])"),
+      domain: z.string().optional().describe("Domain to search (e.g., 'dnamusic.edu.co')"),
+      keyword: z.string().optional().describe("Keyword to search"),
       location_code: z.number().optional(),
       language_code: z.string().optional(),
+      platform: z.enum(["google", "bing"]).optional(),
+      limit: z.number().optional(),
     },
-    async ({ targets, location_code, language_code }) => {
+    async ({ domain, keyword, location_code, language_code, platform, limit }) => {
+      const target: unknown[] = [];
+      if (domain) target.push({ domain });
+      if (keyword) target.push({ keyword });
       const result = await post("/ai_optimization/llm_mentions/search/live", {
-        target: targets,
+        target,
         location_code: location_code ?? 2840,
         language_code: language_code ?? "en",
+        platform: platform ?? "google",
+        limit: limit ?? 50,
       });
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
