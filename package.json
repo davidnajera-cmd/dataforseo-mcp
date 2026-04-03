@@ -1,0 +1,22 @@
+{
+  "name": "dataforseo-mcp",
+  "version": "1.0.0",
+  "description": "MCP Server for DataForSEO API v3 - SEO, Keywords, Backlinks, SERP and more",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/server.ts",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1",
+    "express": "^4.21.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.7.0"
+  }
+}
