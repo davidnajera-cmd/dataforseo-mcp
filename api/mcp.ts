@@ -2,10 +2,8 @@ import { createServer } from "../src/server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
-const server = createServer();
-
-// Session management for Streamable HTTP
-const transports = new Map<string, StreamableHTTPServerTransport>();
+// Session management: each session gets its own server + transport
+const sessions = new Map<string, { transport: StreamableHTTPServerTransport }>();
 
 export default async function handler(
   req: IncomingMessage & { body?: unknown; method?: string; headers: Record<string, string | string[] | undefined> },
@@ -45,17 +43,18 @@ export default async function handler(
       : body?.method === "initialize";
 
     if (isInitialize) {
-      // Create new transport for new session
+      // Create a NEW server and transport per session
+      const server = createServer();
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => crypto.randomUUID(),
         onsessioninitialized: (id) => {
-          transports.set(id, transport);
+          sessions.set(id, { transport });
         },
       });
 
       transport.onclose = () => {
         const sid = (transport as any).sessionId;
-        if (sid) transports.delete(sid);
+        if (sid) sessions.delete(sid);
       };
 
       await server.connect(transport);
@@ -64,8 +63,8 @@ export default async function handler(
     }
 
     // Existing session
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId)!;
+    if (sessionId && sessions.has(sessionId)) {
+      const { transport } = sessions.get(sessionId)!;
       await transport.handleRequest(req, res, body);
       return;
     }
@@ -76,9 +75,8 @@ export default async function handler(
   }
 
   if (req.method === "GET") {
-    // SSE stream for notifications
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId)!;
+    if (sessionId && sessions.has(sessionId)) {
+      const { transport } = sessions.get(sessionId)!;
       await transport.handleRequest(req, res);
       return;
     }
@@ -89,10 +87,10 @@ export default async function handler(
   }
 
   if (req.method === "DELETE") {
-    if (sessionId && transports.has(sessionId)) {
-      const transport = transports.get(sessionId)!;
+    if (sessionId && sessions.has(sessionId)) {
+      const { transport } = sessions.get(sessionId)!;
       await transport.handleRequest(req, res);
-      transports.delete(sessionId);
+      sessions.delete(sessionId);
       return;
     }
 
