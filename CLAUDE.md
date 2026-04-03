@@ -8,11 +8,12 @@
 
 ## Overview
 
-This MCP server provides **150 SEO and search tools** across 3 APIs:
+This MCP server provides **159 SEO and search tools** across 4 APIs:
 
-1. **DataForSEO API** (88 tools) — SERP analysis, keyword research, backlinks, on-page audits, domain analytics, content analysis, AI optimization, business data, merchant data, and app data.
+1. **DataForSEO API** (89 tools) — SERP analysis, keyword research, backlinks, on-page audits, domain analytics, content analysis, AI optimization, business data, merchant data, and app data.
 2. **SerpAPI** (38 tools) — Real-time search results from Google, Bing, YouTube, DuckDuckGo, Yahoo, Baidu, Naver, Yandex, Amazon, eBay, Walmart, Yelp, Tripadvisor, and more.
 3. **Google Search Console** (9 tools) — Search analytics, URL inspection, sitemaps, and site management for verified properties.
+4. **Microsoft Clarity** (7 tools) — Traffic analytics, UX metrics (dead clicks, rage clicks, scroll depth), device/browser/country breakdowns, and channel performance.
 
 ---
 
@@ -263,6 +264,30 @@ All SerpAPI tools return real-time search results from various engines.
 
 ---
 
+## Microsoft Clarity Tools (7 tools)
+
+All Clarity tools use the Data Export API with Bearer token authentication. Max 10 API requests per project per day. Data is limited to the last 1-3 days.
+
+**Authentication**: Requires `CLARITY_API_TOKEN` environment variable (JWT token generated from Clarity project Settings > Data Export).
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `clarity_live_insights` | Flexible dashboard data export with up to 3 custom dimensions | `num_of_days` (1/2/3), `dimension1?`, `dimension2?`, `dimension3?` |
+| `clarity_traffic_overview` | Traffic overview without breakdowns (totals only) | `num_of_days?` |
+| `clarity_traffic_by_source` | Traffic by Source, Medium, and Campaign | `num_of_days?` |
+| `clarity_traffic_by_device` | Traffic by Device, Browser, and OS | `num_of_days?` |
+| `clarity_traffic_by_page` | Traffic by URL/page | `num_of_days?` |
+| `clarity_traffic_by_country` | Traffic by Country/Region | `num_of_days?` |
+| `clarity_traffic_by_channel` | Traffic by Channel (organic, paid, social, etc.) | `num_of_days?` |
+
+### Available Dimensions
+`Browser`, `Device`, `Country`, `OS`, `Source`, `Medium`, `Campaign`, `Channel`, `URL`
+
+### Metrics Returned
+Traffic (sessions, bot sessions, users, pages/session), Scroll Depth, Engagement Time, Popular Pages, Dead Click Count, Rage Click Count, Quickback Click, Excessive Scroll, Script Error Count, Error Click Count
+
+---
+
 ## Common Parameters
 
 ### Location Codes (most used)
@@ -307,3 +332,5 @@ All SerpAPI tools return real-time search results from various engines.
 7. **SerpAPI vs DataForSEO SERP**: Both provide SERP data. SerpAPI is simpler for quick searches across many engines. DataForSEO provides richer structured data and async task support.
 
 8. **For Colombia**: Use `location_code: 2170` and `language_code: "es"`.
+
+9. **For UX analytics (Clarity)**: Use `clarity_traffic_overview` for a quick snapshot, `clarity_traffic_by_page` to find UX issues on specific pages, and `clarity_live_insights` with custom dimensions for advanced breakdowns. Note: max 10 API calls/day.
