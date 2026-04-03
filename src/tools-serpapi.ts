@@ -748,13 +748,13 @@ export function registerSerpApiTools(server: McpServer) {
     "serpapi_amazon_search",
     "Search Amazon products via SerpAPI.",
     {
-      q: z.string().describe("Product search query"),
+      k: z.string().describe("Product search query"),
       amazon_domain: z.string().optional().describe("Amazon domain (e.g., 'amazon.com')"),
     },
-    async ({ q, amazon_domain }) => {
+    async ({ k, amazon_domain }) => {
       const result = await serpApiRequest({
         engine: "amazon",
-        q,
+        k,
         amazon_domain: amazon_domain ?? "amazon.com",
       });
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
