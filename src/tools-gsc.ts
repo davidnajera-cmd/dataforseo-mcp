@@ -8,7 +8,7 @@ function formatResult(data: unknown): string {
 
 export function registerGscTools(server: McpServer) {
   // ============================================================
-  // SEARCH ANALYTICS
+  // SEARCH ANALYTICS (READ)
   // ============================================================
   server.tool(
     "gsc_search_analytics_query",
@@ -49,7 +49,7 @@ export function registerGscTools(server: McpServer) {
   );
 
   // ============================================================
-  // SITEMAPS
+  // SITEMAPS (READ + WRITE)
   // ============================================================
   server.tool(
     "gsc_sitemaps_list",
@@ -110,7 +110,7 @@ export function registerGscTools(server: McpServer) {
   );
 
   // ============================================================
-  // SITES
+  // SITES (READ + WRITE)
   // ============================================================
   server.tool(
     "gsc_sites_list",
@@ -162,7 +162,7 @@ export function registerGscTools(server: McpServer) {
   );
 
   // ============================================================
-  // URL INSPECTION
+  // URL INSPECTION (READ)
   // ============================================================
   server.tool(
     "gsc_url_inspection",
@@ -179,6 +179,85 @@ export function registerGscTools(server: McpServer) {
         languageCode: language_code ?? "en-US",
       }, "searchconsole");
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  // ============================================================
+  // INDEXING / WRITE OPERATIONS
+  // ============================================================
+
+  server.tool(
+    "gsc_url_request_indexing",
+    "Request Google to index or re-index a specific URL. Uses the Google Indexing API (type: URL_UPDATED). Requires the Indexing API enabled in Google Cloud and the service account added to GSC as an owner.",
+    {
+      url: z.string().describe("The canonical URL to request indexing for (e.g., 'https://example.com/page')"),
+    },
+    async ({ url }) => {
+      const result = await gscPost("/urlNotifications:publish", {
+        url,
+        type: "URL_UPDATED",
+      }, "indexing" as any);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "gsc_url_cancel_indexing",
+    "Notify Google that a URL has been deleted and should be removed from the index. Uses the Google Indexing API (type: URL_DELETED).",
+    {
+      url: z.string().describe("The URL to remove from Google's index"),
+    },
+    async ({ url }) => {
+      const result = await gscPost("/urlNotifications:publish", {
+        url,
+        type: "URL_DELETED",
+      }, "indexing" as any);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "gsc_url_indexing_status",
+    "Get the indexing notification status for a specific URL from the Google Indexing API.",
+    {
+      url: z.string().describe("The URL to check indexing notification status for"),
+    },
+    async ({ url }) => {
+      const encodedUrl = encodeURIComponent(url);
+      const result = await gscGet(`/urlNotifications/metadata?url=${encodedUrl}`, "indexing" as any);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "gsc_bulk_request_indexing",
+    "Request indexing for multiple URLs at once. Sends URL_UPDATED notifications for each URL in the list. Useful for submitting new or updated pages in bulk.",
+    {
+      urls: z.array(z.string()).describe("List of URLs to request indexing for (max 200 recommended per batch)"),
+    },
+    async ({ urls }) => {
+      const results: { url: string; status: string; data?: unknown; error?: string }[] = [];
+
+      for (const url of urls) {
+        try {
+          const data = await gscPost("/urlNotifications:publish", {
+            url,
+            type: "URL_UPDATED",
+          }, "indexing" as any);
+          results.push({ url, status: "success", data });
+        } catch (err: any) {
+          results.push({ url, status: "error", error: err?.message ?? String(err) });
+        }
+      }
+
+      const summary = {
+        total: urls.length,
+        success: results.filter(r => r.status === "success").length,
+        errors: results.filter(r => r.status === "error").length,
+        results,
+      };
+
+      return { content: [{ type: "text" as const, text: formatResult(summary) }] };
     }
   );
 }
