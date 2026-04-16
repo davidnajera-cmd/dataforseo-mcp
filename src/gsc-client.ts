@@ -1,5 +1,6 @@
 const WEBMASTERS_BASE = "https://www.googleapis.com/webmasters/v3";
 const SEARCHCONSOLE_BASE = "https://searchconsole.googleapis.com/v1";
+const INDEXING_BASE = "https://indexing.googleapis.com/v3";
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 let cachedToken: { access_token: string; expires_at: number } | null = null;
@@ -54,52 +55,60 @@ async function headers(): Promise<Record<string, string>> {
   };
 }
 
-export async function gscGet(path: string, base: "webmasters" | "searchconsole" = "webmasters"): Promise<unknown> {
-  const baseUrl = base === "webmasters" ? WEBMASTERS_BASE : SEARCHCONSOLE_BASE;
-  const res = await fetch(`${baseUrl}${path}`, { headers: await headers() });
+type ApiBase = "webmasters" | "searchconsole" | "indexing";
+
+function resolveBase(base: ApiBase): string {
+  switch (base) {
+    case "searchconsole": return SEARCHCONSOLE_BASE;
+    case "indexing":      return INDEXING_BASE;
+    default:              return WEBMASTERS_BASE;
+  }
+}
+
+export async function gscGet(path: string, base: ApiBase = "webmasters"): Promise<unknown> {
+  const res = await fetch(`${resolveBase(base)}${path}`, { headers: await headers() });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Google Search Console API error ${res.status}: ${text}`);
+    throw new Error(`Google API error ${res.status}: ${text}`);
   }
   return res.json();
 }
 
-export async function gscPost(path: string, body: unknown, base: "webmasters" | "searchconsole" = "webmasters"): Promise<unknown> {
-  const baseUrl = base === "webmasters" ? WEBMASTERS_BASE : SEARCHCONSOLE_BASE;
-  const res = await fetch(`${baseUrl}${path}`, {
+export async function gscPost(path: string, body: unknown, base: ApiBase = "webmasters"): Promise<unknown> {
+  const res = await fetch(`${resolveBase(base)}${path}`, {
     method: "POST",
     headers: await headers(),
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Google Search Console API error ${res.status}: ${text}`);
+    throw new Error(`Google API error ${res.status}: ${text}`);
   }
   return res.json();
 }
 
-export async function gscPut(path: string): Promise<unknown> {
-  const baseUrl = WEBMASTERS_BASE;
-  const res = await fetch(`${baseUrl}${path}`, {
+export async function gscPut(path: string, base: ApiBase = "webmasters"): Promise<unknown> {
+  const res = await fetch(`${resolveBase(base)}${path}`, {
     method: "PUT",
     headers: await headers(),
   });
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`Google Search Console API error ${res.status}: ${text}`);
+    throw new Error(`Google API error ${res.status}: ${text}`);
   }
+  // Some PUT endpoints return 204 No Content
+  if (res.status === 204) return { success: true };
   return res.json();
 }
 
-export async function gscDelete(path: string): Promise<unknown> {
-  const baseUrl = WEBMASTERS_BASE;
-  const res = await fetch(`${baseUrl}${path}`, {
+export async function gscDelete(path: string, base: ApiBase = "webmasters"): Promise<unknown> {
+  const res = await fetch(`${resolveBase(base)}${path}`, {
     method: "DELETE",
     headers: await headers(),
   });
   if (!res.ok && res.status !== 204) {
     const text = await res.text();
-    throw new Error(`Google Search Console API error ${res.status}: ${text}`);
+    throw new Error(`Google API error ${res.status}: ${text}`);
   }
   return { success: true };
 }
