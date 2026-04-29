@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>DNA Music SEO Control</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="shell" data-sidebar="open">
+      <aside class="sidebar" aria-label="Navegacion principal">
+        <div class="brand">
+          <div class="brand-mark">DNA</div>
+          <div>
+            <strong>SEO Control</strong>
+            <span>DNA Music</span>
+          </div>
+        </div>
+        <nav class="nav">
+          <button class="nav-item is-active" data-view="overview">Overview SEO</button>
+          <button class="nav-item" data-view="monthly">Dashboard Mensual</button>
+          <button class="nav-item" data-view="weekly">Dashboard Semanal</button>
+          <button class="nav-item" data-view="content">Contenido</button>
+          <button class="nav-item" data-view="keywords">Keywords</button>
+          <button class="nav-item" data-view="leads">Leads / Conversiones</button>
+          <button class="nav-item" data-view="technical">Salud Tecnica</button>
+          <button class="nav-item" data-view="comparison">CO vs MX</button>
+          <button class="nav-item" data-view="business">Insights Negocio</button>
+          <button class="nav-item" data-view="variables">Variables</button>
+        </nav>
+        <div class="sidebar-footer">
+          <span>Fuentes</span>
+          <div id="sourceDots" class="source-dots"></div>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <button id="sidebarToggle" class="icon-button" aria-label="Toggle sidebar">☰</button>
+          <div class="topbar-title">
+            <span>Analytics Platform</span>
+            <strong id="pageTitle">Overview SEO</strong>
+          </div>
+          <form id="filters" class="filters">
+            <label>
+              Pais
+              <select name="country">
+                <option value="all">Colombia + Mexico</option>
+                <option value="co">Colombia</option>
+                <option value="mx">Mexico</option>
+              </select>
+            </label>
+            <label>
+              Periodo
+              <select name="timeframe">
+                <option value="monthly">Mensual</option>
+                <option value="weekly">Semanal</option>
+              </select>
+            </label>
+            <label>
+              Desde
+              <input name="startDate" type="date" value="2026-04-01" />
+            </label>
+            <label>
+              Hasta
+              <input name="endDate" type="date" value="2026-04-28" />
+            </label>
+            <label>
+              Canal
+              <select name="channel">
+                <option value="all">Todo</option>
+                <option value="blog">Blog</option>
+                <option value="programs">Programas</option>
+                <option value="campaigns">Campanas organicas</option>
+              </select>
+            </label>
+          </form>
+        </header>
+
+        <section class="status-row">
+          <div>
+            <p id="verdict" class="verdict">Cargando estado SEO</p>
+            <p id="summary" class="summary">Conectando fuentes y preparando tablero.</p>
+          </div>
+          <div class="live-pill"><span></span><strong id="freshness">Sincronizando</strong></div>
+        </section>
+
+        <section id="metricGrid" class="metric-grid" aria-label="KPIs principales"></section>
+
+        <section class="content-grid">
+          <div class="panel wide" data-section="overview monthly weekly">
+            <div class="panel-head">
+              <div>
+                <span>Tendencia</span>
+                <h2>Trafico, leads y CTR</h2>
+              </div>
+              <button class="small-button" data-view-shortcut="weekly">Ver semana</button>
+            </div>
+            <div id="trendChart" class="chart"></div>
+          </div>
+
+          <div class="panel" data-section="overview keywords monthly weekly">
+            <div class="panel-head">
+              <div>
+                <span>Diagnostico</span>
+                <h2>Movimiento SEO</h2>
+              </div>
+            </div>
+            <div id="keywordPanel" class="stack"></div>
+          </div>
+
+          <div class="panel" data-section="overview content monthly weekly">
+            <div class="panel-head">
+              <div>
+                <span>Operacion</span>
+                <h2>Contenido</h2>
+              </div>
+            </div>
+            <div id="contentOps" class="ops-grid"></div>
+          </div>
+
+          <div class="panel wide" data-section="overview content business monthly">
+            <div class="panel-head">
+              <div>
+                <span>Contenido</span>
+                <h2>Top paginas organicas</h2>
+              </div>
+            </div>
+            <div id="topPages" class="table-list"></div>
+          </div>
+
+          <div class="panel" data-section="technical overview monthly weekly">
+            <div class="panel-head">
+              <div>
+                <span>Salud tecnica</span>
+                <h2>Core Web Vitals</h2>
+              </div>
+            </div>
+            <div id="technicalPanel" class="technical"></div>
+          </div>
+
+          <div class="panel" data-section="leads business overview monthly weekly">
+            <div class="panel-head">
+              <div>
+                <span>Leads</span>
+                <h2>Canales de conversion</h2>
+              </div>
+            </div>
+            <div id="leadChannels" class="stack"></div>
+          </div>
+
+          <div class="panel wide" data-section="comparison overview monthly">
+            <div class="panel-head">
+              <div>
+                <span>Comparativo</span>
+                <h2>Colombia vs Mexico</h2>
+              </div>
+            </div>
+            <div id="comparisonTable" class="comparison"></div>
+          </div>
+
+          <div class="panel wide" data-section="business overview keywords content">
+            <div class="panel-head">
+              <div>
+                <span>Accion</span>
+                <h2>Oportunidades priorizadas</h2>
+              </div>
+            </div>
+            <div id="opportunities" class="action-list"></div>
+          </div>
+
+          <div class="panel wide variables-panel" data-section="variables">
+            <div class="panel-head">
+              <div>
+                <span>Configuracion</span>
+                <h2>Variables</h2>
+              </div>
+              <button id="refreshVariables" class="small-button" type="button">Actualizar</button>
+            </div>
+            <div class="admin-box">
+              <label>
+                Token admin
+                <input id="adminToken" type="password" autocomplete="off" placeholder="SEO_VARIABLES_ADMIN_TOKEN" />
+              </label>
+              <p class="summary">Las variables sensibles se guardan cifradas en Postgres. La app usa primero estos valores y luego las variables de Vercel.</p>
+            </div>
+            <div class="market-box">
+              <div>
+                <strong>Colombia</strong>
+                <span>dnamusic.edu.co</span>
+              </div>
+              <div>
+                <strong>Mexico</strong>
+                <span>dnamusic.mx</span>
+              </div>
+            </div>
+            <div id="variablesList" class="variables-list"></div>
+          </div>
+        </section>
+      </main>
+    </div>
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

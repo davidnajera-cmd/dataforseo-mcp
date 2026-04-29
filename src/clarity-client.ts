@@ -1,7 +1,9 @@
+import { getRuntimeVariable } from "./runtime-config.js";
+
 const BASE_URL = "https://www.clarity.ms/export-data/api/v1";
 
-function getToken(): string {
-  const token = process.env.CLARITY_API_TOKEN;
+async function getToken(): Promise<string> {
+  const token = await getRuntimeVariable("CLARITY_API_TOKEN");
   if (!token) {
     throw new Error("CLARITY_API_TOKEN environment variable is required");
   }
@@ -22,7 +24,7 @@ export async function clarityRequest(
   const res = await fetch(url.toString(), {
     method: "GET",
     headers: {
-      Authorization: `Bearer ${getToken()}`,
+      Authorization: `Bearer ${await getToken()}`,
       "Content-Type": "application/json",
     },
   });

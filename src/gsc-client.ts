@@ -1,3 +1,5 @@
+import { getRuntimeVariable } from "./runtime-config.js";
+
 const WEBMASTERS_BASE = "https://www.googleapis.com/webmasters/v3";
 const SEARCHCONSOLE_BASE = "https://searchconsole.googleapis.com/v1";
 const INDEXING_BASE = "https://indexing.googleapis.com/v3";
@@ -5,15 +7,15 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
-async function getAccessToken(): Promise<string> {
+export async function getGoogleAccessToken(): Promise<string> {
   // If we have a valid cached token (with 60s buffer), use it
   if (cachedToken && Date.now() < cachedToken.expires_at - 60_000) {
     return cachedToken.access_token;
   }
 
-  const clientId = process.env.GOOGLE_CLIENT_ID;
-  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const refreshToken = process.env.GOOGLE_REFRESH_TOKEN;
+  const clientId = await getRuntimeVariable("GOOGLE_CLIENT_ID");
+  const clientSecret = await getRuntimeVariable("GOOGLE_CLIENT_SECRET");
+  const refreshToken = await getRuntimeVariable("GOOGLE_REFRESH_TOKEN");
 
   if (!clientId || !clientSecret || !refreshToken) {
     throw new Error(
@@ -48,7 +50,7 @@ async function getAccessToken(): Promise<string> {
 }
 
 async function headers(): Promise<Record<string, string>> {
-  const token = await getAccessToken();
+  const token = await getGoogleAccessToken();
   return {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",

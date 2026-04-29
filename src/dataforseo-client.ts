@@ -1,8 +1,10 @@
+import { getRuntimeVariable } from "./runtime-config.js";
+
 const BASE_URL = "https://api.dataforseo.com/v3";
 
-function getAuth(): string {
-  const login = process.env.DATAFORSEO_LOGIN;
-  const password = process.env.DATAFORSEO_PASSWORD;
+async function getAuth(): Promise<string> {
+  const login = await getRuntimeVariable("DATAFORSEO_LOGIN");
+  const password = await getRuntimeVariable("DATAFORSEO_PASSWORD");
   if (!login || !password) {
     throw new Error("DATAFORSEO_LOGIN and DATAFORSEO_PASSWORD environment variables are required");
   }
@@ -16,7 +18,7 @@ export async function dataforseoRequest(
 ): Promise<unknown> {
   const url = `${BASE_URL}${path}`;
   const headers: Record<string, string> = {
-    Authorization: `Basic ${getAuth()}`,
+    Authorization: `Basic ${await getAuth()}`,
     "Content-Type": "application/json",
   };
 

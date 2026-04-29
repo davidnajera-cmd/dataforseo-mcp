@@ -1,12 +1,24 @@
 {
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
+  "outputDirectory": "public",
   "rewrites": [
+    { "source": "/api/seo-dashboard", "destination": "/api/seo-dashboard" },
+    { "source": "/api/seo-connectivity", "destination": "/api/seo-connectivity" },
+    { "source": "/api/variables", "destination": "/api/variables" },
     { "source": "/mcp", "destination": "/api/mcp" },
     { "source": "/sse", "destination": "/api/mcp" }
   ],
   "functions": {
     "api/mcp.ts": {
+      "maxDuration": 60
+    },
+    "api/seo-dashboard.ts": {
+      "maxDuration": 60
+    },
+    "api/seo-connectivity.ts": {
+      "maxDuration": 60
+    },
+    "api/variables.ts": {
       "maxDuration": 60
     }
   }
