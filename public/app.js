@@ -117,12 +117,15 @@ function renderTrend(points) {
   const width = 720;
   const height = 300;
   const pad = 28;
+  const bottomPad = 42;
+  const tickEvery = Math.max(1, Math.ceil(points.length / 7));
   const maxOrganic = Math.max(1, ...points.map((point) => point.organic || 0));
   const maxLeads = Math.max(1, ...points.map((point) => point.leads || 0));
   const x = (index) => pad + index * ((width - pad * 2) / Math.max(1, points.length - 1));
-  const yOrganic = (value) => height - pad - (value / maxOrganic) * (height - pad * 2);
-  const yLeads = (value) => height - pad - (value / maxLeads) * (height - pad * 2);
+  const yOrganic = (value) => height - bottomPad - (value / maxOrganic) * (height - pad - bottomPad);
+  const yLeads = (value) => height - bottomPad - (value / maxLeads) * (height - pad - bottomPad);
   const line = (accessor) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${accessor(point)}`).join(" ");
+  const shouldShowTick = (index) => index === 0 || index === points.length - 1 || index % tickEvery === 0;
 
   document.querySelector("#trendChart").innerHTML = `
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Tendencia SEO">
@@ -132,13 +135,13 @@ function renderTrend(points) {
           <stop offset="100%" stop-color="#2454ff" stop-opacity="0" />
         </linearGradient>
       </defs>
-      <path d="${line((p) => yOrganic(p.organic))} L ${x(points.length - 1)} ${height - pad} L ${pad} ${height - pad} Z" fill="url(#area)" />
+      <path d="${line((p) => yOrganic(p.organic))} L ${x(points.length - 1)} ${height - bottomPad} L ${pad} ${height - bottomPad} Z" fill="url(#area)" />
       <path d="${line((p) => yOrganic(p.organic))}" fill="none" stroke="#2454ff" stroke-width="4" stroke-linecap="round" />
       ${points.some((point) => typeof point.leads === "number") ? `<path d="${line((p) => yLeads(p.leads || 0))}" fill="none" stroke="#00a88f" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 8" />` : ""}
       ${points.map((point, index) => `
         <g>
           <circle cx="${x(index)}" cy="${yOrganic(point.organic)}" r="5" fill="#2454ff" />
-          <text x="${x(index)}" y="${height - 6}" text-anchor="middle" font-size="12" fill="#69717c">${point.label}</text>
+          ${shouldShowTick(index) ? `<text x="${x(index)}" y="${height - 12}" text-anchor="middle" font-size="12" fill="#69717c">${formatTrendLabel(point.label)}</text>` : ""}
         </g>
       `).join("")}
     </svg>
@@ -342,6 +345,12 @@ function formatDelta(value) {
 function formatFreshness(value) {
   const date = new Date(value);
   return `Actualizado ${date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}`;
+}
+
+function formatTrendLabel(value) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("es-CO", { month: "short", day: "numeric" }).replace(".", "");
 }
 
 function formatNumber(value) {
