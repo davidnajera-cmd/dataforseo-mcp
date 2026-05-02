@@ -1,6 +1,7 @@
 import { ga4Get, resolvePropertyId } from "./ga4-client.js";
 import { post } from "./dataforseo-client.js";
 import { gscPost } from "./gsc-client.js";
+import { formatGscAttemptErrors, gscPropertyCandidates } from "./gsc-property.js";
 import { runPageSpeed, summarizePageSpeed } from "./pagespeed-client.js";
 import { getRuntimeVariable } from "./runtime-config.js";
 
@@ -68,24 +69,33 @@ async function checkPageSpeed(): Promise<ConnectivityCheck> {
 
 async function checkGscInspection(): Promise<ConnectivityCheck> {
   const siteUrl = await getRuntimeVariable("DNA_SITE_CO") ?? await getRuntimeVariable("DNA_SITE_URL") ?? "sc-domain:dnamusic.edu.co";
+  const domain = await getRuntimeVariable("DNA_DOMAIN_CO") ?? await getRuntimeVariable("DNA_DOMAIN") ?? "dnamusic.edu.co";
   const inspectionUrl = await getRuntimeVariable("DNA_INSPECTION_URL") ?? await getRuntimeVariable("DNA_CANONICAL_URL") ?? "https://www.dnamusic.edu.co/";
+  const attemptErrors: Array<{ site: string; error: unknown }> = [];
 
-  try {
-    const result = await gscPost("/urlInspection/index:inspect", {
-      inspectionUrl,
-      siteUrl,
-      languageCode: "es-CO",
-    }, "searchconsole");
-    const inspection = (result as any).inspectionResult ?? {};
-    return {
-      name: "GSC URL Inspection",
-      status: "ok",
-      message: "URL Inspection API responded.",
-      sample: pick(inspection.indexStatusResult ?? {}, ["verdict", "coverageState", "robotsTxtState", "indexingState", "lastCrawlTime"]),
-    };
-  } catch (error) {
-    return { name: "GSC URL Inspection", status: "error", message: message(error) };
+  for (const candidate of gscPropertyCandidates({ site: siteUrl, domain, canonicalUrl: inspectionUrl })) {
+    try {
+      const result = await gscPost("/urlInspection/index:inspect", {
+        inspectionUrl,
+        siteUrl: candidate,
+        languageCode: "es-CO",
+      }, "searchconsole");
+      const inspection = (result as any).inspectionResult ?? {};
+      return {
+        name: "GSC URL Inspection",
+        status: "ok",
+        message: candidate === siteUrl ? "URL Inspection API responded." : `URL Inspection API responded with ${candidate}.`,
+        sample: pick(inspection.indexStatusResult ?? {}, ["verdict", "coverageState", "robotsTxtState", "indexingState", "lastCrawlTime"]),
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Failed to refresh Google access token")) {
+        return { name: "GSC URL Inspection", status: "error", message: message(error) };
+      }
+      attemptErrors.push({ site: candidate, error });
+    }
   }
+
+  return { name: "GSC URL Inspection", status: "error", message: formatGscAttemptErrors(attemptErrors) || "Search Console no respondio." };
 }
 
 async function checkDataForSeo(): Promise<ConnectivityCheck> {

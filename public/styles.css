@@ -226,6 +226,7 @@ select {
   margin: 8px 0 0;
   color: var(--muted);
   line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .live-pill {
@@ -284,6 +285,11 @@ select {
 
 .metric small {
   color: var(--muted);
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow-wrap: anywhere;
 }
 
 .delta {

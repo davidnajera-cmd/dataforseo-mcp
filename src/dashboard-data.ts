@@ -1,5 +1,6 @@
 import { post } from "./dataforseo-client.js";
 import { gscPost } from "./gsc-client.js";
+import { formatGscAttemptErrors, gscPropertyCandidates } from "./gsc-property.js";
 import { runPageSpeed, summarizePageSpeed } from "./pagespeed-client.js";
 import { getRuntimeVariable } from "./runtime-config.js";
 
@@ -268,7 +269,7 @@ async function getCountryConfig(country: "co" | "mx"): Promise<CountryConfig> {
     return {
       code: "co",
       name: "Colombia",
-      site: await getRuntimeVariable("DNA_SITE_CO") ?? "sc-domain:dnamusic.edu.co",
+      site: await getRuntimeVariable("DNA_SITE_CO") ?? "https://dnamusic.edu.co/",
       domain: await getRuntimeVariable("DNA_DOMAIN_CO") ?? "dnamusic.edu.co",
       canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL") ?? "https://www.dnamusic.edu.co/",
       locationCode: Number(await getRuntimeVariable("DNA_LOCATION_CO") ?? 2170),
@@ -308,28 +309,7 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
     }
 
     try {
-      const [summary, pages, trend] = await Promise.all([
-        gscPost(`/sites/${encodeURIComponent(config.site)}/searchAnalytics/query`, {
-          startDate: filters.startDate,
-          endDate: filters.endDate,
-          rowLimit: 1,
-          type: "web",
-        }),
-        gscPost(`/sites/${encodeURIComponent(config.site)}/searchAnalytics/query`, {
-          startDate: filters.startDate,
-          endDate: filters.endDate,
-          dimensions: ["page"],
-          rowLimit: 20,
-          type: "web",
-        }),
-        gscPost(`/sites/${encodeURIComponent(config.site)}/searchAnalytics/query`, {
-          startDate: filters.startDate,
-          endDate: filters.endDate,
-          dimensions: ["date"],
-          rowLimit: 1000,
-          type: "web",
-        }),
-      ]);
+      const { site, summary, pages, trend } = await loadSearchConsoleForConfig(filters, config);
 
       const parsedSummary = parseGscSummary(summary);
       byCountry[config.code] = {
@@ -348,6 +328,7 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
         trendMap.set(point.label, existing);
       }
       liveCount += 1;
+      if (site !== config.site) errors.push(`${config.name}: usando propiedad GSC alternativa ${site}.`);
     } catch (error) {
       errors.push(`${config.name}: ${error instanceof Error ? error.message : "Search Console no respondio."}`);
     }
@@ -366,6 +347,44 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
     trends: [...trendMap.values()].sort((a, b) => a.label.localeCompare(b.label)),
     byCountry,
   };
+}
+
+async function loadSearchConsoleForConfig(filters: DashboardFilters, config: CountryConfig) {
+  const attemptErrors: Array<{ site: string; error: unknown }> = [];
+
+  for (const site of gscPropertyCandidates(config)) {
+    try {
+      const [summary, pages, trend] = await Promise.all([
+        gscPost(`/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          rowLimit: 1,
+          type: "web",
+        }),
+        gscPost(`/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          dimensions: ["page"],
+          rowLimit: 20,
+          type: "web",
+        }),
+        gscPost(`/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          dimensions: ["date"],
+          rowLimit: 1000,
+          type: "web",
+        }),
+      ]);
+
+      return { site, summary, pages, trend };
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("Failed to refresh Google access token")) throw error;
+      attemptErrors.push({ site, error });
+    }
+  }
+
+  throw new Error(formatGscAttemptErrors(attemptErrors) || "Search Console no respondio.");
 }
 
 async function loadDataForSeo(configs: CountryConfig[]) {

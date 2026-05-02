@@ -20,7 +20,7 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "GA4_PROPERTY_ID", group: "GA4", label: "Property ID", description: "ID numerico de la propiedad GA4.", sensitive: false, requiredFor: "Reportes GA4" },
   { name: "CLARITY_API_TOKEN", group: "Microsoft Clarity", label: "API token", description: "Token de Clarity Data Export API.", sensitive: true, requiredFor: "UX, scroll, engagement" },
   { name: "PAGESPEED_API_KEY", group: "PageSpeed", label: "API key", description: "Google PageSpeed Insights API key.", sensitive: true, requiredFor: "Core Web Vitals" },
-  { name: "DNA_SITE_CO", group: "DNA Music", label: "GSC Colombia", description: "Propiedad GSC Colombia, ejemplo sc-domain:dnamusic.edu.co.", sensitive: false, requiredFor: "GSC Colombia" },
+  { name: "DNA_SITE_CO", group: "DNA Music", label: "GSC Colombia", description: "Propiedad GSC Colombia, ejemplo https://dnamusic.edu.co/ o sc-domain:dnamusic.edu.co.", sensitive: false, requiredFor: "GSC Colombia" },
   { name: "DNA_SITE_MX", group: "DNA Music", label: "GSC Mexico", description: "Propiedad GSC Mexico, ejemplo sc-domain:dnamusic.mx.", sensitive: false, requiredFor: "GSC Mexico" },
   { name: "DNA_DOMAIN_CO", group: "DNA Music", label: "Dominio Colombia", description: "Dominio para DataForSEO Colombia: dnamusic.edu.co.", sensitive: false, requiredFor: "Competencia Colombia" },
   { name: "DNA_DOMAIN_MX", group: "DNA Music", label: "Dominio Mexico", description: "Dominio para DataForSEO Mexico.", sensitive: false, requiredFor: "Competencia Mexico" },
