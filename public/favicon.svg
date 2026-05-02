@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="DNA SEO Control">
+  <rect width="64" height="64" rx="12" fill="#15171a"/>
+  <circle cx="48" cy="16" r="5" fill="#00a88f"/>
+  <path d="M16 20h8c8 0 13 5 13 12s-5 12-13 12h-8V20Zm8 17c4 0 6-2 6-5s-2-5-6-5h-1v10h1Z" fill="#ffffff"/>
+  <path d="M39 25h5l7 14V25h5v19h-5l-7-14v14h-5V25Z" fill="#ffffff"/>
+  <path d="M10 45h44" stroke="#2454ff" stroke-width="4" stroke-linecap="round"/>
+</svg>
