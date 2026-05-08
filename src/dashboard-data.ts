@@ -1,10 +1,20 @@
 import { post } from "./dataforseo-client.js";
 import { gscPost } from "./gsc-client.js";
+import { ga4Post } from "./ga4-client.js";
+import { clarityRequest } from "./clarity-client.js";
 import { formatGscAttemptErrors, gscPropertyCandidates } from "./gsc-property.js";
 import { runPageSpeed, summarizePageSpeed } from "./pagespeed-client.js";
 import { getRuntimeVariable } from "./runtime-config.js";
+import {
+  getLatestBacklinks,
+  getBacklinksTrend,
+  getLatestLlmVisibility,
+  getLatestTrafficSnapshot,
+  getTrafficTrend,
+  getLatestDomainRankings,
+} from "./persistence-store.js";
 
-export type CountryCode = "all" | "co" | "mx";
+export type CountryCode = "all" | "co" | "mx" | "lta";
 export type Timeframe = "monthly" | "weekly";
 export type Channel = "all" | "blog" | "programs" | "campaigns";
 
@@ -35,7 +45,8 @@ type CountryMetric = {
   metric: string;
   colombia: string;
   mexico: string;
-  leader: "Colombia" | "Mexico" | "Empate" | "Sin datos";
+  lta: string;
+  leader: "Colombia" | "Mexico" | "La Tienda de Audio" | "Empate" | "Sin datos";
 };
 
 type PageMetric = {
@@ -97,6 +108,10 @@ export type SeoDashboardData = {
     speed: string | null;
     indexErrors: number | null;
     indexedNew: number | null;
+    deadClicks: number | null;
+    rageClicks: number | null;
+    excessiveScroll: number | null;
+    quickbackClick: number | null;
   };
   business: {
     programs: Array<{ name: string; traffic: number | null; conversion: number | null }>;
@@ -105,6 +120,25 @@ export type SeoDashboardData = {
   };
   comparison: CountryMetric[];
   sources: SourceStatus[];
+  ga4?: {
+    sessions: number | null;
+    organic_sessions: number | null;
+    conversions: number | null;
+    by_domain: Array<{ domain: string; sessions: number | null; organic_sessions: number | null; conversions: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
+    series: Array<{ date: string; sessions: number; organic_sessions: number; conversions: number }>;
+  };
+  backlinks?: {
+    by_domain: Array<{ domain: string; total: number | null; referring_domains: number | null; rank: number | null; spam_score: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
+    trend: Array<{ date: string; domain: string; total: number | null; referring_domains: number | null }>;
+  };
+  ai_visibility?: {
+    by_domain: Array<{ domain: string; chat_gpt_mentions: number | null; google_mentions: number | null; date: string | null }>;
+    has_data: boolean;
+    note: string;
+  };
+  history_summary?: {
+    rankings_by_domain: Array<{ domain: string; total_tracked: number; top3: number; top10: number; avg_position: number | null; snapshot_date: string }>;
+  };
 };
 
 const DEFAULT_FILTERS: DashboardFilters = {
@@ -115,14 +149,17 @@ const DEFAULT_FILTERS: DashboardFilters = {
   endDate: "2026-04-28",
 };
 
+type SiteCode = "co" | "mx" | "lta";
+
 type CountryConfig = {
-  code: "co" | "mx";
-  name: "Colombia" | "Mexico";
+  code: SiteCode;
+  name: "Colombia" | "Mexico" | "La Tienda de Audio";
   site: string;
   domain: string;
   canonicalUrl: string;
   locationCode: number;
   published: boolean;
+  ga4PropertyId: string | null;
 };
 
 type GscData = {
@@ -135,7 +172,7 @@ type GscData = {
   position: number | null;
   pages: PageMetric[];
   trends: TrendPoint[];
-  byCountry: Record<"co" | "mx", { clicks: number | null; impressions: number | null; ctr: number | null }>;
+  byCountry: Record<SiteCode, { clicks: number | null; impressions: number | null; ctr: number | null }>;
 };
 
 export function normalizeFilters(input: Partial<DashboardFilters>): DashboardFilters {
@@ -150,11 +187,11 @@ export function normalizeFilters(input: Partial<DashboardFilters>): DashboardFil
 
 export async function collectSeoDashboardData(input: Partial<DashboardFilters>): Promise<SeoDashboardData> {
   const filters = normalizeFilters(input);
-  const countries = filters.country === "all" ? (["co", "mx"] as const) : ([filters.country] as const);
+  const countries = filters.country === "all" ? (["co", "mx", "lta"] as const) : ([filters.country] as const);
   const configs = await Promise.all(countries.map(getCountryConfig));
   const sources: SourceStatus[] = [];
 
-  const [gsc, dataforseo, pagespeed] = await Promise.all([
+  const [gsc, dataforseo, pagespeed, ga4, clarity, backlinksData, llmData, historyData] = await Promise.all([
     loadSearchConsole(filters, configs).then((data) => {
       sources.push({ name: "Google Search Console", status: sourceStatus(data), message: data.message });
       return data;
@@ -167,6 +204,23 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       sources.push({ name: "PageSpeed Insights", status: sourceStatus(data), message: data.message });
       return data;
     }),
+    loadGa4(configs).then((data) => {
+      sources.push({ name: "Google Analytics 4", status: data.live ? "live" : data.error ? "error" : "pending", message: data.message });
+      return data;
+    }),
+    loadClarity().then((data) => {
+      sources.push({ name: "Microsoft Clarity", status: data.live ? "live" : data.error ? "error" : "pending", message: data.message });
+      return data;
+    }),
+    loadBacklinksSection(configs).then((data) => {
+      sources.push({ name: "Backlinks (DataForSEO)", status: data.live ? "live" : data.error ? "error" : "pending", message: data.message });
+      return data;
+    }),
+    loadLlmVisibilitySection(configs).then((data) => {
+      sources.push({ name: "LLM Visibility (DataForSEO)", status: data.has_data ? "live" : "pending", message: data.note });
+      return data;
+    }),
+    loadHistorySummary(configs),
   ]);
 
   const hasGsc = gsc.live && gsc.clicks !== null;
@@ -248,23 +302,40 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       speed: pagespeed.speed,
       indexErrors: null,
       indexedNew: null,
+      deadClicks: clarity.deadClicks,
+      rageClicks: clarity.rageClicks,
+      excessiveScroll: clarity.excessiveScroll,
+      quickbackClick: clarity.quickbackClick,
     },
     business: {
       programs: [],
       channels: [
+        { name: "Sesiones GA4", leads: ga4.totals.sessions, conversion: ga4.totals.conversions },
+        { name: "Organico SEO", leads: ga4.totals.organic_sessions, conversion: null },
         { name: "WhatsApp", leads: null, conversion: null },
         { name: "Formulario", leads: null, conversion: null },
-        { name: "Chat", leads: null, conversion: null },
-        { name: "Llamadas", leads: null, conversion: null },
       ],
       opportunities: buildRealOpportunities(gsc, dataforseo, pagespeed),
     },
     comparison: buildComparison(gsc.byCountry),
     sources: sources.sort((a, b) => a.name.localeCompare(b.name)),
+    ga4: {
+      sessions: ga4.totals.sessions,
+      organic_sessions: ga4.totals.organic_sessions,
+      conversions: ga4.totals.conversions,
+      by_domain: ga4.byDomain,
+      series: ga4.series,
+    },
+    backlinks: {
+      by_domain: backlinksData.byDomain,
+      trend: backlinksData.trend,
+    },
+    ai_visibility: llmData,
+    history_summary: { rankings_by_domain: historyData },
   };
 }
 
-async function getCountryConfig(country: "co" | "mx"): Promise<CountryConfig> {
+async function getCountryConfig(country: SiteCode): Promise<CountryConfig> {
   if (country === "co") {
     return {
       code: "co",
@@ -274,17 +345,31 @@ async function getCountryConfig(country: "co" | "mx"): Promise<CountryConfig> {
       canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL") ?? "https://www.dnamusic.edu.co/",
       locationCode: Number(await getRuntimeVariable("DNA_LOCATION_CO") ?? 2170),
       published: true,
+      ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_CO")) ?? (await getRuntimeVariable("GA4_PROPERTY_ID")) ?? null,
     };
   }
-
+  if (country === "mx") {
+    return {
+      code: "mx",
+      name: "Mexico",
+      site: await getRuntimeVariable("DNA_SITE_MX") ?? "sc-domain:dnamusic.mx",
+      domain: await getRuntimeVariable("DNA_DOMAIN_MX") ?? "dnamusic.mx",
+      canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL_MX") ?? "https://dnamusic.mx/",
+      locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484),
+      published: (await getRuntimeVariable("DNA_MX_PUBLISHED")) === "true",
+      ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_MX")) ?? null,
+    };
+  }
+  // lta
   return {
-    code: "mx",
-    name: "Mexico",
-    site: await getRuntimeVariable("DNA_SITE_MX") ?? "sc-domain:dnamusic.mx",
-    domain: await getRuntimeVariable("DNA_DOMAIN_MX") ?? "dnamusic.mx",
-    canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL_MX") ?? "https://dnamusic.mx/",
-    locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484),
-    published: (await getRuntimeVariable("DNA_MX_PUBLISHED")) === "true",
+    code: "lta",
+    name: "La Tienda de Audio",
+    site: await getRuntimeVariable("DNA_SITE_LTA") ?? "sc-domain:latiendadeaudio.com",
+    domain: await getRuntimeVariable("DNA_DOMAIN_LTA") ?? "latiendadeaudio.com",
+    canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL_LTA") ?? "https://latiendadeaudio.com/",
+    locationCode: Number(await getRuntimeVariable("DNA_LOCATION_LTA") ?? 2170),
+    published: true,
+    ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_LTA")) ?? null,
   };
 }
 
@@ -550,18 +635,28 @@ function buildRealOpportunities(gsc: GscData, dataforseo: { top3: number | null;
 }
 
 function buildComparison(data: GscData["byCountry"]): CountryMetric[] {
-  const coClicks = data.co.clicks;
-  const mxClicks = data.mx.clicks;
-  const coImpressions = data.co.impressions;
-  const mxImpressions = data.mx.impressions;
-  const coCtr = data.co.ctr;
-  const mxCtr = data.mx.ctr;
-
   return [
-    { metric: "Clics organicos", colombia: displayNumber(coClicks), mexico: displayNumber(mxClicks), leader: leader(coClicks, mxClicks) },
-    { metric: "Impresiones", colombia: displayNumber(coImpressions), mexico: displayNumber(mxImpressions), leader: leader(coImpressions, mxImpressions) },
-    { metric: "CTR promedio", colombia: displayPercent(coCtr), mexico: displayPercent(mxCtr), leader: leader(coCtr, mxCtr) },
-    { metric: "Leads SEO", colombia: "No conectado", mexico: "No conectado", leader: "Sin datos" },
+    {
+      metric: "Clics organicos",
+      colombia: displayNumber(data.co.clicks),
+      mexico: displayNumber(data.mx.clicks),
+      lta: displayNumber(data.lta.clicks),
+      leader: leader3(data.co.clicks, data.mx.clicks, data.lta.clicks),
+    },
+    {
+      metric: "Impresiones",
+      colombia: displayNumber(data.co.impressions),
+      mexico: displayNumber(data.mx.impressions),
+      lta: displayNumber(data.lta.impressions),
+      leader: leader3(data.co.impressions, data.mx.impressions, data.lta.impressions),
+    },
+    {
+      metric: "CTR promedio",
+      colombia: displayPercent(data.co.ctr),
+      mexico: displayPercent(data.mx.ctr),
+      lta: displayPercent(data.lta.ctr),
+      leader: leader3(data.co.ctr, data.mx.ctr, data.lta.ctr),
+    },
   ];
 }
 
@@ -584,6 +679,7 @@ function emptyCountryData(): GscData["byCountry"] {
   return {
     co: { clicks: null, impressions: null, ctr: null },
     mx: { clicks: null, impressions: null, ctr: null },
+    lta: { clicks: null, impressions: null, ctr: null },
   };
 }
 
@@ -601,10 +697,22 @@ function displayPercent(value: number | null) {
   return value === null ? "Sin datos" : `${value.toFixed(2)}%`;
 }
 
-function leader(a: number | null, b: number | null): CountryMetric["leader"] {
+function leader(a: number | null, b: number | null): "Colombia" | "Mexico" | "Empate" | "Sin datos" {
   if (a === null || b === null) return "Sin datos";
   if (a === b) return "Empate";
   return a > b ? "Colombia" : "Mexico";
+}
+
+function leader3(co: number | null, mx: number | null, lta: number | null): CountryMetric["leader"] {
+  const entries: Array<["Colombia" | "Mexico" | "La Tienda de Audio", number | null]> = [
+    ["Colombia", co], ["Mexico", mx], ["La Tienda de Audio", lta],
+  ];
+  const valid = entries.filter(([, v]) => v !== null) as Array<["Colombia" | "Mexico" | "La Tienda de Audio", number]>;
+  if (valid.length === 0) return "Sin datos";
+  const max = Math.max(...valid.map(([, v]) => v));
+  const winners = valid.filter(([, v]) => v === max);
+  if (winners.length > 1) return "Empate";
+  return winners[0][0];
 }
 
 function formatNumber(value: number): string {
@@ -621,4 +729,219 @@ function isChannel(value: unknown): value is Channel {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+// =====================================================================
+// New data loaders (DB-first with live API fallback)
+// =====================================================================
+
+type Ga4DashboardSection = {
+  live: boolean;
+  error?: boolean;
+  message: string;
+  totals: { sessions: number | null; organic_sessions: number | null; conversions: number | null };
+  byDomain: Array<{ domain: string; sessions: number | null; organic_sessions: number | null; conversions: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
+  series: Array<{ date: string; sessions: number; organic_sessions: number; conversions: number }>;
+};
+
+async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
+  if (!await getRuntimeVariable("GOOGLE_REFRESH_TOKEN")) {
+    return { live: false, message: "Falta GOOGLE_REFRESH_TOKEN.", totals: { sessions: null, organic_sessions: null, conversions: null }, byDomain: [], series: [] };
+  }
+  const byDomain: Ga4DashboardSection["byDomain"] = [];
+  const seriesMap = new Map<string, { sessions: number; organic_sessions: number; conversions: number }>();
+  let totalsSessions = 0;
+  let totalsOrganic = 0;
+  let totalsConv = 0;
+  let anyData = false;
+  const errors: string[] = [];
+
+  for (const config of configs) {
+    if (!config.ga4PropertyId) {
+      byDomain.push({ domain: config.domain, sessions: null, organic_sessions: null, conversions: null, date: null, source_origin: "missing" });
+      continue;
+    }
+    // Try DB first
+    const cached = await getLatestTrafficSnapshot(config.domain, "ga4").catch(() => null);
+    if (cached) {
+      byDomain.push({ domain: config.domain, sessions: cached.sessions, organic_sessions: cached.organic_sessions, conversions: cached.conversions, date: cached.date, source_origin: "db" });
+      totalsSessions += cached.sessions ?? 0;
+      totalsOrganic += cached.organic_sessions ?? 0;
+      totalsConv += cached.conversions ?? 0;
+      anyData = true;
+      const trend = await getTrafficTrend(config.domain, "ga4", 30).catch(() => []);
+      for (const row of trend) {
+        const key = row.date;
+        const existing = seriesMap.get(key) ?? { sessions: 0, organic_sessions: 0, conversions: 0 };
+        existing.sessions += row.sessions ?? 0;
+        existing.organic_sessions += row.organic_sessions ?? 0;
+        existing.conversions += row.conversions ?? 0;
+        seriesMap.set(key, existing);
+      }
+      continue;
+    }
+    // DB empty -> live
+    try {
+      const property = config.ga4PropertyId.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
+      const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+      const total = await ga4Post(`/${property}:runReport`, {
+        dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+        metrics: [{ name: "sessions" }, { name: "conversions" }],
+      }) as { rows?: Array<{ metricValues?: Array<{ value: string }> }> };
+      const mv = total.rows?.[0]?.metricValues ?? [];
+      const sessions = mv[0] ? Number(mv[0].value) : 0;
+      const conversions = mv[1] ? Number(mv[1].value) : 0;
+      byDomain.push({ domain: config.domain, sessions, organic_sessions: null, conversions, date: yesterday, source_origin: "live" });
+      totalsSessions += sessions;
+      totalsConv += conversions;
+      anyData = true;
+    } catch (error) {
+      errors.push(`${config.domain}: ${error instanceof Error ? error.message : "GA4 error"}`);
+      byDomain.push({ domain: config.domain, sessions: null, organic_sessions: null, conversions: null, date: null, source_origin: "missing" });
+    }
+  }
+
+  const series = [...seriesMap.entries()].map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date));
+  return {
+    live: anyData,
+    error: errors.length > 0 && !anyData,
+    message: anyData ? (errors.length ? `Datos parciales. ${errors.join(" | ")}` : "Datos reales disponibles.") : (errors.join(" | ") || "Sin datos GA4 todavia."),
+    totals: { sessions: anyData ? totalsSessions : null, organic_sessions: anyData ? totalsOrganic : null, conversions: anyData ? totalsConv : null },
+    byDomain,
+    series,
+  };
+}
+
+type ClaritySection = {
+  live: boolean;
+  error?: boolean;
+  message: string;
+  deadClicks: number | null;
+  rageClicks: number | null;
+  excessiveScroll: number | null;
+  quickbackClick: number | null;
+};
+
+async function loadClarity(): Promise<ClaritySection> {
+  if (!await getRuntimeVariable("CLARITY_API_TOKEN")) {
+    return { live: false, message: "Falta CLARITY_API_TOKEN.", deadClicks: null, rageClicks: null, excessiveScroll: null, quickbackClick: null };
+  }
+  try {
+    const result = await clarityRequest("/project-live-insights", { numOfDays: "1" }) as Array<{ metricName?: string; information?: Array<{ name?: string; value?: number }> }>;
+    const metrics: Record<string, number> = {};
+    for (const m of result ?? []) {
+      const key = (m.metricName ?? "").trim();
+      const total = (m.information ?? []).reduce((acc, item) => acc + Number(item.value ?? 0), 0);
+      if (key) metrics[key] = total;
+    }
+    return {
+      live: true,
+      message: "Datos reales (ultimo dia).",
+      deadClicks: metrics["DeadClickCount"] ?? null,
+      rageClicks: metrics["RageClickCount"] ?? null,
+      excessiveScroll: metrics["ExcessiveScroll"] ?? null,
+      quickbackClick: metrics["QuickbackClick"] ?? null,
+    };
+  } catch (error) {
+    return {
+      live: false,
+      error: true,
+      message: error instanceof Error ? error.message : "Clarity no respondio.",
+      deadClicks: null, rageClicks: null, excessiveScroll: null, quickbackClick: null,
+    };
+  }
+}
+
+type BacklinksSection = {
+  live: boolean;
+  error?: boolean;
+  message: string;
+  byDomain: Array<{ domain: string; total: number | null; referring_domains: number | null; rank: number | null; spam_score: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
+  trend: Array<{ date: string; domain: string; total: number | null; referring_domains: number | null }>;
+};
+
+async function loadBacklinksSection(configs: CountryConfig[]): Promise<BacklinksSection> {
+  if (!await getRuntimeVariable("DATAFORSEO_LOGIN")) {
+    return { live: false, message: "Falta DATAFORSEO_LOGIN.", byDomain: [], trend: [] };
+  }
+  const byDomain: BacklinksSection["byDomain"] = [];
+  const trend: BacklinksSection["trend"] = [];
+  let anyData = false;
+  const errors: string[] = [];
+
+  for (const config of configs) {
+    const cached = await getLatestBacklinks(config.domain).catch(() => null);
+    if (cached) {
+      byDomain.push({ domain: config.domain, total: cached.total_backlinks, referring_domains: cached.referring_domains, rank: cached.rank, spam_score: cached.spam_score, date: cached.snapshot_date, source_origin: "db" });
+      anyData = true;
+      const series = await getBacklinksTrend(config.domain, 12).catch(() => []);
+      for (const row of series) trend.push({ date: row.snapshot_date, domain: row.domain, total: row.total_backlinks, referring_domains: row.referring_domains });
+      continue;
+    }
+    // No DB row yet -> live (cheap, ~$0.02)
+    try {
+      const result = await post("/backlinks/summary/live", { target: config.domain, include_subdomains: true }) as { tasks?: Array<{ status_code: number; status_message: string; result?: Array<{ backlinks?: number; referring_domains?: number; rank?: number; backlinks_spam_score?: number }> }> };
+      const task = result.tasks?.[0];
+      if (task && task.status_code === 20000) {
+        const sum = task.result?.[0] ?? {};
+        byDomain.push({ domain: config.domain, total: sum.backlinks ?? null, referring_domains: sum.referring_domains ?? null, rank: sum.rank ?? null, spam_score: sum.backlinks_spam_score ?? null, date: new Date().toISOString().slice(0, 10), source_origin: "live" });
+        anyData = true;
+      } else {
+        byDomain.push({ domain: config.domain, total: null, referring_domains: null, rank: null, spam_score: null, date: null, source_origin: "missing" });
+        if (task?.status_message) errors.push(`${config.domain}: ${task.status_message}`);
+      }
+    } catch (error) {
+      errors.push(`${config.domain}: ${error instanceof Error ? error.message : "Backlinks error"}`);
+      byDomain.push({ domain: config.domain, total: null, referring_domains: null, rank: null, spam_score: null, date: null, source_origin: "missing" });
+    }
+  }
+
+  return {
+    live: anyData,
+    error: !anyData && errors.length > 0,
+    message: anyData ? (errors.length ? `Datos parciales. ${errors.join(" | ")}` : "Datos reales disponibles.") : (errors.join(" | ") || "Sin datos de backlinks."),
+    byDomain,
+    trend,
+  };
+}
+
+type LlmVisibilitySection = SeoDashboardData["ai_visibility"] & {};
+
+async function loadLlmVisibilitySection(configs: CountryConfig[]): Promise<NonNullable<SeoDashboardData["ai_visibility"]>> {
+  const byDomain: Array<{ domain: string; chat_gpt_mentions: number | null; google_mentions: number | null; date: string | null }> = [];
+  let anyData = false;
+  for (const config of configs) {
+    const rows = await getLatestLlmVisibility(config.domain).catch(() => []);
+    if (rows.length === 0) {
+      byDomain.push({ domain: config.domain, chat_gpt_mentions: null, google_mentions: null, date: null });
+      continue;
+    }
+    const chat = rows.find((r) => r.platform === "chat_gpt");
+    const google = rows.find((r) => r.platform === "google");
+    byDomain.push({
+      domain: config.domain,
+      chat_gpt_mentions: chat?.mentions_count ?? null,
+      google_mentions: google?.mentions_count ?? null,
+      date: rows[0]?.snapshot_date ?? null,
+    });
+    if (chat || google) anyData = true;
+  }
+  return {
+    by_domain: byDomain,
+    has_data: anyData,
+    note: anyData
+      ? "Datos historicos de LLM visibility cargados desde la DB."
+      : "Sin snapshots de LLM visibility todavia. Corre el cron weekly el lunes o usa snapshot_run_now con tasks=['llm'].",
+  };
+}
+
+async function loadHistorySummary(configs: CountryConfig[]): Promise<Array<{ domain: string; total_tracked: number; top3: number; top10: number; avg_position: number | null; snapshot_date: string }>> {
+  const out: Array<{ domain: string; total_tracked: number; top3: number; top10: number; avg_position: number | null; snapshot_date: string }> = [];
+  for (const config of configs) {
+    const r = await getLatestDomainRankings(config.domain).catch(() => null);
+    if (r) {
+      out.push({ domain: config.domain, total_tracked: r.total_tracked, top3: r.top3, top10: r.top10, avg_position: r.avg_position, snapshot_date: r.snapshot_date });
+    }
+  }
+  return out;
 }
