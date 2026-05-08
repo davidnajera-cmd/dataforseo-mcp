@@ -17,12 +17,11 @@ export type OpusResponse = {
   cost_usd: number;
 };
 
-export async function opusChat(systemPrompt: string, userPrompt: string, options: { max_tokens?: number; temperature?: number } = {}): Promise<OpusResponse> {
+export async function opusChat(systemPrompt: string, userPrompt: string, options: { max_tokens?: number } = {}): Promise<OpusResponse> {
   const client = await getClient();
   const response = await client.messages.create({
     model: "claude-opus-4-7",
     max_tokens: options.max_tokens ?? 8000,
-    temperature: options.temperature ?? 0.2,
     system: systemPrompt,
     messages: [{ role: "user", content: userPrompt }],
   });

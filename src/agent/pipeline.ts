@@ -115,7 +115,7 @@ export async function runAgent(): Promise<AgentRunResult> {
 
     let proposedTasks: ProposedTask[] = [];
     try {
-      const opusResult = await opusChat(systemPrompt, userPrompt, { max_tokens: 8000, temperature: 0.2 });
+      const opusResult = await opusChat(systemPrompt, userPrompt, { max_tokens: 8000 });
       totalCost += opusResult.cost_usd;
       stats.opus_cost_usd = opusResult.cost_usd;
       stats.opus_input_tokens = opusResult.usage.input_tokens;
