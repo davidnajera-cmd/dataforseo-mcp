@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { post } from "./dataforseo-client.js";
+import { post, get } from "./dataforseo-client.js";
 import { gscPost } from "./gsc-client.js";
 import { ahrefsRequest, semrushRequest } from "./premium-seo-client.js";
 
@@ -117,6 +117,70 @@ export function registerSeoWorkflowTools(server: McpServer) {
         limit: limit ?? 100,
       });
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "onpage_full_crawl_sync",
+    "Run a full DataForSEO OnPage crawl synchronously: posts the task, polls until ready or timeout, and returns summary plus pages. If the task doesn't finish in time, returns the task_id so the caller can fetch results later via onpage_summary / onpage_pages.",
+    {
+      target: z.string().describe("URL to crawl, e.g. https://www.dnamusic.edu.co/"),
+      max_crawl_pages: z.number().int().positive().max(2000).optional().describe("Max pages (default 200)"),
+      enable_javascript: z.boolean().optional(),
+      max_wait_seconds: z.number().int().positive().max(600).optional().describe("Polling timeout in seconds (default 300, max 600)"),
+      poll_interval_seconds: z.number().int().positive().max(60).optional().describe("Seconds between polls (default 20)"),
+      pages_limit: z.number().int().positive().max(1000).optional().describe("How many pages to return (default 200)"),
+    },
+    async ({ target, max_crawl_pages, enable_javascript, max_wait_seconds, poll_interval_seconds, pages_limit }) => {
+      const taskRaw = await post("/on_page/task_post", {
+        target,
+        max_crawl_pages: max_crawl_pages ?? 200,
+        enable_javascript: enable_javascript ?? false,
+      }) as { tasks?: Array<{ id?: string; status_message?: string }> };
+      const taskId = taskRaw.tasks?.[0]?.id;
+      if (!taskId) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: "task_post returned no task id", raw: taskRaw }) }] };
+      }
+
+      const timeout = (max_wait_seconds ?? 300) * 1000;
+      const interval = (poll_interval_seconds ?? 20) * 1000;
+      const start = Date.now();
+      let summary: any = null;
+      let crawlProgress: string | undefined;
+      let polls = 0;
+
+      while (Date.now() - start < timeout) {
+        await new Promise((resolve) => setTimeout(resolve, interval));
+        polls++;
+        try {
+          summary = await get(`/on_page/summary/${taskId}`);
+          crawlProgress = summary?.tasks?.[0]?.result?.[0]?.crawl_progress;
+          if (crawlProgress === "finished") break;
+        } catch (error) {
+          // ignore transient errors and keep polling
+        }
+      }
+
+      if (crawlProgress !== "finished") {
+        return { content: [{ type: "text" as const, text: formatResult({
+          status: "timeout",
+          task_id: taskId,
+          polls,
+          crawl_progress: crawlProgress ?? "unknown",
+          message: `Crawl did not finish within ${max_wait_seconds ?? 300}s. Use onpage_summary / onpage_pages with task_id=${taskId} later.`,
+          summary,
+        }) }] };
+      }
+
+      const pages = await post("/on_page/pages", { id: taskId, limit: pages_limit ?? 200 });
+      return { content: [{ type: "text" as const, text: formatResult({
+        status: "finished",
+        task_id: taskId,
+        polls,
+        elapsed_ms: Date.now() - start,
+        summary,
+        pages,
+      }) }] };
     }
   );
 

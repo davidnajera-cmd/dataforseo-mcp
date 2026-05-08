@@ -30,6 +30,7 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "DNA_LOCATION_MX", group: "DNA Music", label: "Location code MX", description: "Codigo DataForSEO para Mexico.", sensitive: false, requiredFor: "Rankings locales" },
   { name: "AHREFS_API_TOKEN", group: "Premium", label: "Ahrefs token", description: "Token API v3 de Ahrefs.", sensitive: true, requiredFor: "Backlinks premium, Brand Radar" },
   { name: "SEMRUSH_API_KEY", group: "Premium", label: "Semrush API key", description: "API key de Semrush.", sensitive: true, requiredFor: "SEO API, Trends, competencia" },
+  { name: "BING_WEBMASTER_API_KEY", group: "Bing Webmaster", label: "API key", description: "API key de Bing Webmaster Tools (settings -> API access).", sensitive: true, requiredFor: "Search analytics y crawl stats de Bing" },
 ];
 
 type RuntimeVariableRow = {

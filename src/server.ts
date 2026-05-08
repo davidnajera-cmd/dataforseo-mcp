@@ -6,11 +6,16 @@ import { registerClarityTools } from "./tools-clarity.js";
 import { registerGa4Tools } from "./tools-ga4.js";
 import { registerPageSpeedTools } from "./tools-pagespeed.js";
 import { registerSeoWorkflowTools } from "./tools-seo-workflows.js";
+import { registerBingTools } from "./tools-bing.js";
+import { registerWaybackTools } from "./tools-wayback.js";
+import { registerSchemaTools } from "./tools-schema.js";
+import { registerHttpUtilsTools } from "./tools-http-utils.js";
+import { registerLogTools } from "./tools-logs.js";
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "SEO MCP Server",
-    version: "1.0.0",
+    version: "1.1.0",
   });
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
@@ -33,6 +38,21 @@ export function createServer(): McpServer {
 
   // SEO workflow tools and prepared premium connectors
   registerSeoWorkflowTools(server);
+
+  // Bing Webmaster Tools (sites, query/page stats, crawl, URL submission)
+  registerBingTools(server);
+
+  // Wayback Machine (snapshots, diffs, historical recovery)
+  registerWaybackTools(server);
+
+  // Schema markup validation and extraction
+  registerSchemaTools(server);
+
+  // HTTP utilities (redirect chain, headers, robots.txt)
+  registerHttpUtilsTools(server);
+
+  // Web server log file analysis
+  registerLogTools(server);
 
   return server;
 }

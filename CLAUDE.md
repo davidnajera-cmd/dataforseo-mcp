@@ -8,12 +8,19 @@
 
 ## Overview
 
-This MCP server provides **159 SEO and search tools** across 4 APIs:
+This MCP server provides **180+ SEO and search tools** across 9 APIs:
 
 1. **DataForSEO API** (89 tools) — SERP analysis, keyword research, backlinks, on-page audits, domain analytics, content analysis, AI optimization, business data, merchant data, and app data.
 2. **SerpAPI** (38 tools) — Real-time search results from Google, Bing, YouTube, DuckDuckGo, Yahoo, Baidu, Naver, Yandex, Amazon, eBay, Walmart, Yelp, Tripadvisor, and more.
 3. **Google Search Console** (9 tools) — Search analytics, URL inspection, sitemaps, and site management for verified properties.
 4. **Microsoft Clarity** (7 tools) — Traffic analytics, UX metrics (dead clicks, rage clicks, scroll depth), device/browser/country breakdowns, and channel performance.
+5. **Bing Webmaster Tools** (8 tools) — Sites, query/page stats, crawl errors, URL submission and quota.
+6. **Wayback Machine** (4 tools) — Historical snapshots, closest-snapshot lookup, raw HTML, snapshot diffs.
+7. **Schema markup** (3 tools) — Validation via validator.schema.org and on-page extraction (JSON-LD, microdata, meta).
+8. **HTTP utilities** (3 tools) — Ad-hoc redirect chain follower, header inspector, robots.txt parser.
+9. **Log file analyzer** (1 tool) — Parses Common/Combined Log Format, surfaces top 404s, bot hits, status distribution.
+
+Plus a synchronous OnPage crawl wrapper (`onpage_full_crawl_sync`) that orchestrates `task_post` → poll → `summary` + `pages` in one call.
 
 ---
 
@@ -288,6 +295,72 @@ Traffic (sessions, bot sessions, users, pages/session), Scroll Depth, Engagement
 
 ---
 
+## Bing Webmaster Tools (8 tools)
+
+Authentication: API key in `BING_WEBMASTER_API_KEY` (Bing Webmaster Tools → Settings → API access).
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `bing_get_sites` | List sites verified in Bing | _(none)_ |
+| `bing_get_query_stats` | Clicks/impressions/avg position by query (last 6 months) | `site_url` |
+| `bing_get_page_stats` | Same metrics by page | `site_url` |
+| `bing_get_crawl_stats` | Crawl errors, indexed pages, pages crawled | `site_url` |
+| `bing_get_url_info` | Index status for a single URL | `site_url`, `url` |
+| `bing_submit_url` | Submit one URL for indexing | `site_url`, `url` |
+| `bing_submit_url_batch` | Submit up to 500 URLs | `site_url`, `urls[]` |
+| `bing_get_url_submission_quota` | Remaining daily/monthly quota | `site_url` |
+
+---
+
+## Wayback Machine (4 tools)
+
+No authentication. Public Internet Archive APIs.
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `wayback_get_snapshots` | List archived snapshots via CDX | `url`, `from?` (YYYYMMDD), `to?`, `limit?`, `match_type?`, `filter_status?` |
+| `wayback_get_closest` | Snapshot closest to a date | `url`, `timestamp?` |
+| `wayback_get_snapshot_content` | Raw HTML of a specific snapshot | `url`, `timestamp`, `max_chars?` |
+| `wayback_diff_snapshots` | Diff title/meta/h1/length between two snapshots | `url`, `timestamp_a`, `timestamp_b` |
+
+---
+
+## Schema markup (3 tools)
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `schema_validate_url` | Validate via validator.schema.org | `url` |
+| `schema_extract_url` | Extract JSON-LD blocks, microdata itemtypes, meta tags, canonical, title | `url` |
+| `schema_validate_snippet` | Validate raw JSON-LD snippet | `code` |
+
+---
+
+## HTTP utilities (3 tools)
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `redirect_chain_check` | Manually follow redirects, hop-by-hop detail | `url`, `method?`, `max_hops?`, `user_agent?` |
+| `http_headers_inspect` | Headers + SEO signals without following redirects | `url`, `method?`, `user_agent?` |
+| `http_robots_txt` | Fetch and parse robots.txt | `site_url` |
+
+---
+
+## Log file analyzer (1 tool)
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `log_file_analyze` | Parse Common/Combined Log Format and surface top 404s, top hits, status distribution, top user agents, SEO bot activity | `content?`, `url?`, `top_n?` |
+
+---
+
+## Workflow wrappers (extras)
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `onpage_full_crawl_sync` | Synchronous wrapper: posts crawl, polls until ready, returns summary + pages | `target`, `max_crawl_pages?`, `enable_javascript?`, `max_wait_seconds?`, `poll_interval_seconds?`, `pages_limit?` |
+
+---
+
 ## Common Parameters
 
 ### Location Codes (most used)
@@ -334,3 +407,13 @@ Traffic (sessions, bot sessions, users, pages/session), Scroll Depth, Engagement
 8. **For Colombia**: Use `location_code: 2170` and `language_code: "es"`.
 
 9. **For UX analytics (Clarity)**: Use `clarity_traffic_overview` for a quick snapshot, `clarity_traffic_by_page` to find UX issues on specific pages, and `clarity_live_insights` with custom dimensions for advanced breakdowns. Note: max 10 API calls/day.
+
+10. **For migration audits**: Use `wayback_get_snapshots` to list pre-migration URLs, `redirect_chain_check` to verify each old URL redirects correctly, and `http_headers_inspect` to confirm canonical/x-robots-tag are right.
+
+11. **For schema/structured data**: Use `schema_extract_url` first to see what's there, then `schema_validate_url` to check for errors. For drafting new markup, validate the JSON-LD with `schema_validate_snippet` before deploying.
+
+12. **For full site crawl**: Prefer `onpage_full_crawl_sync` over `onpage_task_post` + manual polling. It returns summary + pages in one call (waits up to 5–10 minutes). For very large sites use the async version.
+
+13. **For Bing data**: Bing Webmaster Tools complements GSC. Run `bing_get_query_stats` and compare with GSC to spot Bing-specific opportunities; Bing US/MX traffic is non-trivial.
+
+14. **For log file analysis**: Either paste raw log content or pass a public URL. Use `top_n` to control list sizes. Looks for top 404s (broken links to fix), top SEO bot hits (Googlebot/Bingbot/GPTBot/ClaudeBot), and unusual status patterns.
