@@ -9,12 +9,34 @@ const views = {
   weekly: "Dashboard Semanal",
   content: "Contenido",
   keywords: "Keywords",
+  ai: "Visibilidad AI",
+  backlinks: "Backlinks",
   leads: "Leads / Conversiones",
   technical: "Salud Tecnica",
-  comparison: "Colombia vs Mexico",
+  comparison: "CO vs MX vs LTA",
   business: "Insights de Negocio",
   variables: "Variables",
 };
+
+const SITE_LABELS = {
+  "dnamusic.edu.co": "Colombia",
+  "dnamusic.mx": "Mexico",
+  "latiendadeaudio.com": "La Tienda de Audio",
+};
+
+function siteLabel(domain) {
+  return SITE_LABELS[domain] ?? domain;
+}
+
+function esc(value) {
+  if (value === null || value === undefined) return "";
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
 
 const shell = document.querySelector(".shell");
 const filters = document.querySelector("#filters");
@@ -84,9 +106,12 @@ function render(data) {
   renderContent(data.content);
   renderPages(data.content.topPages);
   renderTechnical(data.technical);
-  renderLeads(data.business.channels);
+  renderLeads(data.business.channels, data.ga4);
   renderComparison(data.comparison);
   renderOpportunities(data.business.opportunities);
+  renderAiVisibility(data.ai_visibility);
+  renderBacklinks(data.backlinks);
+  renderHistory(data.history_summary);
   updateSectionVisibility();
 }
 
@@ -192,42 +217,128 @@ function renderPages(pages) {
 
 function renderTechnical(technical) {
   const score = typeof technical.score === "number" ? technical.score : 0;
-  document.querySelector("#technicalPanel").innerHTML = `
+  const node = document.querySelector("#technicalPanel");
+  // eslint-disable-next-line no-unsanitized/property
+  node.innerHTML = `
     <div class="score">
-      <div class="score-ring" style="--score:${score}%"><strong>${technical.score ?? "S/D"}</strong></div>
+      <div class="score-ring" style="--score:${esc(score)}%"><strong>${esc(technical.score ?? "S/D")}</strong></div>
       <div>
-        <strong>Score general</strong>
-        <p class="summary">Solo se muestran valores reales de PageSpeed/GSC. Sin fuente conectada se marca S/D.</p>
+        <strong>Score general (PageSpeed)</strong>
+        <p class="summary">Performance + Core Web Vitals + UX (Microsoft Clarity).</p>
       </div>
     </div>
-    <div class="row"><strong>LCP</strong><span>${technical.lcp ?? "Sin datos"}</span></div>
-    <div class="row"><strong>INP</strong><span>${technical.inp ?? "Sin datos"}</span></div>
-    <div class="row"><strong>CLS</strong><span>${technical.cls ?? "Sin datos"}</span></div>
+    <div class="row"><strong>LCP</strong><span>${esc(technical.lcp ?? "Sin datos")}</span></div>
+    <div class="row"><strong>INP</strong><span>${esc(technical.inp ?? "Sin datos")}</span></div>
+    <div class="row"><strong>CLS</strong><span>${esc(technical.cls ?? "Sin datos")}</span></div>
+    <div class="row clarity"><strong>Dead clicks (24h)</strong><span>${displayValue(technical.deadClicks)}</span></div>
+    <div class="row clarity"><strong>Rage clicks (24h)</strong><span>${displayValue(technical.rageClicks)}</span></div>
+    <div class="row clarity"><strong>Excessive scroll (24h)</strong><span>${displayValue(technical.excessiveScroll)}</span></div>
+    <div class="row clarity"><strong>Quickback clicks (24h)</strong><span>${displayValue(technical.quickbackClick)}</span></div>
   `;
 }
 
-function renderLeads(channels) {
+function renderLeads(channels, ga4) {
   const max = Math.max(1, ...channels.map((channel) => channel.leads || 0));
-  document.querySelector("#leadChannels").innerHTML = channels.map((channel) => `
+  const channelRows = channels.map((channel) => `
     <div>
-      <div class="row"><strong>${channel.name}</strong><span>${displayValue(channel.leads)} leads · ${displayValue(channel.conversion, "%")}</span></div>
+      <div class="row"><strong>${esc(channel.name)}</strong><span>${displayValue(channel.leads)} ${typeof channel.conversion === "number" ? `· ${esc(channel.conversion)} conv` : ""}</span></div>
       <div class="bar"><span style="width:${((channel.leads || 0) / max) * 100}%"></span></div>
     </div>
   `).join("");
+
+  const byDomainRows = (ga4?.by_domain ?? []).map((row) => `
+    <div class="row ga4-domain">
+      <strong>${esc(siteLabel(row.domain))}</strong>
+      <span>${displayValue(row.sessions)} ses · ${displayValue(row.organic_sessions)} org · ${displayValue(row.conversions)} conv</span>
+      <span class="origin-pill ${esc(row.source_origin)}">${esc(row.source_origin)}</span>
+    </div>
+  `).join("");
+
+  const node = document.querySelector("#leadChannels");
+  // eslint-disable-next-line no-unsanitized/property
+  node.innerHTML = `
+    ${channelRows}
+    ${byDomainRows ? `<hr/><strong class="block-label">GA4 por dominio (último día)</strong>${byDomainRows}` : ""}
+  `;
 }
 
 function renderComparison(rows) {
-  document.querySelector("#comparisonTable").innerHTML = `
-    <div class="comparison-row header"><span>Metrica</span><span>Colombia</span><span>Mexico</span><span>Lider</span></div>
+  const node = document.querySelector("#comparisonTable");
+  // eslint-disable-next-line no-unsanitized/property
+  node.innerHTML = `
+    <div class="comparison-row header"><span>Metrica</span><span>Colombia</span><span>Mexico</span><span>La Tienda de Audio</span><span>Lider</span></div>
     ${rows.map((row) => `
       <div class="comparison-row">
-        <strong>${row.metric}</strong>
-        <span>${row.colombia}</span>
-        <span>${row.mexico}</span>
-        <span class="badge">${row.leader}</span>
+        <strong>${esc(row.metric)}</strong>
+        <span>${esc(row.colombia)}</span>
+        <span>${esc(row.mexico)}</span>
+        <span>${esc(row.lta ?? "Sin datos")}</span>
+        <span class="badge">${esc(row.leader)}</span>
       </div>
     `).join("")}
   `;
+}
+
+function renderAiVisibility(ai) {
+  const target = document.querySelector("#aiVisibilityPanel");
+  if (!target) return;
+  if (!ai || !ai.has_data) {
+    target.textContent = ai?.note ?? "Sin datos de visibilidad LLM aún. Espera el cron del lunes o lanza snapshot_run_now con tasks=['llm'].";
+    target.classList.add("empty-state");
+    return;
+  }
+  target.classList.remove("empty-state");
+  // eslint-disable-next-line no-unsanitized/property
+  target.innerHTML = (ai.by_domain ?? []).map((row) => `
+    <article class="ai-card">
+      <header><strong>${esc(siteLabel(row.domain))}</strong><small>${esc(row.date ?? "")}</small></header>
+      <div class="row"><span>ChatGPT mentions</span><strong>${displayValue(row.chat_gpt_mentions)}</strong></div>
+      <div class="row"><span>Google AI Overview mentions</span><strong>${displayValue(row.google_mentions)}</strong></div>
+    </article>
+  `).join("");
+}
+
+function renderBacklinks(backlinks) {
+  const target = document.querySelector("#backlinksPanel");
+  if (!target) return;
+  const byDomain = backlinks?.by_domain ?? [];
+  if (byDomain.length === 0) {
+    target.textContent = "Sin datos de backlinks. Verifica que el módulo Backlinks de DataForSEO esté activo.";
+    target.classList.add("empty-state");
+    return;
+  }
+  target.classList.remove("empty-state");
+  // eslint-disable-next-line no-unsanitized/property
+  target.innerHTML = byDomain.map((row) => `
+    <article class="bl-card">
+      <header><strong>${esc(siteLabel(row.domain))}</strong><small>${esc(row.date ?? "")} · ${esc(row.source_origin)}</small></header>
+      <div class="row"><span>Total backlinks</span><strong>${displayValue(row.total)}</strong></div>
+      <div class="row"><span>Referring domains</span><strong>${displayValue(row.referring_domains)}</strong></div>
+      <div class="row"><span>Domain rank</span><strong>${displayValue(row.rank)}</strong></div>
+      <div class="row"><span>Spam score</span><strong>${displayValue(row.spam_score)}</strong></div>
+    </article>
+  `).join("");
+}
+
+function renderHistory(history) {
+  const target = document.querySelector("#historyPanel");
+  if (!target) return;
+  const rows = history?.rankings_by_domain ?? [];
+  if (rows.length === 0) {
+    target.textContent = "Sin snapshots de rankings persistidos todavía.";
+    target.classList.add("empty-state");
+    return;
+  }
+  target.classList.remove("empty-state");
+  // eslint-disable-next-line no-unsanitized/property
+  target.innerHTML = rows.map((r) => `
+    <div class="history-row">
+      <strong>${esc(siteLabel(r.domain))}</strong>
+      <span>${esc(r.total_tracked)} tracked · ${esc(r.top3)} en Top 3 · ${esc(r.top10)} en Top 10</span>
+      <span>Avg pos ${esc(r.avg_position ?? "S/D")}</span>
+      <small>${esc(r.snapshot_date)}</small>
+    </div>
+  `).join("");
 }
 
 function renderOpportunities(items) {

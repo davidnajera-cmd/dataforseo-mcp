@@ -23,9 +23,11 @@
           <button class="nav-item" data-view="weekly">Dashboard Semanal</button>
           <button class="nav-item" data-view="content">Contenido</button>
           <button class="nav-item" data-view="keywords">Keywords</button>
+          <button class="nav-item" data-view="ai">Visibilidad AI</button>
+          <button class="nav-item" data-view="backlinks">Backlinks</button>
           <button class="nav-item" data-view="leads">Leads / Conversiones</button>
           <button class="nav-item" data-view="technical">Salud Tecnica</button>
-          <button class="nav-item" data-view="comparison">CO vs MX</button>
+          <button class="nav-item" data-view="comparison">CO vs MX vs LTA</button>
           <button class="nav-item" data-view="business">Insights Negocio</button>
           <button class="nav-item" data-view="variables">Variables</button>
         </nav>
@@ -44,11 +46,12 @@
           </div>
           <form id="filters" class="filters">
             <label>
-              Pais
+              Sitio
               <select name="country">
-                <option value="all">Colombia + Mexico</option>
-                <option value="co">Colombia</option>
-                <option value="mx">Mexico</option>
+                <option value="all">Todos los sitios</option>
+                <option value="co">Colombia (dnamusic.edu.co)</option>
+                <option value="mx">Mexico (dnamusic.mx)</option>
+                <option value="lta">La Tienda de Audio</option>
               </select>
             </label>
             <label>
@@ -154,10 +157,40 @@
             <div class="panel-head">
               <div>
                 <span>Comparativo</span>
-                <h2>Colombia vs Mexico</h2>
+                <h2>Colombia vs Mexico vs La Tienda de Audio</h2>
               </div>
             </div>
             <div id="comparisonTable" class="comparison"></div>
+          </div>
+
+          <div class="panel wide" data-section="ai overview keywords">
+            <div class="panel-head">
+              <div>
+                <span>AI optimization</span>
+                <h2>Visibilidad en LLMs (ChatGPT &amp; Google AI)</h2>
+              </div>
+            </div>
+            <div id="aiVisibilityPanel" class="ai-grid"></div>
+          </div>
+
+          <div class="panel wide" data-section="backlinks overview business">
+            <div class="panel-head">
+              <div>
+                <span>Backlinks</span>
+                <h2>Salud de enlaces entrantes</h2>
+              </div>
+            </div>
+            <div id="backlinksPanel" class="backlinks-grid"></div>
+          </div>
+
+          <div class="panel" data-section="overview keywords monthly weekly">
+            <div class="panel-head">
+              <div>
+                <span>Historico</span>
+                <h2>Rankings por dominio</h2>
+              </div>
+            </div>
+            <div id="historyPanel" class="stack"></div>
           </div>
 
           <div class="panel wide" data-section="business overview keywords content">
@@ -193,6 +226,10 @@
               <div>
                 <strong>Mexico</strong>
                 <span>dnamusic.mx</span>
+              </div>
+              <div>
+                <strong>La Tienda de Audio</strong>
+                <span>latiendadeaudio.com</span>
               </div>
             </div>
             <div id="variablesList" class="variables-list"></div>

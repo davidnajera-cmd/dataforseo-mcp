@@ -414,9 +414,13 @@ select {
   font-size: 12px;
 }
 
-.page-row,
-.comparison-row {
+.page-row {
   grid-template-columns: minmax(0, 1fr) repeat(3, auto);
+  align-items: center;
+}
+
+.comparison-row {
+  grid-template-columns: minmax(0, 1.5fr) repeat(4, minmax(0, 1fr));
   align-items: center;
 }
 
@@ -636,6 +640,100 @@ select {
   .action-item,
   .variable-row,
   .market-box {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Phase 2: new panels */
+
+.ai-grid,
+.backlinks-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+}
+
+.ai-card,
+.bl-card {
+  border: 1px solid var(--border, #e6e8ee);
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-card header,
+.bl-card header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  border: 0;
+  padding: 0;
+}
+
+.ai-card header small,
+.bl-card header small {
+  color: #69717c;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.row.clarity {
+  font-size: 13px;
+  color: #444;
+}
+
+.row.ga4-domain {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.origin-pill {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.origin-pill.db { background: #e8edff; color: var(--accent, #2454ff); }
+.origin-pill.live { background: #d6f5ec; color: #00795f; }
+.origin-pill.missing { background: #fff2d8; color: var(--warn, #b97a00); }
+
+.block-label {
+  display: block;
+  margin-top: 12px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #69717c;
+}
+
+.history-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr) auto auto;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid #eef0f5;
+  align-items: baseline;
+  font-size: 13px;
+}
+
+.history-row:last-child { border-bottom: 0; }
+.history-row small { color: #69717c; }
+
+@media (max-width: 720px) {
+  .comparison-row {
+    grid-template-columns: 1fr;
+  }
+  .history-row {
     grid-template-columns: 1fr;
   }
 }
