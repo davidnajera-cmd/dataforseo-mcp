@@ -1,9 +1,11 @@
-export const BRAND_CONTEXT = `
+import { dnaAcademicOfferSummary } from "./brand-knowledge.js";
+
+const BRAND_BASE = `
 DNA Music ecosystem (3 sites operating in LATAM, Spanish-speaking market):
 
-1. dnamusic.edu.co — DNA Music Colombia, escuela de producción musical, DJ, ingeniería de sonido. Sedes: Bogotá, Pereira, Cali. Mercado: Colombia. Audiencia: estudiantes 17-30, intent commercial educativo. Branded queries: "dna music", "q10 dna", "dna music + ciudad".
+1. dnamusic.edu.co — DNA Music Colombia, escuela de producción musical, DJ, ingeniería de sonido, música y composición, voz y escena, music business. Sedes físicas: Bogotá, Medellín, Cali, Barranquilla, Pereira. Mercado: Colombia. Audiencia: estudiantes 17-30, intent commercial educativo. Branded queries: "dna music", "q10 dna", "dna music + ciudad".
 
-2. dnamusic.mx — DNA Music México (mercado nuevo, baja autoridad). Mismas verticales que CO. Audiencia: México. Sin tráfico significativo aún.
+2. dnamusic.mx — DNA Music México (mercado nuevo, baja autoridad, oferta acádemica aún por confirmar — NO usar el catálogo CO para tareas MX). Audiencia: México. Sin tráfico significativo aún.
 
 3. latiendadeaudio.com — La Tienda de Audio (e-commerce de equipo pro-audio). Mercado: Colombia. Audiencia: productores, ingenieros, DJs. Intent transactional.
 
@@ -15,6 +17,14 @@ Objetivos generales del equipo SEO:
 - Construir presencia AI (ChatGPT y Google AI Overview).
 - Para LTA: rankings transaccionales para keywords de equipo.
 `.trim();
+
+export function buildBrandContext(includeAcademicOffer: boolean = true): string {
+  if (!includeAcademicOffer) return BRAND_BASE;
+  return `${BRAND_BASE}\n\n${dnaAcademicOfferSummary()}\n\nIMPORTANTE: La oferta académica detallada arriba aplica SOLO a dnamusic.edu.co. Cuando una tarea sea para dnamusic.mx o latiendadeaudio.com, no asumas que la misma oferta existe.`;
+}
+
+// Backwards compatibility for any external imports.
+export const BRAND_CONTEXT = buildBrandContext(true);
 
 export const DEEPSEEK_SYSTEM = `Eres un analista SEO de alto volumen. Recibes datos crudos y produces resúmenes estructurados en JSON.
 
@@ -43,6 +53,12 @@ REGLAS DURAS:
 - Domain: SIEMPRE uno de "dnamusic.edu.co", "dnamusic.mx", "latiendadeaudio.com", o "global" si aplica a varios.
 - Si detectas un riesgo serio (drop fuerte de rankings branded, ataque negativo de backlinks, schema con errores graves), incluye al menos una tarea categoría "technical" o "schema" con prioridad alta.
 - NO inventes datos. Si los datos no soportan una recomendación, no la hagas.
+
+USA EL CAMPO "mapping" DE LAS QUERIES (cuando uses_dna_catalog=true):
+- Cada query GSC viene con un "mapping" que apunta a la página/programa correcto según el catálogo CO.
+- Si una query con tráfico real está rankeando en una página "incorrecta" (ej. homepage rankea para "beat making" pero el mapper apunta a /programas/productor-audio), propon una tarea de re-targeting.
+- Si una query no tiene match en el catálogo y aún así trae impresiones, considera que la página actual es válida pero quizá falta una página dedicada.
+- Para programas con varias materias compartidas (ej. Beat Making está en 5 programas), prefiere recomendar la página del programa más específico/comercial.
 
 OUTPUT JSON SCHEMA:
 [

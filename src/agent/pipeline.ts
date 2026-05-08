@@ -1,6 +1,7 @@
 import { deepseekChat } from "./deepseek-client.js";
 import { opusChat } from "./opus-client.js";
-import { BRAND_CONTEXT, DEEPSEEK_SYSTEM, OPUS_SYSTEM_TEMPLATE } from "./prompts.js";
+import { buildBrandContext, DEEPSEEK_SYSTEM, OPUS_SYSTEM_TEMPLATE } from "./prompts.js";
+import { mapQueriesBulk } from "./keyword-mapper.js";
 import {
   loadSiteContexts,
   collectGscOpportunities,
@@ -72,10 +73,25 @@ export async function runAgent(): Promise<AgentRunResult> {
           collectTrafficTrend(site, 28).catch(() => ({ gsc: [], ga4: [] })),
           collectSitemapStatus(site).catch(() => null),
         ]);
+
+        // Annotate top GSC queries with the DNA Music academic catalog mapper.
+        // Only for dnamusic.edu.co (CO catalog). Other sites get null annotations.
+        const annotateQueries = site.domain === "dnamusic.edu.co";
+        const annotatedOpportunities = annotateQueries
+          ? opportunities.map((o, i) => i < 30 ? { ...o, mapping: mapQueriesBulk([o.query])[0] } : o)
+          : opportunities;
+        const annotatedMovers = annotateQueries
+          ? {
+              gainers: movers.gainers.map((g) => ({ ...g, mapping: mapQueriesBulk([g.query])[0] })),
+              losers: movers.losers.map((l) => ({ ...l, mapping: mapQueriesBulk([l.query])[0] })),
+            }
+          : movers;
+
         rawPerSite[site.domain] = {
           country: site.countryCode,
-          gsc_opportunities: opportunities,
-          gsc_movers_60d: movers,
+          uses_dna_catalog: annotateQueries,
+          gsc_opportunities: annotatedOpportunities,
+          gsc_movers_60d: annotatedMovers,
           backlinks: backlinks.data,
           backlinks_anchors: backlinks.anchors,
           rankings_snapshot: rankings,
@@ -109,7 +125,7 @@ export async function runAgent(): Promise<AgentRunResult> {
     // 3. Opus orchestration
     const maxTasksRaw = await getRuntimeVariable("AGENT_MAX_TASKS_PER_RUN");
     const maxTasks = Number(maxTasksRaw ?? 10);
-    const systemPrompt = OPUS_SYSTEM_TEMPLATE(maxTasks, BRAND_CONTEXT);
+    const systemPrompt = OPUS_SYSTEM_TEMPLATE(maxTasks, buildBrandContext(true));
     const summariesPayload = deepResults.map((r) => ({ domain: r.domain, signals: r.signals }));
     const userPrompt = `RESÚMENES DE DEEPSEEK (datos ya clasificados por sitio):\n\n${JSON.stringify(summariesPayload, null, 2)}\n\nGenera el array JSON de tareas accionables. Recuerda: balancear categorías, priorizar por impacto × esfuerzo, máximo ${maxTasks}, evidencia numérica concreta.`;
 

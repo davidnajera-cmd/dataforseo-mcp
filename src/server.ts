@@ -13,11 +13,12 @@ import { registerHttpUtilsTools } from "./tools-http-utils.js";
 import { registerLogTools } from "./tools-logs.js";
 import { registerHistoryTools } from "./tools-history.js";
 import { registerBacklogTools } from "./tools-backlog.js";
+import { registerBrandKnowledgeTools } from "./tools-brand-knowledge.js";
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "SEO MCP Server",
-    version: "1.3.0",
+    version: "1.4.0",
   });
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
@@ -61,6 +62,9 @@ export function createServer(): McpServer {
 
   // SEO Agent: backlog of actionable tasks proposed by DeepSeek + Opus
   registerBacklogTools(server);
+
+  // DNA Music brand knowledge (Colombia catalog): keyword mapping + Course schema
+  registerBrandKnowledgeTools(server);
 
   return server;
 }
