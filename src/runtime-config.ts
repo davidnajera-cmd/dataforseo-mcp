@@ -38,6 +38,9 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "SEMRUSH_API_KEY", group: "Premium", label: "Semrush API key", description: "API key de Semrush.", sensitive: true, requiredFor: "SEO API, Trends, competencia" },
   { name: "BING_WEBMASTER_API_KEY", group: "Bing Webmaster", label: "API key", description: "API key de Bing Webmaster Tools (settings -> API access).", sensitive: true, requiredFor: "Search analytics y crawl stats de Bing" },
   { name: "CRON_SECRET", group: "Cron", label: "Cron secret", description: "Secreto compartido para validar requests del Vercel Cron al endpoint de snapshots.", sensitive: true, requiredFor: "Pipeline de persistencia historica" },
+  { name: "DEEPSEEK_API_KEY", group: "SEO Agent", label: "DeepSeek API key", description: "API key de DeepSeek para tareas masivas (clasificacion, cluster, anchors).", sensitive: true, requiredFor: "SEO Agent (clasificacion)" },
+  { name: "ANTHROPIC_API_KEY", group: "SEO Agent", label: "Anthropic API key", description: "API key de Anthropic para Claude Opus (estratega, prioriza tareas).", sensitive: true, requiredFor: "SEO Agent (estrategia)" },
+  { name: "AGENT_MAX_TASKS_PER_RUN", group: "SEO Agent", label: "Max tareas por run", description: "Tope de tareas que el agente crea por ejecucion. Default 10.", sensitive: false, requiredFor: "SEO Agent" },
 ];
 
 type RuntimeVariableRow = {

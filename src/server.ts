@@ -12,11 +12,12 @@ import { registerSchemaTools } from "./tools-schema.js";
 import { registerHttpUtilsTools } from "./tools-http-utils.js";
 import { registerLogTools } from "./tools-logs.js";
 import { registerHistoryTools } from "./tools-history.js";
+import { registerBacklogTools } from "./tools-backlog.js";
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "SEO MCP Server",
-    version: "1.2.0",
+    version: "1.3.0",
   });
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
@@ -57,6 +58,9 @@ export function createServer(): McpServer {
 
   // Historical persistence: keyword universe management, time-series queries, snapshot runs
   registerHistoryTools(server);
+
+  // SEO Agent: backlog of actionable tasks proposed by DeepSeek + Opus
+  registerBacklogTools(server);
 
   return server;
 }

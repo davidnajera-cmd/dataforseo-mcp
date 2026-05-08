@@ -19,6 +19,7 @@
         </div>
         <nav class="nav">
           <button class="nav-item is-active" data-view="overview">Overview SEO</button>
+          <button class="nav-item" data-view="backlog">Backlog SEO</button>
           <button class="nav-item" data-view="monthly">Dashboard Mensual</button>
           <button class="nav-item" data-view="weekly">Dashboard Semanal</button>
           <button class="nav-item" data-view="content">Contenido</button>
@@ -201,6 +202,34 @@
               </div>
             </div>
             <div id="opportunities" class="action-list"></div>
+          </div>
+
+          <div class="panel wide" data-section="backlog">
+            <div class="panel-head">
+              <div>
+                <span>Operativo</span>
+                <h2>Backlog SEO — propuesto por el agente</h2>
+              </div>
+              <div class="panel-actions">
+                <select id="backlogFilterDomain">
+                  <option value="">Todos los sitios</option>
+                  <option value="dnamusic.edu.co">dnamusic.edu.co</option>
+                  <option value="dnamusic.mx">dnamusic.mx</option>
+                  <option value="latiendadeaudio.com">latiendadeaudio.com</option>
+                  <option value="global">Global</option>
+                </select>
+                <select id="backlogFilterPriority">
+                  <option value="">Todas prioridades</option>
+                  <option value="alta">Alta</option>
+                  <option value="media">Media</option>
+                  <option value="baja">Baja</option>
+                </select>
+                <button id="agentRunNow" class="small-button" type="button">Correr agente ahora</button>
+                <button id="backlogRefresh" class="small-button" type="button">Refrescar</button>
+              </div>
+            </div>
+            <div id="agentStatus" class="summary"></div>
+            <div id="backlogBoard" class="backlog-board"></div>
           </div>
 
           <div class="panel wide variables-panel" data-section="variables">

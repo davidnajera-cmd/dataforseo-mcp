@@ -5,6 +5,7 @@ const state = {
 
 const views = {
   overview: "Overview SEO",
+  backlog: "Backlog SEO",
   monthly: "Dashboard Mensual",
   weekly: "Dashboard Semanal",
   content: "Contenido",
@@ -73,6 +74,7 @@ function setView(view) {
   } else {
     updateSectionVisibility();
     if (view === "variables") loadVariables();
+    if (view === "backlog") loadBacklog();
   }
 }
 
@@ -359,6 +361,178 @@ function updateSectionVisibility() {
     const allowed = panel.dataset.section.split(" ");
     panel.classList.toggle("hidden", !allowed.includes(state.view));
   });
+}
+
+// =====================================================================
+// Backlog (SEO agent tasks)
+// =====================================================================
+
+document.querySelector("#agentRunNow")?.addEventListener("click", runAgentNow);
+document.querySelector("#backlogRefresh")?.addEventListener("click", loadBacklog);
+document.querySelector("#backlogFilterDomain")?.addEventListener("change", loadBacklog);
+document.querySelector("#backlogFilterPriority")?.addEventListener("change", loadBacklog);
+
+async function loadBacklog() {
+  const board = document.querySelector("#backlogBoard");
+  if (!board) return;
+  board.textContent = "Cargando backlog...";
+  const params = new URLSearchParams();
+  const domain = document.querySelector("#backlogFilterDomain")?.value;
+  const priority = document.querySelector("#backlogFilterPriority")?.value;
+  if (domain) params.set("domain", domain);
+  if (priority) params.set("priority", priority);
+  try {
+    const response = await fetch(`/api/backlog?${params}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const data = await response.json();
+    renderBacklogBoard(data.rows ?? []);
+  } catch (error) {
+    board.textContent = `No se pudo cargar el backlog: ${error.message}`;
+  }
+}
+
+function renderBacklogBoard(rows) {
+  const board = document.querySelector("#backlogBoard");
+  if (!board) return;
+  if (rows.length === 0) {
+    board.classList.add("empty-state");
+    board.textContent = "Aún no hay tareas en el backlog. Click en 'Correr agente ahora' para generar el primer batch.";
+    return;
+  }
+  board.classList.remove("empty-state");
+  const buckets = { pendiente: [], en_progreso: [], ejecutada: [], descartada: [] };
+  for (const row of rows) (buckets[row.status] ?? buckets.pendiente).push(row);
+  const columns = [
+    { key: "pendiente", label: "Pendiente" },
+    { key: "en_progreso", label: "En progreso" },
+    { key: "ejecutada", label: "Ejecutada" },
+    { key: "descartada", label: "Descartada" },
+  ];
+  // eslint-disable-next-line no-unsanitized/property
+  board.innerHTML = columns.map((col) => `
+    <section class="kanban-col" data-col="${esc(col.key)}">
+      <header><strong>${esc(col.label)}</strong><span>${buckets[col.key].length}</span></header>
+      <div class="kanban-col-body">
+        ${buckets[col.key].map(renderTaskCard).join("") || "<p class=\"empty\">—</p>"}
+      </div>
+    </section>
+  `).join("");
+  document.querySelectorAll(".task-card").forEach((card) => {
+    card.addEventListener("click", () => openTaskModal(Number(card.dataset.id)));
+  });
+}
+
+function renderTaskCard(row) {
+  const ev = row.data_sources?.evidence ?? {};
+  const evidenceShort = Object.entries(ev).slice(0, 2).map(([k, v]) => `${esc(k)}: ${esc(typeof v === "object" ? JSON.stringify(v).slice(0, 30) : String(v).slice(0, 30))}`).join(" · ");
+  return `
+    <article class="task-card priority-${esc(row.priority)}" data-id="${esc(row.id)}">
+      <header>
+        <span class="priority-pill priority-${esc(row.priority)}">${esc(row.priority)}</span>
+        <span class="category-pill">${esc(row.category)}</span>
+      </header>
+      <h4>${esc(row.title)}</h4>
+      <p>${esc(row.description.length > 140 ? row.description.slice(0, 140) + "…" : row.description)}</p>
+      <footer>
+        <span class="domain-tag">${esc(siteLabel(row.domain))}</span>
+        ${evidenceShort ? `<small>${evidenceShort}</small>` : ""}
+      </footer>
+    </article>
+  `;
+}
+
+async function openTaskModal(id) {
+  const response = await fetch(`/api/backlog?action=get&id=${id}`);
+  if (!response.ok) return;
+  const task = await response.json();
+  const modal = document.querySelector("#taskModal") ?? createTaskModalElement();
+  // eslint-disable-next-line no-unsanitized/property
+  modal.querySelector(".modal-body").innerHTML = `
+    <header class="modal-head">
+      <span class="priority-pill priority-${esc(task.priority)}">${esc(task.priority)}</span>
+      <span class="category-pill">${esc(task.category)}</span>
+      <span class="domain-tag">${esc(siteLabel(task.domain))}</span>
+      <button class="modal-close" type="button">×</button>
+    </header>
+    <h3>${esc(task.title)}</h3>
+    <p class="modal-desc">${esc(task.description)}</p>
+    <h5>Por qué</h5>
+    <p>${esc(task.rationale)}</p>
+    <h5>Impacto esperado</h5>
+    <p>${esc(task.impact_expected ?? "Sin estimación")}</p>
+    <h5>Fuentes / evidencia</h5>
+    <pre class="evidence">${esc(JSON.stringify(task.data_sources, null, 2))}</pre>
+    ${task.notes ? `<h5>Notas</h5><pre>${esc(task.notes)}</pre>` : ""}
+    <h5>Estado</h5>
+    <div class="status-actions">
+      ${["pendiente", "en_progreso", "ejecutada", "descartada"].map((s) => `
+        <button class="small-button ${task.status === s ? "is-active" : ""}" data-status="${esc(s)}">${esc(s)}</button>
+      `).join("")}
+    </div>
+    <textarea id="taskNoteInput" placeholder="Agregar nota (opcional al cambiar estado)"></textarea>
+  `;
+  modal.classList.add("visible");
+  modal.querySelector(".modal-close").addEventListener("click", () => modal.classList.remove("visible"));
+  modal.querySelectorAll("[data-status]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const status = btn.dataset.status;
+      const notes = modal.querySelector("#taskNoteInput")?.value?.trim() || undefined;
+      const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+      if (!token) {
+        alert("Necesitas configurar el admin token en la vista Variables primero.");
+        return;
+      }
+      const res = await fetch("/api/backlog?action=update_status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "x-admin-token": token },
+        body: JSON.stringify({ id: task.id, status, notes }),
+      });
+      if (res.ok) {
+        modal.classList.remove("visible");
+        loadBacklog();
+      } else {
+        alert(`No se pudo actualizar: HTTP ${res.status}`);
+      }
+    });
+  });
+}
+
+function createTaskModalElement() {
+  const div = document.createElement("div");
+  div.id = "taskModal";
+  div.className = "task-modal";
+  // eslint-disable-next-line no-unsanitized/property
+  div.innerHTML = `<div class="modal-backdrop"></div><div class="modal-content"><div class="modal-body"></div></div>`;
+  document.body.appendChild(div);
+  div.querySelector(".modal-backdrop").addEventListener("click", () => div.classList.remove("visible"));
+  return div;
+}
+
+async function runAgentNow() {
+  const status = document.querySelector("#agentStatus");
+  const button = document.querySelector("#agentRunNow");
+  if (!status || !button) return;
+  const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+  if (!token) {
+    status.textContent = "Configura el admin token primero (vista Variables).";
+    return;
+  }
+  button.disabled = true;
+  status.textContent = "Corriendo agente... DeepSeek + Opus, esto tarda 1-3 min.";
+  try {
+    const res = await fetch("/api/backlog?action=run_agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    status.textContent = `Listo. Propuestas: ${data.proposed ?? 0} · Insertadas: ${data.inserted ?? 0} · Actualizadas: ${data.updated ?? 0} · Costo: $${(data.cost_usd ?? 0).toFixed(3)}`;
+    loadBacklog();
+  } catch (error) {
+    status.textContent = `Error: ${error.message}`;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 async function loadVariables() {

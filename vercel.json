@@ -5,7 +5,9 @@
     { "source": "/api/seo-dashboard", "destination": "/api/seo-dashboard" },
     { "source": "/api/seo-connectivity", "destination": "/api/seo-connectivity" },
     { "source": "/api/variables", "destination": "/api/variables" },
+    { "source": "/api/backlog", "destination": "/api/backlog" },
     { "source": "/api/cron/snapshot", "destination": "/api/cron/snapshot" },
+    { "source": "/api/cron/agent", "destination": "/api/cron/agent" },
     { "source": "/mcp", "destination": "/api/mcp" },
     { "source": "/sse", "destination": "/api/mcp" }
   ],
@@ -14,9 +16,12 @@
     "api/seo-dashboard.ts": { "maxDuration": 60 },
     "api/seo-connectivity.ts": { "maxDuration": 60 },
     "api/variables.ts": { "maxDuration": 60 },
-    "api/cron/snapshot.ts": { "maxDuration": 300 }
+    "api/backlog.ts": { "maxDuration": 60 },
+    "api/cron/snapshot.ts": { "maxDuration": 300 },
+    "api/cron/agent.ts": { "maxDuration": 300 }
   },
   "crons": [
-    { "path": "/api/cron/snapshot", "schedule": "0 6 * * *" }
+    { "path": "/api/cron/snapshot", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/agent", "schedule": "30 6 * * *" }
   ]
 }

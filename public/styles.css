@@ -737,3 +737,182 @@ select {
     grid-template-columns: 1fr;
   }
 }
+
+/* SEO Agent Backlog */
+
+.panel-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.panel-actions select {
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border, #e6e8ee);
+  background: #fff;
+  font-size: 12px;
+}
+.backlog-board {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+  min-height: 300px;
+}
+.kanban-col {
+  background: #f7f8fb;
+  border-radius: 12px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kanban-col header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  border: 0;
+  padding: 0 4px;
+}
+.kanban-col header span {
+  font-size: 11px;
+  color: #69717c;
+  background: #e6e8ee;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+.kanban-col-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.kanban-col-body .empty {
+  color: #aaa;
+  text-align: center;
+  font-size: 12px;
+  padding: 24px 0;
+}
+.task-card {
+  background: #fff;
+  border: 1px solid var(--border, #e6e8ee);
+  border-left-width: 4px;
+  border-radius: 10px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+  font-size: 12px;
+}
+.task-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+.task-card.priority-alta { border-left-color: #b91c1c; }
+.task-card.priority-media { border-left-color: #b97a00; }
+.task-card.priority-baja { border-left-color: #2454ff; }
+.task-card header {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  border: 0;
+  padding: 0;
+}
+.task-card h4 { margin: 4px 0; font-size: 13px; line-height: 1.3; }
+.task-card p { margin: 0; color: #444; }
+.task-card footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 8px;
+  border: 0;
+  padding: 0;
+}
+.task-card footer small { color: #69717c; font-size: 10px; }
+
+.priority-pill, .category-pill, .domain-tag {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.priority-pill.priority-alta { background: #ffd9d9; color: #b91c1c; }
+.priority-pill.priority-media { background: #fff2d8; color: #b97a00; }
+.priority-pill.priority-baja { background: #e8edff; color: #2454ff; }
+.category-pill { background: #eef0f5; color: #444; }
+.domain-tag { background: #d6f5ec; color: #00795f; text-transform: none; letter-spacing: 0; }
+
+.task-modal {
+  position: fixed;
+  inset: 0;
+  display: none;
+  z-index: 1000;
+}
+.task-modal.visible { display: block; }
+.modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+}
+.modal-content {
+  position: relative;
+  max-width: 720px;
+  margin: 5vh auto;
+  background: #fff;
+  border-radius: 16px;
+  padding: 24px;
+  max-height: 90vh;
+  overflow-y: auto;
+  z-index: 1;
+}
+.modal-body { display: flex; flex-direction: column; gap: 8px; }
+.modal-head { display: flex; gap: 8px; align-items: center; padding: 0; border: 0; }
+.modal-close {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  font-size: 28px;
+  cursor: pointer;
+  line-height: 1;
+}
+.modal-body h5 {
+  margin: 12px 0 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #69717c;
+}
+.modal-body pre.evidence {
+  background: #f7f8fb;
+  padding: 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+}
+.status-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.status-actions .small-button.is-active {
+  background: var(--accent, #2454ff);
+  color: #fff;
+}
+#taskNoteInput {
+  width: 100%;
+  min-height: 60px;
+  margin-top: 8px;
+  border: 1px solid var(--border, #e6e8ee);
+  border-radius: 8px;
+  padding: 8px;
+  font-family: inherit;
+  font-size: 12px;
+}
+
+@media (max-width: 1024px) {
+  .backlog-board { grid-template-columns: repeat(2, 1fr); }
+}
+@media (max-width: 720px) {
+  .backlog-board { grid-template-columns: 1fr; }
+}
