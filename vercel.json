@@ -16,7 +16,7 @@
     "api/seo-dashboard.ts": { "maxDuration": 60 },
     "api/seo-connectivity.ts": { "maxDuration": 60 },
     "api/variables.ts": { "maxDuration": 60 },
-    "api/backlog.ts": { "maxDuration": 60 },
+    "api/backlog.ts": { "maxDuration": 300 },
     "api/cron/snapshot.ts": { "maxDuration": 300 },
     "api/cron/agent.ts": { "maxDuration": 300 }
   },
