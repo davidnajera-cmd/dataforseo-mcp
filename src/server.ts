@@ -11,11 +11,12 @@ import { registerWaybackTools } from "./tools-wayback.js";
 import { registerSchemaTools } from "./tools-schema.js";
 import { registerHttpUtilsTools } from "./tools-http-utils.js";
 import { registerLogTools } from "./tools-logs.js";
+import { registerHistoryTools } from "./tools-history.js";
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "SEO MCP Server",
-    version: "1.1.0",
+    version: "1.2.0",
   });
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
@@ -53,6 +54,9 @@ export function createServer(): McpServer {
 
   // Web server log file analysis
   registerLogTools(server);
+
+  // Historical persistence: keyword universe management, time-series queries, snapshot runs
+  registerHistoryTools(server);
 
   return server;
 }

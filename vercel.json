@@ -5,21 +5,18 @@
     { "source": "/api/seo-dashboard", "destination": "/api/seo-dashboard" },
     { "source": "/api/seo-connectivity", "destination": "/api/seo-connectivity" },
     { "source": "/api/variables", "destination": "/api/variables" },
+    { "source": "/api/cron/snapshot", "destination": "/api/cron/snapshot" },
     { "source": "/mcp", "destination": "/api/mcp" },
     { "source": "/sse", "destination": "/api/mcp" }
   ],
   "functions": {
-    "api/mcp.ts": {
-      "maxDuration": 60
-    },
-    "api/seo-dashboard.ts": {
-      "maxDuration": 60
-    },
-    "api/seo-connectivity.ts": {
-      "maxDuration": 60
-    },
-    "api/variables.ts": {
-      "maxDuration": 60
-    }
-  }
+    "api/mcp.ts": { "maxDuration": 60 },
+    "api/seo-dashboard.ts": { "maxDuration": 60 },
+    "api/seo-connectivity.ts": { "maxDuration": 60 },
+    "api/variables.ts": { "maxDuration": 60 },
+    "api/cron/snapshot.ts": { "maxDuration": 300 }
+  },
+  "crons": [
+    { "path": "/api/cron/snapshot", "schedule": "0 6 * * *" }
+  ]
 }

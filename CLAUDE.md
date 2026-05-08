@@ -8,7 +8,7 @@
 
 ## Overview
 
-This MCP server provides **180+ SEO and search tools** across 9 APIs:
+This MCP server provides **190+ SEO and search tools** across 10 APIs:
 
 1. **DataForSEO API** (89 tools) — SERP analysis, keyword research, backlinks, on-page audits, domain analytics, content analysis, AI optimization, business data, merchant data, and app data.
 2. **SerpAPI** (38 tools) — Real-time search results from Google, Bing, YouTube, DuckDuckGo, Yahoo, Baidu, Naver, Yandex, Amazon, eBay, Walmart, Yelp, Tripadvisor, and more.
@@ -19,6 +19,7 @@ This MCP server provides **180+ SEO and search tools** across 9 APIs:
 7. **Schema markup** (3 tools) — Validation via validator.schema.org and on-page extraction (JSON-LD, microdata, meta).
 8. **HTTP utilities** (3 tools) — Ad-hoc redirect chain follower, header inspector, robots.txt parser.
 9. **Log file analyzer** (1 tool) — Parses Common/Combined Log Format, surfaces top 404s, bot hits, status distribution.
+10. **Historical persistence** (12 tools) — Daily cron captures rankings, traffic, backlinks (weekly), LLM mentions (weekly) into Neon Postgres. Time-series tools for trend analysis.
 
 Plus a synchronous OnPage crawl wrapper (`onpage_full_crawl_sync`) that orchestrates `task_post` → poll → `summary` + `pages` in one call.
 
@@ -358,6 +359,41 @@ No authentication. Public Internet Archive APIs.
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `onpage_full_crawl_sync` | Synchronous wrapper: posts crawl, polls until ready, returns summary + pages | `target`, `max_crawl_pages?`, `enable_javascript?`, `max_wait_seconds?`, `poll_interval_seconds?`, `pages_limit?` |
+
+---
+
+## Historical persistence (12 tools)
+
+Time-series snapshots stored in Neon Postgres. A daily Vercel cron at 06:00 UTC captures rankings + traffic; on Mondays it also captures backlinks, LLM visibility, and auto-expands the keyword universe from GSC top queries. Auth: `CRON_SECRET` runtime variable.
+
+**Tables created automatically:** `seo_keyword_universe`, `seo_keyword_rankings`, `seo_backlink_snapshots`, `seo_llm_visibility`, `seo_traffic_daily`, `seo_snapshot_runs`.
+
+### Universe management
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `keyword_universe_list` | List tracked keywords | `domain?`, `country_code?`, `is_core?`, `source?`, `active_only?` |
+| `keyword_universe_add` | Add keywords (idempotent) | `keywords[]`, `domain`, `country_code`, `is_core?`, `intent?` |
+| `keyword_universe_remove` | Remove a keyword | `id` OR (`keyword`, `domain`, `country_code`) |
+| `keyword_universe_set_core` | Toggle daily/weekly check | `id`, `is_core` |
+| `keyword_universe_set_active` | Pause without losing history | `id`, `active` |
+
+### History queries
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `history_keyword_ranking` | Time series of a keyword's position | `keyword`, `domain`, `country_code?`, `days?` (default 30) |
+| `history_domain_rankings` | Aggregate top3/top10/top100 counts and avg position over time | `domain`, `days?` |
+| `history_backlinks` | Weekly backlinks history | `domain`, `weeks?` (default 12) |
+| `history_llm_visibility` | LLM mentions trend per platform | `target_value`, `target_type?`, `weeks?` |
+| `history_traffic` | GSC + GA4 daily metrics | `domain`, `days?`, `source?` |
+
+### Snapshot orchestration
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `snapshot_run_now` | Manually trigger a capture | `tasks[]` (rankings_core / rankings_full / backlinks / llm / traffic / auto_expand / all), `snapshot_date?` |
+| `snapshot_runs_list` | Recent runs with status, stats, errors | `limit?` |
 
 ---
 
