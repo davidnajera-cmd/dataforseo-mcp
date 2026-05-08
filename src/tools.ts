@@ -327,19 +327,20 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "ai_optimization_llm_mentions_search",
-    "Search for LLM mentions of a domain or brand across AI models.",
+    "Search for LLM mentions across AI search platforms (ChatGPT or Google AI Mode). Pass either a domain or a keyword as the target entity.",
     {
       domain: z.string().optional().describe("Domain to search (e.g., 'dnamusic.edu.co')"),
       keyword: z.string().optional().describe("Keyword to search"),
       location_code: z.number().optional(),
       language_code: z.string().optional(),
-      platform: z.enum(["google", "bing"]).optional(),
+      platform: z.enum(["chat_gpt", "google"]).optional().describe("AI platform (chat_gpt or google AI mode). Default: google"),
       limit: z.number().optional(),
     },
     async ({ domain, keyword, location_code, language_code, platform, limit }) => {
       const target: unknown[] = [];
       if (domain) target.push({ domain });
       if (keyword) target.push({ keyword });
+      if (target.length === 0) throw new Error("Provide at least one of: domain, keyword");
       const result = await post("/ai_optimization/llm_mentions/search/live", {
         target,
         location_code: location_code ?? 2840,
@@ -353,17 +354,21 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_llm_mentions_top_domains",
-    "Get top domains mentioned by LLMs for a keyword.",
+    "Get top domains cited by LLMs for given keywords.",
     {
       keywords: z.array(z.string()).describe("Keywords to analyze"),
       location_code: z.number().optional(),
       language_code: z.string().optional(),
+      platform: z.enum(["chat_gpt", "google"]).optional(),
+      limit: z.number().optional(),
     },
-    async ({ keywords, location_code, language_code }) => {
+    async ({ keywords, location_code, language_code, platform, limit }) => {
       const result = await post("/ai_optimization/llm_mentions/top_domains/live", {
         keywords,
         location_code: location_code ?? 2840,
         language_code: language_code ?? "en",
+        platform: platform ?? "google",
+        limit: limit ?? 50,
       });
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
@@ -371,28 +376,36 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_chatgpt_live",
-    "Get ChatGPT response for a prompt in real-time. Reasoning is applied automatically (no use_reasoning param needed). Response includes reasoning chain in items array and reasoning_tokens count.",
+    "Send a prompt to ChatGPT via DataForSEO and get the response. Useful to test how ChatGPT responds to brand/SEO queries.",
     {
-      prompt: z.string().describe("Prompt to send to ChatGPT"),
+      prompt: z.string().describe("User prompt (max 500 chars)"),
+      model_name: z.string().optional().describe("Model identifier, e.g. 'gpt-4.1-mini', 'gpt-4o'. Default: gpt-4.1-mini"),
+      web_search: z.boolean().optional().describe("Enable web search grounding"),
+      system_message: z.string().optional(),
     },
-    async ({ prompt }) => {
-      const result = await post("/ai_optimization/chat_gpt/llm_responses/live", {
-        prompt,
-      });
+    async ({ prompt, model_name, web_search, system_message }) => {
+      const body: Record<string, unknown> = { user_prompt: prompt, model_name: model_name ?? "gpt-4.1-mini" };
+      if (web_search !== undefined) body.web_search = web_search;
+      if (system_message) body.system_message = system_message;
+      const result = await post("/ai_optimization/chat_gpt/llm_responses/live", body);
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
   );
 
   server.tool(
     "ai_optimization_claude_live",
-    "Get Claude response for a prompt in real-time. Set use_reasoning=true to enable reasoning mode and get the step-by-step reasoning chain in the response items array.",
+    "Send a prompt to Claude via DataForSEO and get the response.",
     {
-      prompt: z.string().describe("Prompt to send to Claude"),
-      use_reasoning: z.boolean().optional().describe("Enable reasoning mode to get step-by-step thought process (default: false)"),
+      prompt: z.string().describe("User prompt"),
+      model_name: z.string().optional().describe("Model identifier, e.g. 'claude-sonnet-4-5'. Check DataForSEO docs for available models."),
+      web_search: z.boolean().optional(),
+      system_message: z.string().optional(),
     },
-    async ({ prompt, use_reasoning }) => {
-      const body: Record<string, unknown> = { prompt };
-      if (use_reasoning) body.use_reasoning = true;
+    async ({ prompt, model_name, web_search, system_message }) => {
+      const body: Record<string, unknown> = { user_prompt: prompt };
+      if (model_name) body.model_name = model_name;
+      if (web_search !== undefined) body.web_search = web_search;
+      if (system_message) body.system_message = system_message;
       const result = await post("/ai_optimization/claude/llm_responses/live", body);
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
@@ -400,14 +413,18 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_gemini_live",
-    "Get Gemini response for a prompt in real-time. Set use_reasoning=true to enable reasoning mode and get the step-by-step reasoning chain in the response items array.",
+    "Send a prompt to Gemini via DataForSEO and get the response.",
     {
-      prompt: z.string().describe("Prompt to send to Gemini"),
-      use_reasoning: z.boolean().optional().describe("Enable reasoning mode to get step-by-step thought process (default: false)"),
+      prompt: z.string().describe("User prompt"),
+      model_name: z.string().optional().describe("Model identifier, e.g. 'gemini-2.5-flash'."),
+      web_search: z.boolean().optional(),
+      system_message: z.string().optional(),
     },
-    async ({ prompt, use_reasoning }) => {
-      const body: Record<string, unknown> = { prompt };
-      if (use_reasoning) body.use_reasoning = true;
+    async ({ prompt, model_name, web_search, system_message }) => {
+      const body: Record<string, unknown> = { user_prompt: prompt };
+      if (model_name) body.model_name = model_name;
+      if (web_search !== undefined) body.web_search = web_search;
+      if (system_message) body.system_message = system_message;
       const result = await post("/ai_optimization/gemini/llm_responses/live", body);
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
@@ -415,14 +432,17 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_perplexity_live",
-    "Get Perplexity response for a prompt in real-time.",
+    "Send a prompt to Perplexity via DataForSEO and get the response (always grounded with web search).",
     {
-      prompt: z.string().describe("Prompt to send to Perplexity"),
+      prompt: z.string().describe("User prompt"),
+      model_name: z.string().optional(),
+      system_message: z.string().optional(),
     },
-    async ({ prompt }) => {
-      const result = await post("/ai_optimization/perplexity/llm_responses/live", {
-        prompt,
-      });
+    async ({ prompt, model_name, system_message }) => {
+      const body: Record<string, unknown> = { user_prompt: prompt };
+      if (model_name) body.model_name = model_name;
+      if (system_message) body.system_message = system_message;
+      const result = await post("/ai_optimization/perplexity/llm_responses/live", body);
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
   );
