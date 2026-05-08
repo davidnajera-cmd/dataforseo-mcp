@@ -6,17 +6,27 @@ Las tools de código ya están listas. Lo que falta para que **todas** respondan
 
 ## 1. DataForSEO Backlinks (PAGO — bloquea 11 tools)
 
-**Síntoma:** las tools `backlinks_*` devuelven `Access denied`.
+**Síntoma:** las tools `backlinks_*` devuelven status `40204`:
+> *Access denied. Visit Plans and Subscriptions to activate your subscription and get access to this API: https://app.dataforseo.com/backlinks-subscription*
+
+**Estado verificado al 2026-05-08 vía `/v3/appendix/user_data`:**
+- `backlinks_subscription_expiry_date`: `null` (NO activado)
+- Balance: $41.63 USD disponible (de $51 depositados)
+- Auth API: funciona — el login `davidnajera@dnamusic.edu.co` está vivo y los demás módulos sí responden.
+
+**Importante:** Backlinks es una **suscripción aparte** del balance general. No basta con tener saldo — hay que comprar el módulo Backlinks específicamente. La doc de DataForSEO explica el modelo en https://docs.dataforseo.com/v3/backlinks/overview/ — el pago se suma al balance pero la activación del módulo es un opt-in separado.
 
 **Solución:**
 
-1. Login en https://app.dataforseo.com/
-2. Ir a **Subscription** (top-right) o https://app.dataforseo.com/billing
-3. Activar el módulo **Backlinks** (~$50/mes en plan Standard, ver tabla de pricing actualizada).
-4. Esperar ~5 minutos a que propague.
-5. Verificar con: llamar `backlinks_summary` con `target: "dnamusic.edu.co"`.
+1. Ir directo a https://app.dataforseo.com/backlinks-subscription (URL que el API mismo entrega en el error).
+2. Elegir plan de Backlinks (ver tiers actualizados ahí).
+3. Esperar ~5 min a que propague.
+4. Verificar de nuevo con `appendix_user_data` — `backlinks_subscription_expiry_date` debe traer fecha futura.
+5. Test final: `backlinks_summary` con `target: "dnamusic.edu.co"` debe devolver `status_code: 20000`.
 
 Tools que se desbloquean: `backlinks_summary`, `backlinks_list`, `backlinks_referring_domains`, `backlinks_anchors`, `backlinks_history`, `backlinks_competitors`, `backlinks_domain_intersection`, `backlinks_bulk_ranks`, `backlinks_bulk_spam_score`, `backlinks_domain_pages`, `backlinks_timeseries_summary`.
+
+**Alternativa para testear gratis primero:** DataForSEO ofrece un Sandbox sin costo (https://docs.dataforseo.com/v3/sandbox/) — útil si quieres validar el flujo de las 11 tools antes de pagar la suscripción real.
 
 ## 2. Bing Webmaster Tools (GRATIS — desbloquea 8 tools nuevas)
 
