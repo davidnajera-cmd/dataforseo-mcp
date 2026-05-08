@@ -260,4 +260,406 @@ export function registerGscTools(server: McpServer) {
       return { content: [{ type: "text" as const, text: formatResult(summary) }] };
     }
   );
+
+  // ============================================================
+  // SELF-MANAGEMENT / WORKFLOW TOOLS
+  // ============================================================
+
+  server.tool(
+    "gsc_url_bulk_inspection",
+    "Inspect multiple URLs at once via the URL Inspection API. Sequential with 200ms delay between calls (rate limit ~2000/day per property). Returns per-URL coverage, indexing state, canonical, last crawl time, and rich results state, plus an aggregate summary.",
+    {
+      urls: z.array(z.string()).min(1).describe("List of URLs to inspect"),
+      site_url: z.string().describe("GSC property URL"),
+      language_code: z.string().optional().describe("Language code, default 'en-US'"),
+    },
+    async ({ urls, site_url, language_code }) => {
+      try {
+        const results: Array<Record<string, unknown>> = [];
+        for (let i = 0; i < urls.length; i++) {
+          const url = urls[i];
+          try {
+            const raw = await gscPost("/urlInspection/index:inspect", {
+              inspectionUrl: url,
+              siteUrl: site_url,
+              languageCode: language_code ?? "en-US",
+            }, "searchconsole") as { inspectionResult?: Record<string, any> };
+            const insp = raw.inspectionResult ?? {};
+            const idx = insp.indexStatusResult ?? {};
+            const rich = insp.richResultsResult ?? {};
+            results.push({
+              url,
+              ok: true,
+              coverageState: idx.coverageState ?? null,
+              robotsTxtState: idx.robotsTxtState ?? null,
+              indexingState: idx.indexingState ?? null,
+              lastCrawlTime: idx.lastCrawlTime ?? null,
+              crawledAs: idx.crawledAs ?? null,
+              googleCanonical: idx.googleCanonical ?? null,
+              userCanonical: idx.userCanonical ?? null,
+              richResultsState: rich.verdict ?? null,
+            });
+          } catch (err: any) {
+            results.push({ url, ok: false, error: err?.message ?? String(err) });
+          }
+          if (i < urls.length - 1) await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+        const indexed = results.filter((r) => r.ok && (r.coverageState as string)?.toLowerCase().includes("indexed")).length;
+        const errors = results.filter((r) => !r.ok).length;
+        const summary = { total: urls.length, indexed, notIndexed: results.length - indexed - errors, errors, results };
+        return { content: [{ type: "text" as const, text: formatResult(summary) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
+
+  server.tool(
+    "gsc_search_analytics_compare",
+    "Compare search analytics between two periods. Returns per-row deltas (clicks/impressions/ctr/position), top gainers, top losers, new and lost keywords.",
+    {
+      site_url: z.string(),
+      current_start: z.string().describe("YYYY-MM-DD"),
+      current_end: z.string(),
+      prior_start: z.string(),
+      prior_end: z.string(),
+      dimensions: z.array(z.string()).optional().describe("Default ['query']"),
+      search_type: z.string().optional().describe("Default 'web'"),
+      row_limit: z.number().optional().describe("Default 1000"),
+    },
+    async ({ site_url, current_start, current_end, prior_start, prior_end, dimensions, search_type, row_limit }) => {
+      try {
+        const encodedSite = encodeURIComponent(site_url);
+        const dims = dimensions ?? ["query"];
+        const body = (start: string, end: string) => ({
+          startDate: start,
+          endDate: end,
+          dimensions: dims,
+          type: search_type ?? "web",
+          rowLimit: row_limit ?? 1000,
+        });
+        const [current, prior] = await Promise.all([
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, body(current_start, current_end)) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, body(prior_start, prior_end)) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+        ]);
+        const key = (row: { keys?: string[] }) => (row.keys ?? []).join("|");
+        const priorMap = new Map((prior.rows ?? []).map((row) => [key(row), row]));
+        const currentRows = current.rows ?? [];
+        const merged: Array<Record<string, unknown>> = [];
+        const seenKeys = new Set<string>();
+        for (const row of currentRows) {
+          const k = key(row);
+          seenKeys.add(k);
+          const before = priorMap.get(k);
+          const clicks_delta = row.clicks - (before?.clicks ?? 0);
+          const impressions_delta = row.impressions - (before?.impressions ?? 0);
+          const ctr_delta = row.ctr - (before?.ctr ?? 0);
+          const position_delta = row.position - (before?.position ?? 0);
+          merged.push({
+            keys: row.keys,
+            current: { clicks: row.clicks, impressions: row.impressions, ctr: row.ctr, position: row.position },
+            prior: before ? { clicks: before.clicks, impressions: before.impressions, ctr: before.ctr, position: before.position } : null,
+            clicks_delta,
+            clicks_delta_pct: before && before.clicks ? ((clicks_delta / before.clicks) * 100) : null,
+            impressions_delta,
+            ctr_delta,
+            position_delta,
+            is_new: !before,
+          });
+        }
+        const new_keywords = merged.filter((m) => m.is_new).map((m) => ({ keys: m.keys, current: m.current }));
+        const lost_keywords = (prior.rows ?? [])
+          .filter((row) => !seenKeys.has(key(row)))
+          .map((row) => ({ keys: row.keys, prior: { clicks: row.clicks, impressions: row.impressions, ctr: row.ctr, position: row.position } }));
+        const top_gainers = [...merged].sort((a, b) => Number(b.clicks_delta) - Number(a.clicks_delta)).slice(0, 20);
+        const top_losers = [...merged].sort((a, b) => Number(a.clicks_delta) - Number(b.clicks_delta)).slice(0, 20);
+        const totals = (rows: typeof currentRows) => ({
+          clicks: rows.reduce((acc, r) => acc + r.clicks, 0),
+          impressions: rows.reduce((acc, r) => acc + r.impressions, 0),
+          rows: rows.length,
+        });
+        const summary = {
+          current_period: { start: current_start, end: current_end, ...totals(currentRows) },
+          prior_period: { start: prior_start, end: prior_end, ...totals(prior.rows ?? []) },
+          new_keywords_count: new_keywords.length,
+          lost_keywords_count: lost_keywords.length,
+        };
+        return { content: [{ type: "text" as const, text: formatResult({ summary, top_gainers, top_losers, new_keywords, lost_keywords }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
+
+  server.tool(
+    "gsc_indexing_coverage_report",
+    "Cross-reference a sitemap against pages with traffic in the last 28 days. Classifies URLs into in_sitemap_with_traffic, in_sitemap_no_traffic, has_traffic_not_in_sitemap.",
+    {
+      site_url: z.string(),
+      sitemap_url: z.string().describe("Full sitemap URL, e.g. https://example.com/sitemap.xml"),
+    },
+    async ({ site_url, sitemap_url }) => {
+      try {
+        const encodedSite = encodeURIComponent(site_url);
+        const encodedFeed = encodeURIComponent(sitemap_url);
+        const today = new Date().toISOString().slice(0, 10);
+        const start = new Date(Date.now() - 28 * 86400_000).toISOString().slice(0, 10);
+
+        const [sitemapInfo, pages] = await Promise.all([
+          gscGet(`/sites/${encodedSite}/sitemaps/${encodedFeed}`) as Promise<{ contents?: Array<{ submitted?: string }>; lastDownloaded?: string; lastSubmitted?: string; warnings?: string; errors?: string }>,
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, {
+            startDate: start,
+            endDate: today,
+            dimensions: ["page"],
+            rowLimit: 25000,
+            type: "web",
+          }) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number }> }>,
+        ]);
+
+        // Try to fetch the actual sitemap XML to enumerate URLs
+        let sitemapUrls: string[] = [];
+        try {
+          const res = await fetch(sitemap_url, { headers: { "User-Agent": "dataforseo-mcp/1.0 (sitemap reader)" } });
+          if (res.ok) {
+            const xml = await res.text();
+            sitemapUrls = [...xml.matchAll(/<loc>([^<]+)<\/loc>/gi)].map((m) => m[1].trim());
+          }
+        } catch {
+          // ignore — we still report what GSC knows
+        }
+
+        const trafficUrls = new Map<string, { clicks: number; impressions: number }>();
+        for (const row of pages.rows ?? []) {
+          const url = row.keys?.[0];
+          if (url) trafficUrls.set(url, { clicks: row.clicks, impressions: row.impressions });
+        }
+        const sitemapSet = new Set(sitemapUrls);
+
+        const in_sitemap_with_traffic: Array<Record<string, unknown>> = [];
+        const in_sitemap_no_traffic: string[] = [];
+        const has_traffic_not_in_sitemap: Array<Record<string, unknown>> = [];
+
+        for (const url of sitemapUrls) {
+          const t = trafficUrls.get(url);
+          if (t) in_sitemap_with_traffic.push({ url, ...t });
+          else in_sitemap_no_traffic.push(url);
+        }
+        for (const [url, metrics] of trafficUrls.entries()) {
+          if (!sitemapSet.has(url)) has_traffic_not_in_sitemap.push({ url, ...metrics });
+        }
+
+        const report = {
+          period: { start, end: today },
+          sitemap: { url: sitemap_url, total_urls: sitemapUrls.length, lastDownloaded: sitemapInfo.lastDownloaded ?? null, lastSubmitted: sitemapInfo.lastSubmitted ?? null, warnings: sitemapInfo.warnings ?? null, errors: sitemapInfo.errors ?? null },
+          counts: {
+            in_sitemap_with_traffic: in_sitemap_with_traffic.length,
+            in_sitemap_no_traffic: in_sitemap_no_traffic.length,
+            has_traffic_not_in_sitemap: has_traffic_not_in_sitemap.length,
+            total_urls_with_traffic: trafficUrls.size,
+          },
+          samples: {
+            in_sitemap_with_traffic: in_sitemap_with_traffic.slice(0, 50),
+            in_sitemap_no_traffic: in_sitemap_no_traffic.slice(0, 50),
+            has_traffic_not_in_sitemap: has_traffic_not_in_sitemap.slice(0, 50),
+          },
+        };
+        return { content: [{ type: "text" as const, text: formatResult(report) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
+
+  server.tool(
+    "gsc_keyword_opportunities",
+    "Find keywords with high CTR/position improvement potential. Filters by impression and position thresholds, scores by impressions × (1-ctr) × (position-1), and classifies into quick_win / medium_effort / long_term.",
+    {
+      site_url: z.string(),
+      start_date: z.string(),
+      end_date: z.string(),
+      min_impressions: z.number().optional().describe("Default 100"),
+      max_position: z.number().optional().describe("Default 20"),
+      min_position: z.number().optional().describe("Default 4"),
+    },
+    async ({ site_url, start_date, end_date, min_impressions, max_position, min_position }) => {
+      try {
+        const encodedSite = encodeURIComponent(site_url);
+        const minImp = min_impressions ?? 100;
+        const maxPos = max_position ?? 20;
+        const minPos = min_position ?? 4;
+        const result = await gscPost(`/sites/${encodedSite}/searchAnalytics/query`, {
+          startDate: start_date,
+          endDate: end_date,
+          dimensions: ["query", "page"],
+          rowLimit: 5000,
+          type: "web",
+        }) as { rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> };
+
+        const opportunities = (result.rows ?? [])
+          .filter((row) => row.position >= minPos && row.position <= maxPos && row.impressions >= minImp)
+          .map((row) => {
+            const opportunity_score = row.impressions * (1 - row.ctr) * (row.position - 1);
+            const classification = row.position <= 10 ? "quick_win" : row.position <= 15 ? "medium_effort" : "long_term";
+            return {
+              query: row.keys?.[0] ?? null,
+              page: row.keys?.[1] ?? null,
+              clicks: row.clicks,
+              impressions: row.impressions,
+              ctr: row.ctr,
+              position: row.position,
+              opportunity_score,
+              classification,
+            };
+          })
+          .sort((a, b) => b.opportunity_score - a.opportunity_score)
+          .slice(0, 100);
+
+        const summary = {
+          period: { start: start_date, end: end_date },
+          filters: { min_impressions: minImp, max_position: maxPos, min_position: minPos },
+          total_opportunities: opportunities.length,
+          by_classification: {
+            quick_win: opportunities.filter((o) => o.classification === "quick_win").length,
+            medium_effort: opportunities.filter((o) => o.classification === "medium_effort").length,
+            long_term: opportunities.filter((o) => o.classification === "long_term").length,
+          },
+        };
+        return { content: [{ type: "text" as const, text: formatResult({ summary, opportunities }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
+
+  server.tool(
+    "gsc_site_health_report",
+    "Comprehensive SEO health report combining trend, top keywords, top pages, country/device breakdowns, and sitemap status. Runs all queries in parallel.",
+    {
+      site_url: z.string(),
+      days: z.number().optional().describe("Default 28"),
+    },
+    async ({ site_url, days }) => {
+      try {
+        const encodedSite = encodeURIComponent(site_url);
+        const range = days ?? 28;
+        const today = new Date().toISOString().slice(0, 10);
+        const start = new Date(Date.now() - range * 86400_000).toISOString().slice(0, 10);
+        const baseBody = (extra: Record<string, unknown>) => ({ startDate: start, endDate: today, type: "web", ...extra });
+
+        const [trend, queries, pages, country, device, sitemaps] = await Promise.all([
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, baseBody({ dimensions: ["date"], rowLimit: 1000 })) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, baseBody({ dimensions: ["query"], rowLimit: 100 })) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, baseBody({ dimensions: ["page"], rowLimit: 100 })) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, baseBody({ dimensions: ["country"], rowLimit: 20 })) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+          gscPost(`/sites/${encodedSite}/searchAnalytics/query`, baseBody({ dimensions: ["device"] })) as Promise<{ rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }> }>,
+          gscGet(`/sites/${encodedSite}/sitemaps`).catch((err: any) => ({ error: err?.message ?? String(err) })),
+        ]);
+
+        const totals = (trend.rows ?? []).reduce(
+          (acc, r) => ({ clicks: acc.clicks + r.clicks, impressions: acc.impressions + r.impressions, ctr_sum: acc.ctr_sum + r.ctr * r.clicks, pos_sum: acc.pos_sum + r.position * r.clicks }),
+          { clicks: 0, impressions: 0, ctr_sum: 0, pos_sum: 0 }
+        );
+        const avg_ctr = totals.impressions ? totals.clicks / totals.impressions : 0;
+        const avg_position = totals.clicks ? totals.pos_sum / totals.clicks : 0;
+        const mapRows = (rows?: Array<{ keys?: string[]; clicks: number; impressions: number; ctr: number; position: number }>, k = 10) =>
+          (rows ?? []).slice(0, k).map((r) => ({ key: r.keys?.[0] ?? null, clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position }));
+
+        const report = {
+          period: { start, end: today, days: range },
+          total_clicks: totals.clicks,
+          total_impressions: totals.impressions,
+          avg_ctr,
+          avg_position,
+          top_keywords: mapRows(queries.rows, 10),
+          top_pages: mapRows(pages.rows, 10),
+          traffic_by_country: mapRows(country.rows, 20),
+          traffic_by_device: (device.rows ?? []).map((r) => ({ device: r.keys?.[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position })),
+          daily_trend: (trend.rows ?? []).map((r) => ({ date: r.keys?.[0], clicks: r.clicks, impressions: r.impressions, ctr: r.ctr, position: r.position })),
+          sitemaps_status: sitemaps,
+        };
+        return { content: [{ type: "text" as const, text: formatResult(report) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
+
+  server.tool(
+    "gsc_rich_results_audit",
+    "Audit rich results / structured data on multiple URLs via URL Inspection. Groups by rich result type, counts errors, and flags pages without structured data. Sequential with 200ms delay (rate limit ~2000/day).",
+    {
+      urls: z.array(z.string()).min(1),
+      site_url: z.string(),
+    },
+    async ({ urls, site_url }) => {
+      try {
+        const byType = new Map<string, { withErrors: number; total: number; urls: string[] }>();
+        const pagesWithoutStructuredData: string[] = [];
+        const detail: Array<Record<string, unknown>> = [];
+
+        for (let i = 0; i < urls.length; i++) {
+          const url = urls[i];
+          try {
+            const raw = await gscPost("/urlInspection/index:inspect", {
+              inspectionUrl: url,
+              siteUrl: site_url,
+              languageCode: "en-US",
+            }, "searchconsole") as { inspectionResult?: { richResultsResult?: any } };
+            const rich = raw.inspectionResult?.richResultsResult ?? {};
+            const items = (rich.detectedItems ?? rich.items ?? []) as Array<{ richResultType?: string; items?: Array<{ issues?: Array<{ severity?: string }> }>; issues?: Array<{ severity?: string }> }>;
+            if (items.length === 0) pagesWithoutStructuredData.push(url);
+
+            const perUrl: Array<Record<string, unknown>> = [];
+            for (const item of items) {
+              const type = item.richResultType ?? "unknown";
+              const issuesList = item.items?.flatMap((it) => it.issues ?? []) ?? item.issues ?? [];
+              const errorCount = issuesList.filter((iss) => (iss.severity ?? "").toLowerCase() === "error").length;
+              const bucket = byType.get(type) ?? { withErrors: 0, total: 0, urls: [] };
+              bucket.total += 1;
+              if (errorCount > 0) bucket.withErrors += 1;
+              if (!bucket.urls.includes(url)) bucket.urls.push(url);
+              byType.set(type, bucket);
+              perUrl.push({ type, error_count: errorCount, total_issues: issuesList.length });
+            }
+            detail.push({ url, ok: true, verdict: rich.verdict ?? null, detection_time: rich.detectedItemsTime ?? null, items: perUrl });
+          } catch (err: any) {
+            detail.push({ url, ok: false, error: err?.message ?? String(err) });
+          }
+          if (i < urls.length - 1) await new Promise((resolve) => setTimeout(resolve, 200));
+        }
+
+        const summary = {
+          total_urls: urls.length,
+          pages_without_structured_data: pagesWithoutStructuredData.length,
+          rich_result_types: [...byType.entries()].map(([type, info]) => ({ type, total_pages: info.urls.length, pages_with_errors: info.withErrors })).sort((a, b) => b.total_pages - a.total_pages),
+        };
+        return { content: [{ type: "text" as const, text: formatResult({ summary, pages_without_structured_data: pagesWithoutStructuredData.slice(0, 50), detail }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
+
+  server.tool(
+    "gsc_submit_sitemap_and_verify",
+    "Submit a sitemap and verify Google processed it. Returns the sitemap status (pending, lastDownloaded, lastSubmitted, warnings, errors) after a 2s wait.",
+    {
+      site_url: z.string(),
+      sitemap_url: z.string(),
+    },
+    async ({ site_url, sitemap_url }) => {
+      try {
+        const encodedSite = encodeURIComponent(site_url);
+        const encodedFeed = encodeURIComponent(sitemap_url);
+        await gscPut(`/sites/${encodedSite}/sitemaps/${encodedFeed}`);
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const status = await gscGet(`/sites/${encodedSite}/sitemaps/${encodedFeed}`);
+        return { content: [{ type: "text" as const, text: formatResult({ submitted: true, sitemap_url, sitemap_status: status }) }] };
+      } catch (err: any) {
+        return { content: [{ type: "text" as const, text: formatResult({ submitted: false, error: err?.message ?? String(err) }) }] };
+      }
+    }
+  );
 }
+
+// Total GSC tools: 21
