@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { runSnapshot, defaultDailyTasks, defaultWeeklyTasks } from "../../src/snapshots/index.js";
-import { getRuntimeVariable } from "../../src/runtime-config.js";
+import { getRuntimeVariable, clearRuntimeVariableCache } from "../../src/runtime-config.js";
+import { clearGoogleAccessTokenCache } from "../../src/gsc-client.js";
 
 export const config = { maxDuration: 300 };
 
@@ -9,6 +10,10 @@ export default async function handler(
   res: ServerResponse
 ) {
   try {
+    // Always start with a fresh view of runtime variables and OAuth tokens —
+    // the lambda instance may be warm and have cached pre-credential-update values.
+    clearRuntimeVariableCache();
+    clearGoogleAccessTokenCache();
     const auth = headerValue(req, "authorization");
     const expected = (await getRuntimeVariable("CRON_SECRET")) ?? process.env.CRON_SECRET;
     if (!expected) {

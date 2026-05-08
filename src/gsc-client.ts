@@ -7,6 +7,10 @@ const TOKEN_URL = "https://oauth2.googleapis.com/token";
 
 let cachedToken: { access_token: string; expires_at: number } | null = null;
 
+export function clearGoogleAccessTokenCache() {
+  cachedToken = null;
+}
+
 export async function getGoogleAccessToken(): Promise<string> {
   // If we have a valid cached token (with 60s buffer), use it
   if (cachedToken && Date.now() < cachedToken.expires_at - 60_000) {

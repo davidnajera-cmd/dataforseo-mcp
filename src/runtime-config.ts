@@ -49,7 +49,9 @@ type RuntimeVariableRow = {
 
 let client: ReturnType<typeof neon> | null = null;
 let initialized = false;
-const valueCache = new Map<string, string | undefined>();
+const VALUE_CACHE_TTL_MS = 30_000;
+type CachedValue = { value: string | undefined; expiresAt: number };
+const valueCache = new Map<string, CachedValue>();
 
 function getSql() {
   if (!process.env.DATABASE_URL) return null;
@@ -58,7 +60,8 @@ function getSql() {
 }
 
 export async function getRuntimeVariable(name: string): Promise<string | undefined> {
-  if (valueCache.has(name)) return valueCache.get(name);
+  const cached = valueCache.get(name);
+  if (cached && cached.expiresAt > Date.now()) return cached.value;
 
   const sql = getSql();
   if (sql) {
@@ -72,14 +75,18 @@ export async function getRuntimeVariable(name: string): Promise<string | undefin
     const row = rows[0];
     if (row) {
       const value = decryptValue(row.value_encrypted);
-      valueCache.set(name, value);
+      valueCache.set(name, { value, expiresAt: Date.now() + VALUE_CACHE_TTL_MS });
       return value;
     }
   }
 
   const value = process.env[name];
-  valueCache.set(name, value);
+  valueCache.set(name, { value, expiresAt: Date.now() + VALUE_CACHE_TTL_MS });
   return value;
+}
+
+export function clearRuntimeVariableCache() {
+  valueCache.clear();
 }
 
 export async function listRuntimeVariables() {

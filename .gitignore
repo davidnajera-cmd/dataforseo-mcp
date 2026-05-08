@@ -5,3 +5,7 @@ build/
 .vercel
 .env*.local
 tmp-pdf-venv/
+
+# Local backups
+.env.local.bak
+*.bak
