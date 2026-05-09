@@ -12,7 +12,7 @@ export function registerGscTools(server: McpServer) {
   // ============================================================
   server.tool(
     "gsc_search_analytics_query",
-    "Query Google Search Console search analytics data (clicks, impressions, CTR, position) with filters.",
+    "Foundational GSC tool: returns clicks/impressions/CTR/position rows for a date range, grouped by your chosen dimensions (query, page, country, device, date, searchAppearance). Use this when you need raw numbers. For curated views prefer gsc_site_health_report (executive summary), gsc_keyword_opportunities (quick wins), or gsc_search_analytics_compare (period vs period).",
     {
       site_url: z.string().describe("Site URL (e.g., 'https://example.com/' or 'sc-domain:example.com')"),
       start_date: z.string().describe("Start date (YYYY-MM-DD)"),
@@ -166,7 +166,7 @@ export function registerGscTools(server: McpServer) {
   // ============================================================
   server.tool(
     "gsc_url_inspection",
-    "Inspect a URL in Google's index. Get indexing status, crawl info, and rich results.",
+    "Inspect ONE specific URL in Google's index. Returns coverageState (Indexed/Submitted/Excluded), indexingState, robotsTxtState, lastCrawlTime, googleCanonical vs userCanonical, mobile usability, rich results status. Use to debug 'why isn't this URL ranking' or 'is Google seeing what I expect'. For multiple URLs at once use gsc_url_bulk_inspection (rate-limited 200ms/url).",
     {
       inspection_url: z.string().describe("URL to inspect"),
       site_url: z.string().describe("Site URL (property in GSC)"),

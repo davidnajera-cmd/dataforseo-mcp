@@ -14,12 +14,72 @@ import { registerLogTools } from "./tools-logs.js";
 import { registerHistoryTools } from "./tools-history.js";
 import { registerBacklogTools } from "./tools-backlog.js";
 import { registerBrandKnowledgeTools } from "./tools-brand-knowledge.js";
+import { registerPlaybookTools } from "./tools-playbook.js";
+
+const SERVER_INSTRUCTIONS = `# SEO MCP Server
+
+This MCP exposes 227 tools for the DNA Music ecosystem (3 sites: dnamusic.edu.co, dnamusic.mx, latiendadeaudio.com). Tools are organized by source and purpose. Read this once to know which tools to combine for common analyses.
+
+## Quick reference: which tool answers which question?
+
+- "What does my brand look like in search RIGHT NOW?" -> gsc_site_health_report
+- "Where am I losing or winning vs last month?" -> gsc_search_analytics_compare
+- "Which keywords are quick wins?" -> gsc_keyword_opportunities
+- "Why isn't this URL ranking?" -> gsc_url_inspection
+- "How are my backlinks?" -> backlinks_summary, backlinks_anchors, backlinks_referring_domains
+- "Am I being mentioned in ChatGPT/Google AI?" -> ai_optimization_llm_mentions_search, ai_optimization_chatgpt_live
+- "How fast is my site?" -> pagespeed_analyze_url, onpage_lighthouse_live
+- "What does my schema look like?" -> schema_validate_url, schema_extract_url, gsc_rich_results_audit
+- "What pages have UX issues?" -> clarity_traffic_overview, clarity_traffic_by_page
+- "What sessions/conversions do I have?" -> ga4_run_report
+- "How did rankings evolve over time?" -> history_keyword_ranking, history_domain_rankings
+- "What programs/materias does DNA Music offer in CO?" -> brand_dna_offer_summary
+- "Which page should this query rank with?" -> brand_map_keyword_to_program
+- "Generate Course schema for a program" -> brand_generate_course_schema
+- "Run the agent and get a backlog of actionable tasks" -> agent_run_now, then backlog_list
+- "What's in my backlog?" -> backlog_list
+
+## How to build common analyses
+
+For a 360 SEO audit (recommended workflow), call seo_workflow_playbook with name="360_audit". The playbook returns the precise sequence of ~12 tool calls in order, with the right parameters for each site.
+
+Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "backlink_health", "ai_visibility", "migration_audit", "weekly_report".
+
+## Conventions
+
+- Sites are addressed by domain: "dnamusic.edu.co" | "dnamusic.mx" | "latiendadeaudio.com".
+- For Colombia (dnamusic.edu.co + latiendadeaudio.com): location_code 2170, language_code "es".
+- For Mexico: location_code 2484.
+- GSC properties are stored in runtime variables DNA_SITE_CO/MX/LTA. Default for CO is "https://dnamusic.edu.co/" (URL prefix).
+- Brand catalog tools (brand_*) ONLY apply to dnamusic.edu.co. dnamusic.mx has a different/incomplete offer.
+- The Postgres history is the cheapest source: prefer history_* tools over live calls when the question is about trends.
+- The agent (agent_run_now) costs ~$0.55 per run; only trigger when needed. The cron runs daily at 06:30 UTC anyway.
+
+## Tool families (high level)
+
+- serp_*, serpapi_* : real-time SERP results
+- keywords_*, labs_google_keyword_* : keyword research and volumes
+- labs_google_ranked_keywords / domain_rank_overview / competitors_domain : competitor + domain rank
+- backlinks_* : backlinks (requires DataForSEO Backlinks subscription)
+- onpage_* : crawls and Lighthouse
+- gsc_* : Google Search Console (search analytics, sitemaps, URL inspection, indexing)
+- ga4_* : Google Analytics 4 reports
+- clarity_* : Microsoft Clarity UX
+- bing_* : Bing Webmaster Tools
+- ai_optimization_* : LLM mentions and live LLM responses
+- schema_*, http_* : schema markup and HTTP utilities
+- wayback_* : Wayback Machine snapshots
+- log_file_analyze : web server log parsing
+- history_*, keyword_universe_*, snapshot_* : historical persistence and snapshots
+- backlog_*, agent_runs_* : SEO Agent backlog (DeepSeek + Opus tasks)
+- brand_* : DNA Music academic catalog (Colombia only)
+- seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
 export function createServer(): McpServer {
   const server = new McpServer({
     name: "SEO MCP Server",
-    version: "1.4.0",
-  });
+    version: "1.4.1",
+  }, { instructions: SERVER_INSTRUCTIONS });
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
   registerTools(server);
@@ -65,6 +125,9 @@ export function createServer(): McpServer {
 
   // DNA Music brand knowledge (Colombia catalog): keyword mapping + Course schema
   registerBrandKnowledgeTools(server);
+
+  // Workflow playbooks: step-by-step recipes for common analyses (360 audit, etc.)
+  registerPlaybookTools(server);
 
   return server;
 }

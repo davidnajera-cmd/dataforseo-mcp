@@ -13,7 +13,7 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "serp_google_organic_live",
-    "Search Google organic results in real-time. Returns SERP data for any keyword.",
+    "Real-time Google organic SERP for a keyword. Returns the top results (organic listings + featured snippet, AI overview, people also ask, knowledge graph) at a given location. Use to: see who currently ranks #1-10, detect if AI Overview is shown, find competitor URLs to study. Costs ~$0.0011 per call. For Colombia use location_code 2170, Mexico 2484. NOT for tracking over time — use seo_keyword_universe + the daily snapshot cron for that.",
     {
       keyword: z.string().describe("Search keyword"),
       location_code: z.number().optional().describe("Location code (e.g., 2840 for US)"),
@@ -327,7 +327,7 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "ai_optimization_llm_mentions_search",
-    "Search for LLM mentions across AI search platforms (ChatGPT or Google AI Mode). Pass either a domain or a keyword as the target entity.",
+    "Find where a domain or keyword shows up in AI search platform answers (ChatGPT or Google AI Mode). Returns mentions count + AI search volume per query/source. Use to: (a) measure brand visibility in AI results, (b) compare your share-of-voice vs competitors, (c) detect which content AI cites. Costs ~$0.10 per call. Pass exactly ONE of `domain` or `keyword`.",
     {
       domain: z.string().optional().describe("Domain to search (e.g., 'dnamusic.edu.co')"),
       keyword: z.string().optional().describe("Keyword to search"),
@@ -354,7 +354,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_llm_mentions_top_domains",
-    "Get top domains cited by LLMs for given keywords.",
+    "For a list of keywords, see which domains the AI platform cites most. Reverse of llm_mentions_search: instead of 'where does my domain show up', this answers 'who dominates this topic in AI'. Use to identify AI-citation competitors and the URL patterns they use.",
     {
       keywords: z.array(z.string()).describe("Keywords to analyze"),
       location_code: z.number().optional(),
@@ -376,7 +376,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "ai_optimization_chatgpt_live",
-    "Send a prompt to ChatGPT via DataForSEO and get the response. Useful to test how ChatGPT responds to brand/SEO queries.",
+    "Get a live ChatGPT response to a prompt (proxied through DataForSEO). Use to TEST what ChatGPT actually says when users ask about your brand/competitors/topic. Compare with brand_dna_offer_summary to detect incorrect info ChatGPT spreads. Cheap (~$0.001 per call). Useful in AI visibility audits.",
     {
       prompt: z.string().describe("User prompt (max 500 chars)"),
       model_name: z.string().optional().describe("Model identifier, e.g. 'gpt-4.1-mini', 'gpt-4o'. Default: gpt-4.1-mini"),
@@ -452,7 +452,7 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "keywords_google_search_volume_live",
-    "Get search volume and keyword metrics from Google Ads for one or more keywords.",
+    "Google Ads keyword metrics for up to 700 keywords at once: monthly search volume, CPC, competition. Use to validate which keywords are worth targeting BEFORE writing content or proposing them. Returns array with one row per keyword. Cheap (~$0.075 per call regardless of keyword count). For deeper keyword research start with labs_google_keyword_ideas (suggestions) or labs_google_keyword_overview (full metrics).",
     {
       keywords: z.array(z.string()).describe("Array of keywords (max 700)"),
       location_code: z.number().optional(),
@@ -624,7 +624,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "labs_google_keyword_ideas",
-    "Get keyword ideas based on a seed keyword from DataForSEO Labs.",
+    "Expand a seed keyword into related keyword ideas with volume, CPC, competition (DataForSEO Labs). Use when you have a topic and need a content brief or keyword universe. Returns up to `limit` ideas. Costs ~$0.012 per call. For variants of an existing keyword use labs_google_related_keywords; for sole metrics on a known set use labs_google_keyword_overview.",
     {
       keyword: z.string().describe("Seed keyword"),
       location_code: z.number().optional(),
@@ -664,7 +664,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "labs_google_keyword_overview",
-    "Get overview metrics (volume, difficulty, CPC) for keywords.",
+    "Full metrics for a known set of keywords (up to 700): monthly search volume + 12-month trend + difficulty + CPC + competition + search intent. Use to qualify a list before investing in content. More complete than keywords_google_search_volume_live (this one adds difficulty + intent).",
     {
       keywords: z.array(z.string()).describe("Keywords to analyze"),
       location_code: z.number().optional(),
@@ -700,7 +700,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "labs_google_search_intent",
-    "Detect search intent (informational, navigational, commercial, transactional) for keywords.",
+    "Classify a list of keywords into intent buckets: informational | navigational | commercial | transactional. Use when planning content (informational -> blog, transactional -> /producto or /precios) or when prioritizing optimization efforts (transactional > commercial > informational for revenue).",
     {
       keywords: z.array(z.string()).describe("Keywords to classify"),
       location_code: z.number().optional(),
@@ -759,7 +759,7 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "labs_google_ranked_keywords",
-    "Get all keywords a domain is ranked for with positions and traffic.",
+    "All organic keywords a domain currently ranks for in Google: position, search volume, traffic estimate, URL ranking. Use to: see the full keyword footprint of a domain (yours or competitor), find keywords where you rank but with bad CTR, identify what content drives traffic. Combine with labs_google_competitors_domain to see what competitors rank for that you don't. Costs ~$0.06 per 100 keywords.",
     {
       target: z.string().describe("Target domain"),
       location_code: z.number().optional(),
@@ -781,7 +781,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "labs_google_serp_competitors",
-    "Find SERP competitors for a set of keywords.",
+    "For a list of target keywords, list the domains that show up in their SERPs (with frequency + estimated traffic). Use to: identify the actual competitive set when planning to rank for new queries; pick which competitors are worth a deep dive with labs_google_domain_intersection.",
     {
       keywords: z.array(z.string()).describe("Keywords to analyze"),
       location_code: z.number().optional(),
@@ -801,7 +801,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "labs_google_competitors_domain",
-    "Find competitor domains for a given domain.",
+    "Find the top N domains that compete with a target domain across all of its ranking keywords. Each row includes how many keywords overlap, common keywords, and intersection metrics. Use as the FIRST step in competitor analysis (then dig into specific competitors with labs_google_domain_intersection).",
     {
       target: z.string().describe("Target domain"),
       location_code: z.number().optional(),
@@ -819,9 +819,9 @@ export function registerTools(server: McpServer) {
     }
   );
 
-  server.tool(
+    server.tool(
     "labs_google_domain_intersection",
-    "Find keyword overlap between two or more domains.",
+    "Keyword overlap between 2+ domains: shows which keywords ALL of them rank for (with positions for each). Use to: see where you and a competitor both rank (steal market share opportunities), find content gaps (their pos < your pos = page to study), identify shared keyword space. Pass `targets` as object: {\"1\": \"yourdomain.com\", \"2\": \"competitor.com\"}.",
     {
       targets: z.record(z.string(), z.string()).describe("Domains to compare, e.g. {\"1\": \"domain1.com\", \"2\": \"domain2.com\"}"),
       location_code: z.number().optional(),
@@ -841,7 +841,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "labs_google_domain_rank_overview",
-    "Get rank overview metrics for a domain (organic traffic, keywords count, etc.).",
+    "Quick health snapshot of a domain in Google: ETV (estimated traffic value), organic count, paid count, position buckets (top1, top2-3, top4-10, top11-100). Use as the FIRST call when sizing up a domain — gives you the high level before drilling down with ranked_keywords.",
     {
       target: z.string().describe("Target domain"),
       location_code: z.number().optional(),
@@ -960,7 +960,7 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "backlinks_summary",
-    "Get backlink summary for a domain (total backlinks, referring domains, rank, etc.).",
+    "FIRST CALL when assessing a domain's backlink profile: total backlinks, referring domains, referring main domains, broken backlinks, internal/external links count, rank, spam_score, top TLDs and link types. Costs ~$0.02. Use to: (a) compare scale vs competitors, (b) detect spam (spam_score >40 = bad), (c) decide if a deeper anchors/referring_domains audit is needed. Requires DataForSEO Backlinks subscription.",
     {
       target: z.string().describe("Target domain or URL"),
       include_subdomains: z.boolean().optional(),
@@ -1000,7 +1000,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "backlinks_referring_domains",
-    "Get list of referring domains for a target.",
+    "List of unique domains linking to your target (not individual backlinks). Each row has rank, backlinks count, first_seen, lost_date, country. Use to: (a) find candidates for disavow (group by IP / country / TLD to detect PBNs), (b) qualify the link profile (50 high-rank domains > 5000 spammy ones), (c) outreach prospecting (which domains already link?).",
     {
       target: z.string().describe("Target domain or URL"),
       limit: z.number().optional(),
@@ -1020,7 +1020,7 @@ export function registerTools(server: McpServer) {
 
   server.tool(
     "backlinks_anchors",
-    "Get anchor text distribution for backlinks to a target.",
+    "Top anchor texts pointing to a target domain with backlinks count + referring domains per anchor. CRITICAL for spam detection: anchors like 'TELEGRAM @SEO_*', 'comprar links', 'Skyrocket Ahrefs DR', 'BuySeoLink' indicate negative SEO or PBN. Use when: building a disavow.txt, auditing a recent ranking drop, evaluating organic vs manipulated profile.",
     {
       target: z.string().describe("Target domain or URL"),
       limit: z.number().optional(),
