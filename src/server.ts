@@ -20,6 +20,40 @@ const SERVER_INSTRUCTIONS = `# SEO MCP Server
 
 This MCP exposes 227 tools for the DNA Music ecosystem (3 sites: dnamusic.edu.co, dnamusic.mx, latiendadeaudio.com). Tools are organized by source and purpose. Read this once to know which tools to combine for common analyses.
 
+## ⚠ Freshness contract — read this before answering anything time-sensitive
+
+SEO data changes by the hour. Rankings move, indexation flips, traffic shifts, schema breaks. Acting on stale information here can recommend exactly the wrong fix (e.g. "this URL is noindex" when it was just unblocked an hour ago).
+
+**Hard rules:**
+1. **Do NOT reuse outputs from earlier turns** of the conversation as if they were current. The user's previous question and your previous tool call were a SNAPSHOT at that point in time, not state-of-the-world now.
+2. **Re-call the relevant tools at the start of any new analysis or recommendation.** If you are about to write "the page is X / the keyword ranks at Y / the property has Z", that fact must come from a tool call made in THIS turn, not remembered from earlier.
+3. **For diagnostic / decision-support questions** ("should I do X?", "is Y broken?", "what's the status of Z?"), always re-validate. Even if you queried the same tool 5 minutes ago.
+4. **The only tools that serve cached/historical data BY DESIGN** are the \`history_*\` family (Postgres time-series snapshots). Everything else (\`gsc_*\`, \`ga4_*\`, \`clarity_*\`, \`pagespeed_*\`, \`serp_*\`, \`backlinks_*\`, \`onpage_*\`, \`schema_*\`, \`http_*\`, \`ai_optimization_*\`, \`wayback_*\`, \`bing_*\`) returns LIVE data at the moment of the call.
+5. **Auth tokens are cached, data is not.** OAuth tokens (Google, etc.) are cached client-side until expiry; this is invisible to you and does not affect data freshness.
+6. **If unsure whether something changed, call the tool.** A redundant tool call is cheap; a wrong recommendation based on stale state is expensive.
+
+**Tools that are especially time-sensitive (always re-call):**
+- \`gsc_url_inspection\` — coverage state, noindex flags, last crawl time. Can flip in hours after a deploy.
+- \`gsc_search_analytics_query\` / \`gsc_keyword_opportunities\` — clicks, impressions, position. Changes daily.
+- \`gsc_sitemaps_get\` — submission status, errors. Changes when sitemap re-fetched.
+- \`pagespeed_analyze_url\` / \`onpage_lighthouse_live\` — performance scores. Move with every deploy.
+- \`schema_validate_url\` / \`schema_extract_url\` — schema markup. Changes with every code push.
+- \`http_headers_inspect\` / \`redirect_chain_check\` — status codes, redirects, headers. Highly volatile.
+- \`backlinks_summary\` / \`backlinks_anchors\` — backlink data refreshes weekly at most, but action recommendations need fresh check.
+- \`ai_optimization_*_live\` (chatgpt/claude/gemini/perplexity) — LLM responses are non-deterministic; never cache assumptions.
+- \`gsc_sites_list\` — verified properties; re-call before any GSC analysis to confirm what's actually accessible right now.
+
+**Tools that DO serve cached/historical data (and that's the point):**
+- \`history_keyword_ranking\` / \`history_domain_rankings\` / \`history_backlinks\` / \`history_traffic\` / \`history_llm_visibility\` — explicit time-series from Postgres.
+- \`snapshot_runs_list\` — record of past snapshot captures.
+- \`backlog_list\` / \`backlog_get\` — current state of the backlog (this IS live, but it's not external SEO data).
+
+**Static reference (re-call only if you suspect it changed):**
+- \`brand_dna_offer_summary\` / \`brand_map_keyword_to_program\` — DNA Music catalog. Changes when programs are added/removed (rare).
+- \`appendix_locations\` / \`appendix_categories\` — DataForSEO reference data.
+
+If you are answering a question and your only source for a claim is a tool result from an earlier turn of this conversation, you are violating this contract. Re-call.
+
 ## Quick reference: which tool answers which question?
 
 - "What does my brand look like in search RIGHT NOW?" -> gsc_site_health_report

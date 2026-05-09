@@ -6,6 +6,18 @@
 - **Protocol**: MCP (Model Context Protocol) over Streamable HTTP
 - **Mode**: Stateless (no session required)
 
+## ⚠ Freshness contract
+
+**Read this before answering any time-sensitive question.** SEO data changes by the hour: rankings move, indexation flips, traffic shifts, schema breaks. Acting on stale information here can recommend exactly the wrong fix.
+
+- **Do not reuse tool outputs from earlier turns** as if they were current. A previous tool call is a snapshot from that moment, not the state of the world now.
+- **Re-call relevant tools at the start of any new analysis or recommendation.** If you're about to claim "the page is X / the keyword ranks at Y / the property has Z", that fact must come from a tool call made in the current turn.
+- **The MCP server caches OAuth tokens, never data.** Each tool call hits the upstream API live (Google, DataForSEO, SerpAPI, Clarity, Bing, etc.).
+- **The only tools that return historical/cached data by design** are the `history_*` family (Postgres time-series) and `snapshot_runs_list`. Everything else is live at request time.
+- **Especially time-sensitive (always re-call):** `gsc_url_inspection`, `gsc_search_analytics_query`, `gsc_sitemaps_get`, `pagespeed_analyze_url`, `onpage_lighthouse_live`, `schema_validate_url`, `http_headers_inspect`, `redirect_chain_check`, `ai_optimization_*_live`, `gsc_sites_list`.
+
+If your only source for a claim is a tool result from an earlier turn, you are violating this contract. Re-call.
+
 ## Overview
 
 This MCP server provides **190+ SEO and search tools** across 10 APIs:
