@@ -215,7 +215,10 @@ export async function runAgent(): Promise<AgentRunResult> {
 
     let proposedTasks: ProposedTask[] = [];
     try {
-      const opusResult = await opusChat(systemPrompt, userPrompt, { max_tokens: 8000 });
+      // Each task now carries acceptance_criteria + kpi_baseline + kpi_target +
+      // effort_size + root_cause + cluster_id, so per-task tokens roughly grew
+      // 50%. Bump from 8k → 16k so 12 tasks fit comfortably.
+      const opusResult = await opusChat(systemPrompt, userPrompt, { max_tokens: 16000 });
       totalCost += opusResult.cost_usd;
       stats.opus_cost_usd = opusResult.cost_usd;
       stats.opus_input_tokens = opusResult.usage.input_tokens;
