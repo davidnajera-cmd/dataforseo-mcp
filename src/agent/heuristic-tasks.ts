@@ -9,6 +9,7 @@
 
 import type { ProposedTask } from "../backlog-store.js";
 import { mapQueryToProgram, isNavegacional } from "./keyword-mapper.js";
+import { classifyQ10 } from "./q10-classifier.js";
 
 export type CollectorPayload = {
   domain: string;
@@ -78,6 +79,40 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     const targetPage = mapping?.primary_program_path ?? qw.page;
     const wrongPage = qw.page !== targetPage && targetPage !== null;
     const ambiguous = isAmbiguousQuery(qw.query);
+    const q10 = classifyQ10(qw.query);
+
+    // Q10 override BEFORE quick-win logic: never propose commercial CTR
+    // optimization for navegacional Q10 queries.
+    if (q10) {
+      tasks.push({
+        signature_key: `heuristic::q10_visibility::${qw.query}`.slice(0, 80),
+        title: `Recuperar visibilidad de portal Q10 para '${qw.query}' (pos ${qw.position.toFixed(1)})`,
+        description: `Query branded/navegacional de estudiantes actuales (${qw.impressions} impresiones, ${qw.clicks} clicks, pos ${qw.position.toFixed(1)}). Auditar la página de acceso (${q10.recommended_page_paths[0]}): que rankee correctamente para 'Q10', meta title con 'Acceso portal estudiantes DNA Music', canonical limpio, no redirects post-migración rotos. NO usar CTAs comerciales (WhatsApp comercial, formularios admisión). El éxito se mide en clicks branded recuperados, NO en leads.`,
+        domain,
+        category: "migracion",
+        priority: qw.opportunity_score > 1500 ? "alta" : "media",
+        impact_score: Math.min(80, Math.round(40 + qw.opportunity_score / 100)),
+        difficulty_score: 25,
+        confidence_score: 85,
+        impact_expected: `Recuperar ~${Math.round(qw.impressions * 0.04 - qw.clicks)} clicks branded/mes para acceso al portal. NO genera leads ni inscripciones (audiencia ya enrolada).`,
+        rationale: `Q10 navegacional '${qw.query}' (${qw.impressions} impresiones, CTR ${(qw.ctr * 100).toFixed(2)}%, pos ${qw.position.toFixed(1)}). Tráfico de estudiantes actuales buscando portal — NO captación comercial.`,
+        data_sources: { sources: ["gsc"], evidence: { query: qw.query, page: qw.page, position: qw.position, impressions: qw.impressions, clicks: qw.clicks, ctr: qw.ctr, q10_classification: q10 } },
+        source_type: "heuristic",
+        assignee_suggested: "dev",
+        intencion: "navegacional",
+        programa_relacionado: null,
+        materia_relacionada: null,
+        sede_relacionada: q10.sede_related,
+        action_type: "audit",
+        risk_level: "low",
+        requires_human_review: false,
+        audience: "estudiantes_actuales",
+        funnel_stage: "soporte_acceso",
+        conversion_expected: "no_aplica",
+        business_goal: q10.business_goal,
+      });
+      continue;
+    }
 
     if (ambiguous) {
       // Las queries ambiguas no entran como quick win directo. Se proponen como
@@ -145,30 +180,53 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     .sort((a, b) => a.delta - b.delta)
     .slice(0, 3);
   for (const loser of topLosers) {
-    const isPortal = isNavegacional(loser.query);
+    const q10 = classifyQ10(loser.query);
+    if (q10) {
+      tasks.push({
+        signature_key: `heuristic::q10_recovery::${loser.query}`.slice(0, 80),
+        title: `Recuperar visibilidad de portal Q10 para '${loser.query}' (perdió ${Math.abs(loser.delta)} clicks)`,
+        description: `Tráfico branded/navegacional de estudiantes actuales que buscan acceder al portal académico. Auditar la página de acceso (sugerida ${q10.recommended_page_paths[0]}): title con 'Q10' explícito, meta description que diga "Acceso portal estudiantes DNA Music", indexación, canonical, redirects post-migración, sitemap. NO agregar CTAs comerciales (WhatsApp comercial, formularios de admisiones). Objetivo: reducir fricción de acceso y proteger tráfico branded.`,
+        domain,
+        category: "migracion",
+        priority: Math.abs(loser.delta) > 200 ? "alta" : "media",
+        impact_score: Math.min(85, Math.round(45 + Math.abs(loser.delta) / 8)),
+        difficulty_score: 25,
+        confidence_score: 90,
+        impact_expected: `Restablecer ~${Math.abs(loser.delta)} clicks/mes de estudiantes actuales hacia el portal de acceso. Reduce tickets de soporte y protege reputación branded. NO genera leads ni matrículas — la audiencia ya está enrolada.`,
+        rationale: `Query Q10 navegacional '${loser.query}' cayó ${loser.delta} clicks (de ${loser.clicks_prior} a ${loser.clicks_current}). Q10 es el portal académico — estudiantes actuales, NO captación.`,
+        data_sources: { sources: ["gsc"], evidence: { query: loser.query, delta: loser.delta, clicks_current: loser.clicks_current, clicks_prior: loser.clicks_prior, q10_classification: q10 } },
+        source_type: "heuristic",
+        assignee_suggested: "dev",
+        intencion: "navegacional",
+        programa_relacionado: null,
+        materia_relacionada: null,
+        sede_relacionada: q10.sede_related,
+        action_type: "audit",
+        risk_level: "medium",
+        requires_human_review: false,
+        audience: "estudiantes_actuales",
+        funnel_stage: "soporte_acceso",
+        conversion_expected: "no_aplica",
+        business_goal: q10.business_goal,
+      });
+      continue;
+    }
+
     tasks.push({
       signature_key: `heuristic::lost_traffic::${loser.query}`.slice(0, 80),
-      title: isPortal
-        ? `Restablecer acceso al portal: '${loser.query}' perdió ${Math.abs(loser.delta)} clicks (estudiantes activos)`
-        : `Auditar caída de '${loser.query}' (${loser.delta} clicks vs 30d previos)`,
-      description: isPortal
-        ? `Query navegacional de estudiantes activos. Verificar que la URL del portal/login (ej. /portal-estudiantes/acceso-q10) responde 200, no tiene cambio de URL post-migración, mantiene el meta title con la palabra clave Q10/portal/login, y está en el sitemap. El objetivo NO es captación comercial — es restablecer acceso y proteger experiencia de estudiantes que ya pagaron.`
-        : `Verificar status de la página principal que rankea para '${loser.query}': cambios de URL, redirecciones, contenido eliminado, schema roto. Comparar SERP actual vs hace 60 días. Reportar plan de recuperación.`,
+      title: `Auditar caída de '${loser.query}' (${loser.delta} clicks vs 30d previos)`,
+      description: `Verificar status de la página principal que rankea para '${loser.query}': cambios de URL, redirecciones, contenido eliminado, schema roto. Comparar SERP actual vs hace 60 días. Reportar plan de recuperación.`,
       domain,
-      category: isPortal ? "migracion" : "technical",
+      category: "technical",
       priority: Math.abs(loser.delta) > 200 ? "alta" : "media",
       impact_score: Math.min(95, Math.round(50 + Math.abs(loser.delta) / 5)),
       difficulty_score: 35,
       confidence_score: 80,
-      impact_expected: isPortal
-        ? `Restablecer acceso a ~${Math.abs(loser.delta)} clicks/mes de estudiantes activos. Sin impacto comercial directo (no genera leads), pero protege reputación y evita tickets de soporte.`
-        : `Recuperar parcial o totalmente ${Math.abs(loser.delta)} clicks/mes perdidos`,
-      rationale: `Query '${loser.query}' cayó ${loser.delta} clicks comparando los últimos 30 días vs los 30 anteriores (de ${loser.clicks_prior} a ${loser.clicks_current}). ${isPortal ? "Query navegacional (portal/login/Q10) — son estudiantes actuales, NO captación." : "Patrón sugiere problema técnico o cambio de SERP."}`,
-      data_sources: { sources: ["gsc"], evidence: { query: loser.query, delta: loser.delta, clicks_current: loser.clicks_current, clicks_prior: loser.clicks_prior, navegacional: isPortal } },
+      impact_expected: `Recuperar parcial o totalmente ${Math.abs(loser.delta)} clicks/mes perdidos`,
+      rationale: `Query '${loser.query}' cayó ${loser.delta} clicks comparando los últimos 30 días vs los 30 anteriores (de ${loser.clicks_prior} a ${loser.clicks_current}). Patrón sugiere problema técnico o cambio de SERP.`,
+      data_sources: { sources: ["gsc"], evidence: { query: loser.query, delta: loser.delta, clicks_current: loser.clicks_current, clicks_prior: loser.clicks_prior } },
       source_type: "heuristic",
-      assignee_suggested: isPortal ? "dev" : "SEO",
-      intencion: isPortal ? "navegacional" : null,
-      programa_relacionado: null, // Q10 NO se mapea a programas comerciales
+      assignee_suggested: "SEO",
       action_type: "audit",
       risk_level: "medium",
       requires_human_review: false,

@@ -463,12 +463,14 @@ function renderTaskCard(row) {
   const riskBadge = row.risk_level && row.risk_level !== "low" ? `<span class="risk-badge risk-${esc(row.risk_level)}">⚠ ${esc(row.risk_level)}</span>` : "";
   const reviewBadge = row.requires_human_review ? `<span class="review-badge">👤 review</span>` : "";
   const actionBadge = row.action_type && row.action_type !== "execution" ? `<span class="action-badge action-${esc(row.action_type)}">${esc(row.action_type)}</span>` : "";
+  const audienceBadge = row.audience === "estudiantes_actuales" ? `<span class="audience-badge audience-current">🎓 estudiantes actuales</span>` : "";
   return `
     <article class="task-card priority-${esc(row.priority)}${row.requires_human_review ? " needs-review" : ""}" data-id="${esc(row.id)}">
       <header>
         <span class="priority-pill priority-${esc(row.priority)}">${esc(row.priority)}</span>
         <span class="category-pill">${esc(row.category)}</span>
         ${actionBadge}
+        ${audienceBadge}
         ${riskBadge}
         ${reviewBadge}
         ${sourceBadge}
@@ -495,6 +497,9 @@ async function openTaskModal(id) {
     task.sede_relacionada ? `Sede: ${task.sede_relacionada}` : null,
     task.modalidad_jornada ? `Modalidad: ${task.modalidad_jornada}` : null,
     task.intencion ? `Intención: ${task.intencion}` : null,
+    task.audience ? `Audiencia: ${task.audience}` : null,
+    task.funnel_stage ? `Funnel: ${task.funnel_stage}` : null,
+    task.conversion_expected ? `Conversión: ${task.conversion_expected}` : null,
   ].filter(Boolean).map((t) => esc(t)).join(" · ");
   const scoresPanel = task.impact_score !== null && task.impact_score !== undefined ? `
     <div class="modal-scores">
@@ -524,6 +529,7 @@ async function openTaskModal(id) {
     <h5>Impacto SEO esperado</h5>
     <p>${esc(task.impact_expected ?? "Sin estimación")}</p>
     ${task.impact_conversion ? `<h5>Impacto en conversión web</h5><p>${esc(task.impact_conversion)}</p>` : ""}
+    ${task.business_goal ? `<h5>Objetivo de negocio</h5><p>${esc(task.business_goal)}</p>` : ""}
     ${task.assignee_suggested ? `<h5>Asignado sugerido</h5><p>${esc(task.assignee_suggested)}</p>` : ""}
     <h5>Fuentes / evidencia</h5>
     <pre class="evidence">${esc(JSON.stringify(task.data_sources, null, 2))}</pre>

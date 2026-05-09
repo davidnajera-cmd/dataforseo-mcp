@@ -30,6 +30,9 @@ export type BacklogActionType =
   | "outreach_opportunity"
   | "config";             // setup técnico (GA4 events, sitemap)
 export type BacklogRiskLevel = "low" | "medium" | "high";
+export type BacklogAudience = "estudiantes_actuales" | "leads_nuevos" | "mixto" | "publico_general" | "ecommerce_buyers";
+export type BacklogFunnelStage = "descubrimiento" | "consideracion" | "decision" | "soporte_acceso" | "retencion";
+export type BacklogConversionExpected = "matricula" | "lead" | "compra" | "no_aplica" | "navegacional";
 
 export type BacklogTask = {
   id: number;
@@ -63,6 +66,10 @@ export type BacklogTask = {
   action_type: BacklogActionType | null;
   risk_level: BacklogRiskLevel | null;
   requires_human_review: boolean | null;
+  audience: BacklogAudience | null;
+  funnel_stage: BacklogFunnelStage | null;
+  conversion_expected: BacklogConversionExpected | null;
+  business_goal: string | null;
   notes: string | null;
   slack_list_item_id: string | null;
   slack_synced_at: string | null;
@@ -109,6 +116,10 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists action_type text`;
   await sql`alter table seo_backlog_tasks add column if not exists risk_level text`;
   await sql`alter table seo_backlog_tasks add column if not exists requires_human_review boolean default false`;
+  await sql`alter table seo_backlog_tasks add column if not exists audience text`;
+  await sql`alter table seo_backlog_tasks add column if not exists funnel_stage text`;
+  await sql`alter table seo_backlog_tasks add column if not exists conversion_expected text`;
+  await sql`alter table seo_backlog_tasks add column if not exists business_goal text`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_list_item_id text`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_synced_at timestamptz`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_last_pushed_status text`;
@@ -166,6 +177,10 @@ export type ProposedTask = {
   action_type?: BacklogActionType | null;
   risk_level?: BacklogRiskLevel | null;
   requires_human_review?: boolean | null;
+  audience?: BacklogAudience | null;
+  funnel_stage?: BacklogFunnelStage | null;
+  conversion_expected?: BacklogConversionExpected | null;
+  business_goal?: string | null;
 };
 
 function clampScore(v: unknown): number | null {
@@ -217,6 +232,16 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
            ${task.modalidad_jornada ?? null}, ${task.intencion ?? null},
            ${task.action_type ?? null}, ${task.risk_level ?? null}, ${task.requires_human_review ?? false})
       `;
+      // Set the new business-classification columns separately to keep the main
+      // insert backwards-compatible if any of them are missing in the row.
+      await sql`
+        update seo_backlog_tasks
+        set audience = ${task.audience ?? null},
+            funnel_stage = ${task.funnel_stage ?? null},
+            conversion_expected = ${task.conversion_expected ?? null},
+            business_goal = ${task.business_goal ?? null}
+        where task_signature = ${signature}
+      `;
       inserted++;
       continue;
     }
@@ -248,6 +273,10 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           action_type = coalesce(${task.action_type ?? null}, action_type),
           risk_level = coalesce(${task.risk_level ?? null}, risk_level),
           requires_human_review = coalesce(${task.requires_human_review ?? null}, requires_human_review),
+          audience = coalesce(${task.audience ?? null}, audience),
+          funnel_stage = coalesce(${task.funnel_stage ?? null}, funnel_stage),
+          conversion_expected = coalesce(${task.conversion_expected ?? null}, conversion_expected),
+          business_goal = coalesce(${task.business_goal ?? null}, business_goal),
           updated_at = now()
       where id = ${row.id}
     `;
@@ -282,8 +311,9 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
       impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
       proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
       programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
-      action_type, risk_level, requires_human_review, notes,
-      slack_list_item_id, slack_synced_at::text
+      action_type, risk_level, requires_human_review,
+      audience, funnel_stage, conversion_expected, business_goal,
+      notes, slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
       and (${filters.status ?? null}::text is null or status = ${filters.status ?? null})
@@ -305,8 +335,9 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
       impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
       proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
       programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
-      action_type, risk_level, requires_human_review, notes,
-      slack_list_item_id, slack_synced_at::text
+      action_type, risk_level, requires_human_review,
+      audience, funnel_stage, conversion_expected, business_goal,
+      notes, slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];
   return rows[0] ?? null;

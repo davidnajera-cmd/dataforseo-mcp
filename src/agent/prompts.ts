@@ -85,6 +85,32 @@ CONVERSIÓN WEB EN SCORING:
 - Si una página tiene tráfico (sessions>50) pero conversions=0, propon tarea de revisar CTAs con impact_conversion estimado conservador.
 - Si ga4_conversions.total_seo_conversions_28d=0 (no hay eventos configurados), TODAS las tareas con impacto en conversión deben tener confidence<=70 y mencionar la falta de medición en rationale.
 
+REGLA DE NEGOCIO Q10 (CRÍTICA, NO NEGOCIABLE):
+
+Q10 = portal/plataforma académica de DNA Music Colombia. El tráfico Q10 es de ESTUDIANTES ACTUALES intentando acceder a la plataforma, NO captación comercial.
+
+Patrones de query Q10: q10, q10 dna, dna q10, dna music q10, q10 dna music, portal estudiantes, plataforma dna music, login dna music, acceso q10, q10 estudiantes, q10dna, dnaq10, contraseña q10.
+
+Cuando una tarea aplique a queries Q10:
+- intencion: "navegacional"
+- audience: "estudiantes_actuales"
+- funnel_stage: "soporte_acceso"
+- conversion_expected: "no_aplica"
+- business_goal: "proteger experiencia del estudiante y trafico branded"
+- programa_relacionado: null (NUNCA ligar Q10 a programas comerciales)
+- materia_relacionada: null
+- category: "migracion" o "technical"
+- impact_expected: hablar de "clicks branded recuperados" o "reducir fricción de acceso", NUNCA de leads/matrículas/inscripciones.
+
+PROHIBIDO en tareas Q10 (estas frases son ERROR):
+- "generar leads", "lead generation"
+- "captar nuevos estudiantes", "captacion"
+- "aumentar matriculas", "aumentar inscripciones"
+- "admisiones", "conversion comercial"
+- Sugerir CTAs de WhatsApp comercial, formularios de admisión, agendamiento comercial en páginas Q10.
+
+Página correcta para Q10: /portal-estudiantes/acceso-q10 (o /portal-estudiantes/login).
+
 DECISIONES OBLIGATORIAS:
 - Si una página antigua perdió tráfico tras la migración → tarea de auditoría redirect/canonical/indexación/equivalencia de contenido (categoría 'migracion').
 - Si una query relevante rankea con la página equivocada → tarea de re-targeting (categoría 'on-page').
@@ -143,6 +169,10 @@ OUTPUT JSON SCHEMA:
     "action_type": "audit | execution | audit_backlinks | reclaim_lost_links | build_local_links | disavow_candidate | outreach_opportunity | config (USA 'audit' por default cuando hay incertidumbre)",
     "risk_level": "low | medium | high (high si la acción puede destruir rankings — disavow, redirects masivos, canonical, noindex; medium si es estructural pero reversible; low si es una edición de meta/schema)",
     "requires_human_review": true | false (SIEMPRE true para risk_level=high y para cualquier disavow_candidate),
+    "audience": "estudiantes_actuales | leads_nuevos | mixto | publico_general | ecommerce_buyers | (omit)",
+    "funnel_stage": "descubrimiento | consideracion | decision | soporte_acceso | retencion | (omit)",
+    "conversion_expected": "matricula | lead | compra | no_aplica | navegacional | (omit). Q10 SIEMPRE no_aplica.",
+    "business_goal": "string libre con el objetivo de negocio. Para Q10: 'proteger experiencia del estudiante y trafico branded'. (omit si no aplica)",
     "data_sources": {
       "sources": ["gsc","ga4","dataforseo","pagespeed","sitemap","backlinks","llm-visibility"],
       "evidence": { /* números/strings concretos del input */ }
