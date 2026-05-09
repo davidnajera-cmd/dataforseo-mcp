@@ -15,6 +15,7 @@ import { registerHistoryTools } from "./tools-history.js";
 import { registerBacklogTools } from "./tools-backlog.js";
 import { registerBrandKnowledgeTools } from "./tools-brand-knowledge.js";
 import { registerPlaybookTools } from "./tools-playbook.js";
+import { registerAdLibTools } from "./tools-adlib.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
 
@@ -162,6 +163,9 @@ export function createServer(): McpServer {
 
   // Workflow playbooks: step-by-step recipes for common analyses (360 audit, etc.)
   registerPlaybookTools(server);
+
+  // Ads Library tools backed by Apify (Meta, Google, TikTok + escape hatch)
+  registerAdLibTools(server);
 
   return server;
 }

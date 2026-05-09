@@ -1708,7 +1708,7 @@ export function registerTools(server: McpServer) {
   // ============================================================
   server.tool(
     "serp_google_ads_advertisers_live",
-    "Search Google Ads Transparency Center for advertisers.",
+    "Discovery in Google Ads Transparency Center: search advertisers by name (NOT creative-level data). Returns a list of advertisers with their `advertiser_id` (e.g. 'AR11877675844556029953'), verified status, region(s) where ads run, and primary identity. Works for LATAM (CO 2170, MX 2484, AR 2032, etc). USE CASE: find who's pauting around a brand/keyword in a market and capture their advertiser_ids; then pass those IDs into adlib_google_search (Apify) to actually pull individual creative units (image/video/text, dates active, copy). Pairs with adlib_meta_search and adlib_tiktok_search for cross-platform competitive ads research.",
     {
       keyword: z.string().describe("Advertiser name or keyword"),
       location_code: z.number().optional(),

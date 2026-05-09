@@ -51,6 +51,10 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "REPO_GITHUB_NAME", group: "Repo Snapshot", label: "GitHub repo name", description: "Nombre del repo Next.js (ej: frontend_web_page).", sensitive: false, requiredFor: "Slug validation + grounding del agente" },
   { name: "REPO_GITHUB_BRANCH", group: "Repo Snapshot", label: "Branch", description: "Branch a leer (default: main).", sensitive: false, requiredFor: "Slug validation + grounding del agente" },
   { name: "REPO_GITHUB_TOKEN", group: "Repo Snapshot", label: "GitHub PAT (read-only)", description: "PAT con scope Contents:Read para el repo del sitio. Fine-grained recomendado, scope minimo.", sensitive: true, requiredFor: "Slug validation + grounding del agente" },
+  { name: "APIFY_API_TOKEN", group: "Apify", label: "Apify API token", description: "Personal API token de Apify (https://console.apify.com/account/integrations). Habilita las tools adlib_* (Meta/Google/TikTok ads library) y apify_run_actor. Pay-per-result — controlar uso desde tu dashboard de Apify.", sensitive: true, requiredFor: "Ads Library scraping (Meta/Google/TikTok) y otros actors" },
+  { name: "APIFY_ACTOR_META_ADLIB", group: "Apify", label: "Meta ad library actor ID", description: "Actor ID de Apify para Meta Ad Library (ej. 'curious_coder/facebook-ads-library-scraper'). Si esta vacio, se usa un default razonable. Cambialo si encontras un actor mejor en apify.com/store.", sensitive: false, requiredFor: "adlib_meta_search" },
+  { name: "APIFY_ACTOR_GOOGLE_ADLIB", group: "Apify", label: "Google ad library actor ID", description: "Actor ID de Apify para Google Ads Transparency Center scraping. Default: 'apify/google-ads-transparency-center-scraper'.", sensitive: false, requiredFor: "adlib_google_search" },
+  { name: "APIFY_ACTOR_TIKTOK_ADLIB", group: "Apify", label: "TikTok ad library actor ID", description: "Actor ID de Apify para TikTok Commercial Content Library. Default: 'apify/tiktok-commercial-content-api-scraper'.", sensitive: false, requiredFor: "adlib_tiktok_search" },
 ];
 
 type RuntimeVariableRow = {

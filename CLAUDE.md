@@ -304,6 +304,29 @@ For dnamusic.edu.co specifically, both formats are verified (URL-prefix `https:/
 
 ---
 
+## Ads Library Tools (4 tools, Apify-backed)
+
+Cross-platform competitive ads research. The official APIs (Meta, Google, TikTok) are gated to EU-only research access — these tools bypass that by calling Apify scrapers, so they work for LATAM. **Pay-per-result via Apify** — keep `max_items` tight unless doing intentional bulk pulls.
+
+Setup: configure `APIFY_API_TOKEN` (https://console.apify.com/account/integrations). Optionally override actor IDs via `APIFY_ACTOR_META_ADLIB`, `APIFY_ACTOR_GOOGLE_ADLIB`, `APIFY_ACTOR_TIKTOK_ADLIB` if you find a better actor in the Apify Store than the defaults.
+
+| Tool | Description | Key Parameters |
+|------|-------------|----------------|
+| `adlib_meta_search` | Meta (FB+IG) ad library — full creatives by search/page/country | `search_terms?`, `page_ids?`, `country?`, `ad_type?`, `ad_active_status?`, `max_items?` |
+| `adlib_google_search` | Google Ads Transparency Center creatives by advertiser | `advertiser_id?`, `domain?`, `region?`, `ad_format?`, `date_range_start?`, `date_range_end?`, `max_items?` |
+| `adlib_tiktok_search` | TikTok Commercial Content Library | `advertiser_name?`, `keyword?`, `country?`, `max_items?` |
+| `apify_run_actor` | Escape hatch: run any Apify actor by ID with arbitrary input | `actor_id`, `actor_input`, `max_items?`, `timeout_ms?` |
+
+**Recommended workflow for ads research:**
+
+1. Discovery: `serp_google_ads_advertisers_live` with `keyword` + `location_code=2170` (CO) → returns competitors with `advertiser_id`.
+2. Creative-level pull: `adlib_google_search` with the `advertiser_id` from step 1 → returns actual ad units.
+3. Cross-platform: `adlib_meta_search` + `adlib_tiktok_search` with the same brand for FB/IG/TikTok creative coverage.
+
+**Cost note**: each Apify call charges based on the actor's pricing model — usually $0.05–$0.50 per run depending on result count. Monitor at https://console.apify.com/billing.
+
+---
+
 ## Microsoft Clarity Tools (7 tools)
 
 All Clarity tools use the Data Export API with Bearer token authentication. Max 10 API requests per project per day. Data is limited to the last 1-3 days.
