@@ -87,7 +87,7 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       tasks.push({
         signature_key: `heuristic::q10_visibility::${qw.query}`.slice(0, 80),
         title: `Recuperar visibilidad de portal Q10 para '${qw.query}' (pos ${qw.position.toFixed(1)})`,
-        description: `Query branded/navegacional de estudiantes actuales (${qw.impressions} impresiones, ${qw.clicks} clicks, pos ${qw.position.toFixed(1)}). Auditar la página de acceso (${q10.recommended_page_paths[0]}): que rankee correctamente para 'Q10', meta title con 'Acceso portal estudiantes DNA Music', canonical limpio, no redirects post-migración rotos. NO usar CTAs comerciales (WhatsApp comercial, formularios admisión). El éxito se mide en clicks branded recuperados, NO en leads.`,
+        description: `Query branded/navegacional de estudiantes actuales (${qw.impressions} impresiones, ${qw.clicks} clicks, pos ${qw.position.toFixed(1)}). Auditar la página de acceso (${q10.recommended_page_paths[0]}): que rankee correctamente para 'Q10', meta title con 'Acceso portal estudiantes DNA Music', canonical limpio, no redirects post-migración rotos. No usar CTAs de captacion comercial. El éxito se mide en clicks branded recuperados, no en captacion.`,
         domain,
         category: "migracion",
         priority: qw.opportunity_score > 1500 ? "alta" : "media",
@@ -185,7 +185,7 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       tasks.push({
         signature_key: `heuristic::q10_recovery::${loser.query}`.slice(0, 80),
         title: `Recuperar visibilidad de portal Q10 para '${loser.query}' (perdió ${Math.abs(loser.delta)} clicks)`,
-        description: `Tráfico branded/navegacional de estudiantes actuales que buscan acceder al portal académico. Auditar la página de acceso (sugerida ${q10.recommended_page_paths[0]}): title con 'Q10' explícito, meta description que diga "Acceso portal estudiantes DNA Music", indexación, canonical, redirects post-migración, sitemap. NO agregar CTAs comerciales (WhatsApp comercial, formularios de admisiones). Objetivo: reducir fricción de acceso y proteger tráfico branded.`,
+        description: `Tráfico branded/navegacional de estudiantes actuales que buscan acceder al portal académico. Auditar la página de acceso (sugerida ${q10.recommended_page_paths[0]}): title con 'Q10' explícito, meta description que diga "Acceso portal estudiantes DNA Music", indexación, canonical, redirects post-migración, sitemap. No agregar CTAs de captacion comercial en esta pagina (es navegacional, no comercial). Objetivo: reducir fricción de acceso y proteger tráfico branded.`,
         domain,
         category: "migracion",
         priority: Math.abs(loser.delta) > 200 ? "alta" : "media",

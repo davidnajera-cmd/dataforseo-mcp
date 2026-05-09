@@ -17,6 +17,7 @@ import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun } from
 import { getRuntimeVariable } from "../runtime-config.js";
 import { generateHeuristicTasks, CollectorPayload } from "./heuristic-tasks.js";
 import { pushTasksToSlack } from "../slack-sync.js";
+import { findQ10Violations } from "./q10-classifier.js";
 
 type DeepSeekSummary = {
   domain: string;
@@ -177,6 +178,31 @@ export async function runAgent(): Promise<AgentRunResult> {
       proposedTasks = parsed
         .filter((t): t is ProposedTask => isValidTask(t))
         .slice(0, maxTasks);
+
+      // Defensive: enforce Q10 business rule on Opus output. If a task targets
+      // a Q10/portal page or has audience='estudiantes_actuales' but contains
+      // banned commercial phrases (matricula, admision, captacion, etc.), drop
+      // or clean it. We don't want Opus to leak commercial framing into Q10.
+      const q10Stats = { rejected: 0, cleaned: 0 };
+      proposedTasks = proposedTasks.flatMap((t) => {
+        const looksQ10 = t.audience === "estudiantes_actuales" || t.intencion === "navegacional"
+          || /q\s?10|portal[\s-]?estudiantes|plataforma[\s-]?dna|acceso[\s-]?q\s?10/i.test(t.title + " " + t.description);
+        if (!looksQ10) return [t];
+        const titleViolations = findQ10Violations(t.title);
+        const descViolations = findQ10Violations(t.description);
+        if (titleViolations.length > 0) {
+          q10Stats.rejected++;
+          return []; // drop entirely — title with banned phrase is too risky
+        }
+        if (descViolations.length > 0) {
+          q10Stats.cleaned++;
+          // Append a cleanup note instead of stripping — the team can see the warning.
+          return [{ ...t, description: t.description + ` [WARN: revisar wording — palabras detectadas como comerciales en contexto Q10: ${descViolations.join(", ")}]` }];
+        }
+        return [t];
+      });
+      stats.q10_rejected_opus_tasks = q10Stats.rejected;
+      stats.q10_cleaned_opus_tasks = q10Stats.cleaned;
     } catch (error) {
       errors.push({ stage: "opus", error: error instanceof Error ? error.message : "unknown" });
     }
