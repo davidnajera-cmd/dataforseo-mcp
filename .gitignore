@@ -9,3 +9,4 @@ tmp-pdf-venv/
 # Local backups
 .env.local.bak
 *.bak
+.claude/
