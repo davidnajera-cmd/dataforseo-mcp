@@ -10,3 +10,4 @@ tmp-pdf-venv/
 .env.local.bak
 *.bak
 .claude/
+.DS_Store
