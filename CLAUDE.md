@@ -258,6 +258,26 @@ All SerpAPI tools return real-time search results from various engines.
 
 ## Google Search Console Tools (9 tools)
 
+### `site_url` parameter — read this before any GSC call
+
+GSC accepts **two property formats** that return **different datasets**:
+
+| Format | Example | Captures |
+|---|---|---|
+| **URL-prefix** | `https://dnamusic.edu.co/` | Only URLs with that exact prefix. Excludes www, http, subdomains. |
+| **Domain** | `sc-domain:dnamusic.edu.co` | Apex + www + http + https + **all** subdomains. Strict superset. |
+
+When to use each:
+- **Post-migration audits / pre-vs-post comparisons** → use `sc-domain:` (catches the www era + apex era together; URL-prefix `https://...` undercounts pre-migration data that lived on www).
+- **Current-site-only analysis when host is stable** → URL-prefix is fine.
+- **URL Inspection of a specific URL** → either works; prefer Domain for full coverage.
+
+A newly verified Domain property takes **24–72h to backfill data**. Until then it returns empty rows even if the URL-prefix has data — fall back to URL-prefix during the backfill window.
+
+Always call `gsc_sites_list` first to see which property formats the connected account has access to. **Don't guess** — copy the literal `siteUrl` string from that response.
+
+For dnamusic.edu.co specifically, both formats are verified (URL-prefix `https://dnamusic.edu.co/` and Domain `sc-domain:dnamusic.edu.co`). Default to the Domain variant for any analysis spanning the WP→Next migration cutover (~Nov 2025).
+
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `gsc_search_analytics_query` | Query search traffic data (clicks, impressions, CTR, position) | `site_url`, `start_date`, `end_date`, `dimensions?`, `search_type?`, `row_limit?`, `dimension_filter_groups?` |

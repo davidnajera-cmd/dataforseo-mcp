@@ -8,6 +8,19 @@ function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
+// Mirror of the constant in tools-gsc.ts so any GSC-flavored tool registered
+// here surfaces the same site_url guidance. Do not let these drift apart —
+// keep the wording in sync.
+const GSC_SITE_URL_DESCRIPTION =
+  "GSC property identifier. TWO formats accepted, they return DIFFERENT data:\n" +
+  "  • URL-prefix (e.g. 'https://example.com/'): only URLs starting with that exact prefix. Excludes www, http, subdomains.\n" +
+  "  • Domain (e.g. 'sc-domain:example.com'): every URL on the domain — apex + www + http + https + ALL subdomains. Strict superset of the URL-prefix variant.\n" +
+  "Choose based on intent:\n" +
+  "  • Post-migration audits / pre-vs-post comparisons → 'sc-domain:...' (catches www era + apex era together).\n" +
+  "  • Current-site-only analysis when host is stable → URL-prefix is fine.\n" +
+  "Note: a newly verified Domain property takes 24–72h to backfill data. Until then it returns empty rows even if the URL-prefix has data.\n" +
+  "Use gsc_sites_list to see which formats the connected account has access to before guessing.";
+
 export function registerSeoWorkflowTools(server: McpServer) {
   // gsc_url_bulk_inspection moved to tools-gsc.ts with a richer response shape;
   // do not register here to avoid duplicate-tool runtime error.
@@ -16,7 +29,7 @@ export function registerSeoWorkflowTools(server: McpServer) {
     "gsc_low_ctr_opportunities",
     "Find high-impression pages or queries with low CTR in Search Console.",
     {
-      site_url: z.string(),
+      site_url: z.string().describe(GSC_SITE_URL_DESCRIPTION),
       start_date: z.string(),
       end_date: z.string(),
       dimension: z.enum(["page", "query"]).optional(),

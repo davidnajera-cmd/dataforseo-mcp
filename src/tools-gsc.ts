@@ -6,15 +6,30 @@ function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
 
+// Reusable description for the site_url parameter. GSC accepts two property
+// formats; they return DIFFERENT data and people mix them up constantly.
+// Bake the rule into the tool surface so any client (Claude, scripts, agents)
+// sees the guidance without reading docs.
+const SITE_URL_DESCRIPTION =
+  "GSC property identifier. TWO formats accepted, they return DIFFERENT data:\n" +
+  "  • URL-prefix (e.g. 'https://example.com/'): only URLs starting with that exact prefix. Excludes www, http, subdomains.\n" +
+  "  • Domain (e.g. 'sc-domain:example.com'): every URL on the domain — apex + www + http + https + ALL subdomains. Strict superset of the URL-prefix variant.\n" +
+  "Choose based on intent:\n" +
+  "  • Post-migration audits / pre-vs-post comparisons → 'sc-domain:...' (catches www era + apex era together).\n" +
+  "  • Current-site-only analysis when host is stable → URL-prefix is fine.\n" +
+  "  • URL Inspection of a specific URL → either works, prefer Domain for full coverage.\n" +
+  "Note: a newly verified Domain property takes 24–72h to backfill data. Until then it returns empty rows even if the URL-prefix has data.\n" +
+  "Use gsc_sites_list to see which formats the connected account has access to before guessing.";
+
 export function registerGscTools(server: McpServer) {
   // ============================================================
   // SEARCH ANALYTICS (READ)
   // ============================================================
   server.tool(
     "gsc_search_analytics_query",
-    "Foundational GSC tool: returns clicks/impressions/CTR/position rows for a date range, grouped by your chosen dimensions (query, page, country, device, date, searchAppearance). Use this when you need raw numbers. For curated views prefer gsc_site_health_report (executive summary), gsc_keyword_opportunities (quick wins), or gsc_search_analytics_compare (period vs period).",
+    "Foundational GSC tool: returns clicks/impressions/CTR/position rows for a date range, grouped by your chosen dimensions (query, page, country, device, date, searchAppearance). Use this when you need raw numbers. For curated views prefer gsc_site_health_report (executive summary), gsc_keyword_opportunities (quick wins), or gsc_search_analytics_compare (period vs period).\n\n⚠ site_url choice CHANGES the dataset. URL-prefix returns only URLs matching that exact prefix; Domain ('sc-domain:...') returns the entire domain (apex + www + http + all subdomains). Cross-property comparisons are NOT apples-to-apples. For migration audits or anything spanning a host change, always use the Domain property.",
     {
-      site_url: z.string().describe("Site URL (e.g., 'https://example.com/' or 'sc-domain:example.com')"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
       start_date: z.string().describe("Start date (YYYY-MM-DD)"),
       end_date: z.string().describe("End date (YYYY-MM-DD)"),
       dimensions: z.array(z.enum(["country", "device", "page", "query", "searchAppearance", "date"])).optional()
@@ -55,7 +70,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sitemaps_list",
     "List all sitemaps submitted for a site in Google Search Console.",
     {
-      site_url: z.string().describe("Site URL"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
     },
     async ({ site_url }) => {
       const encodedSite = encodeURIComponent(site_url);
@@ -68,7 +83,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sitemaps_get",
     "Get information about a specific sitemap.",
     {
-      site_url: z.string().describe("Site URL"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
       feedpath: z.string().describe("Full URL of the sitemap"),
     },
     async ({ site_url, feedpath }) => {
@@ -83,7 +98,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sitemaps_submit",
     "Submit a sitemap for a site in Google Search Console.",
     {
-      site_url: z.string().describe("Site URL"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
       feedpath: z.string().describe("Full URL of the sitemap to submit"),
     },
     async ({ site_url, feedpath }) => {
@@ -98,7 +113,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sitemaps_delete",
     "Remove a sitemap from a site in Google Search Console.",
     {
-      site_url: z.string().describe("Site URL"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
       feedpath: z.string().describe("Full URL of the sitemap to delete"),
     },
     async ({ site_url, feedpath }) => {
@@ -114,7 +129,7 @@ export function registerGscTools(server: McpServer) {
   // ============================================================
   server.tool(
     "gsc_sites_list",
-    "List all sites in your Google Search Console account.",
+    "List all GSC properties the connected account has access to. ALWAYS call this first before any other GSC tool: the response shows you exactly which property formats are available (URL-prefix vs Domain — see site_url docs for any other GSC tool). Don't guess the format; copy the literal 'siteUrl' string from this response.",
     {},
     async () => {
       const result = await gscGet("/sites");
@@ -126,7 +141,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sites_get",
     "Get information about a specific site in Google Search Console.",
     {
-      site_url: z.string().describe("Site URL"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
     },
     async ({ site_url }) => {
       const encodedSite = encodeURIComponent(site_url);
@@ -139,7 +154,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sites_add",
     "Add a site to your Google Search Console account.",
     {
-      site_url: z.string().describe("Site URL to add"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION + "\n(For sites_add: the URL/domain you want to register and verify in GSC.)"),
     },
     async ({ site_url }) => {
       const encodedSite = encodeURIComponent(site_url);
@@ -152,7 +167,7 @@ export function registerGscTools(server: McpServer) {
     "gsc_sites_delete",
     "Remove a site from your Google Search Console account.",
     {
-      site_url: z.string().describe("Site URL to remove"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION + "\n(For sites_delete: the property you want to remove.)"),
     },
     async ({ site_url }) => {
       const encodedSite = encodeURIComponent(site_url);
@@ -169,7 +184,7 @@ export function registerGscTools(server: McpServer) {
     "Inspect ONE specific URL in Google's index. Returns coverageState (Indexed/Submitted/Excluded), indexingState, robotsTxtState, lastCrawlTime, googleCanonical vs userCanonical, mobile usability, rich results status. Use to debug 'why isn't this URL ranking' or 'is Google seeing what I expect'. For multiple URLs at once use gsc_url_bulk_inspection (rate-limited 200ms/url).",
     {
       inspection_url: z.string().describe("URL to inspect"),
-      site_url: z.string().describe("Site URL (property in GSC)"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
       language_code: z.string().optional().describe("Language code (e.g., 'en-US')"),
     },
     async ({ inspection_url, site_url, language_code }) => {
@@ -270,7 +285,7 @@ export function registerGscTools(server: McpServer) {
     "Inspect multiple URLs at once via the URL Inspection API. Sequential with 200ms delay between calls (rate limit ~2000/day per property). Returns per-URL coverage, indexing state, canonical, last crawl time, and rich results state, plus an aggregate summary.",
     {
       urls: z.array(z.string()).min(1).describe("List of URLs to inspect"),
-      site_url: z.string().describe("GSC property URL"),
+      site_url: z.string().describe(SITE_URL_DESCRIPTION),
       language_code: z.string().optional().describe("Language code, default 'en-US'"),
     },
     async ({ urls, site_url, language_code }) => {
