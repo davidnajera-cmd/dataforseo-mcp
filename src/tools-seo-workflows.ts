@@ -9,31 +9,8 @@ function formatResult(data: unknown): string {
 }
 
 export function registerSeoWorkflowTools(server: McpServer) {
-  server.tool(
-    "gsc_url_bulk_inspection",
-    "Inspect multiple URLs in Google Search Console index using urlInspection.index:inspect.",
-    {
-      urls: z.array(z.string().url()).max(50),
-      site_url: z.string().describe("GSC property, e.g. sc-domain:example.com or https://www.example.com/"),
-      language_code: z.string().optional(),
-    },
-    async ({ urls, site_url, language_code }) => {
-      const results = [];
-      for (const url of urls) {
-        try {
-          const result = await gscPost("/urlInspection/index:inspect", {
-            inspectionUrl: url,
-            siteUrl: site_url,
-            languageCode: language_code ?? "es-CO",
-          }, "searchconsole");
-          results.push({ url, ok: true, result });
-        } catch (error) {
-          results.push({ url, ok: false, error: error instanceof Error ? error.message : "Unknown error" });
-        }
-      }
-      return { content: [{ type: "text" as const, text: formatResult(results) }] };
-    }
-  );
+  // gsc_url_bulk_inspection moved to tools-gsc.ts with a richer response shape;
+  // do not register here to avoid duplicate-tool runtime error.
 
   server.tool(
     "gsc_low_ctr_opportunities",
