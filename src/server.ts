@@ -16,6 +16,7 @@ import { registerBacklogTools } from "./tools-backlog.js";
 import { registerBrandKnowledgeTools } from "./tools-brand-knowledge.js";
 import { registerPlaybookTools } from "./tools-playbook.js";
 import { registerAdLibTools } from "./tools-adlib.js";
+import { registerApifyResearchTools } from "./tools-apify-research.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
 
@@ -166,6 +167,9 @@ export function createServer(): McpServer {
 
   // Ads Library tools backed by Apify (Meta, Google, TikTok + escape hatch)
   registerAdLibTools(server);
+
+  // Research/intelligence Apify wrappers (Maps, Web Crawler, Instagram, YouTube)
+  registerApifyResearchTools(server);
 
   return server;
 }

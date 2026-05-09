@@ -304,6 +304,55 @@ For dnamusic.edu.co specifically, both formats are verified (URL-prefix `https:/
 
 ---
 
+## Apify Research Tools (4 tools)
+
+Beyond ad libraries: opinionated wrappers for the 4 recurring DNA SEO/marketing workflows. All Apify-backed, all configurable via runtime variables.
+
+| Tool | Description | Default actor |
+|------|-------------|---------------|
+| `local_google_maps_scraper` | Local SEO competitive scan: places by keyword + city, GBP completeness, ratings | `compass/crawler-google-places` |
+| `web_content_crawler` | Crawl websites and extract clean Markdown (Wayback recovery, competitor blog audits) | `apify/website-content-crawler` |
+| `social_instagram_scraper` | IG public data: profiles, posts, hashtags, places, comments | `apify/instagram-scraper` |
+| `social_youtube_transcript` | YouTube transcripts (preferred over channel-scraper — text is what SEO/LLM analysis needs) | `happitap/youtube-transcript-scraper` |
+
+## Curated actor catalog for `apify_run_actor`
+
+For everything else, use `apify_run_actor` with one of these. Look up the input schema on the actor's page on apify.com/store.
+
+**SEO competitive intelligence:**
+- `pro100chok/semrush-scraper` — Semrush domain analytics without paying the API
+- `gordian/builtwith-domain-scraper` — competitor tech stack
+- `happitap/subdomain-finder` — discover hidden subdomains
+- `radeance/ahrefs-scraper` / `radeance/semrush-scraper` / `radeance/similarweb-scraper` — alternatives
+
+**Social signal expansion (use when you need more than the 4 wrappers):**
+- `apify/instagram-reel-scraper` — reels with captions/transcripts
+- `apify/instagram-hashtag-scraper` — hashtag trend tracking
+- `apify/instagram-post-scraper` — post-level only (lighter than full IG scraper)
+- `apify/facebook-posts-scraper` (68K, 4.5) — organic FB posts (NOT ads — for that use `adlib_meta_search`)
+- `clockworks/tiktok-profile-scraper` (24K, 4.9) — TikTok profile + posts
+- `clockworks/tiktok-scraper` (174K, 4.7) — TikTok by hashtag/URL/search
+- `apidojo/tiktok-comments-scraper` — comments for sentiment analysis
+- `apidojo/tweet-scraper` (54K, 4.0) — Twitter/X, $0.40/1000 tweets
+
+**Reviews & reputation:**
+- `compass/Google-Maps-Reviews-Scraper` (38K, 4.8) — focused review extraction with deeper data than `local_google_maps_scraper`'s include_reviews
+- `nikita-sviridenko/trustpilot-reviews-scraper` (free) — Trustpilot
+- `lukaskrivka/google-maps-with-contact-details` — Maps + scrapes the website for emails
+
+**Content:**
+- `benthepythondev/newsletter-scraper` — Substack/Beehiiv/Ghost newsletters (instructor newsletters, competitor content)
+- `topaz_sharingan/Youtube-Transcript-Scraper-1` — alternative YT transcript actor
+
+**SERP alternatives (already covered by DataForSEO + SerpAPI; only use for fallback):**
+- `apify/google-search-scraper` (122K, 4.8)
+- `scraperlink/google-search-results-serp-scraper` ($0.05/1K results — cheapest)
+- `tri_angle/bing-search-scraper`
+
+**NOT recommended for DNA** (out of scope but technically available): LinkedIn profile/jobs scrapers, Indeed, Realtor, Zillow, Booking, Zomato, Skip Trace, Lead Finder, Contact Details Scraper. If a use case appears, run via `apify_run_actor` directly — but most are sales/recruitment tools that don't compound SEO insight.
+
+---
+
 ## Ads Library Tools (4 tools, Apify-backed)
 
 Cross-platform competitive ads research. The official APIs (Meta, Google, TikTok) are gated to EU-only research access — these tools bypass that by calling Apify scrapers, so they work for LATAM. **Pay-per-result via Apify** — keep `max_items` tight unless doing intentional bulk pulls.

@@ -82,12 +82,18 @@ export async function runActorSync<T = unknown>(
   }
 }
 
-export async function getConfiguredActor(kind: "meta" | "google" | "tiktok"): Promise<string> {
-  const map = {
+export type ApifyActorKind = "meta" | "google" | "tiktok" | "google_maps" | "web_crawler" | "instagram" | "youtube";
+
+export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> {
+  const map: Record<ApifyActorKind, { var: string; fallback: string }> = {
     meta: { var: "APIFY_ACTOR_META_ADLIB", fallback: "curious_coder/facebook-ads-library-scraper" },
     google: { var: "APIFY_ACTOR_GOOGLE_ADLIB", fallback: "apify/google-ads-transparency-center-scraper" },
     tiktok: { var: "APIFY_ACTOR_TIKTOK_ADLIB", fallback: "apify/tiktok-commercial-content-api-scraper" },
-  } as const;
+    google_maps: { var: "APIFY_ACTOR_GOOGLE_MAPS", fallback: "compass/crawler-google-places" },
+    web_crawler: { var: "APIFY_ACTOR_WEB_CRAWLER", fallback: "apify/website-content-crawler" },
+    instagram: { var: "APIFY_ACTOR_INSTAGRAM", fallback: "apify/instagram-scraper" },
+    youtube: { var: "APIFY_ACTOR_YOUTUBE", fallback: "happitap/youtube-transcript-scraper" },
+  };
   const entry = map[kind];
   const configured = await getRuntimeVariable(entry.var);
   return (configured && configured.trim() !== "") ? configured : entry.fallback;

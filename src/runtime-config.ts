@@ -55,6 +55,10 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "APIFY_ACTOR_META_ADLIB", group: "Apify", label: "Meta ad library actor ID", description: "Actor ID de Apify para Meta Ad Library (ej. 'curious_coder/facebook-ads-library-scraper'). Si esta vacio, se usa un default razonable. Cambialo si encontras un actor mejor en apify.com/store.", sensitive: false, requiredFor: "adlib_meta_search" },
   { name: "APIFY_ACTOR_GOOGLE_ADLIB", group: "Apify", label: "Google ad library actor ID", description: "Actor ID de Apify para Google Ads Transparency Center scraping. Default: 'apify/google-ads-transparency-center-scraper'.", sensitive: false, requiredFor: "adlib_google_search" },
   { name: "APIFY_ACTOR_TIKTOK_ADLIB", group: "Apify", label: "TikTok ad library actor ID", description: "Actor ID de Apify para TikTok Commercial Content Library. Default: 'apify/tiktok-commercial-content-api-scraper'.", sensitive: false, requiredFor: "adlib_tiktok_search" },
+  { name: "APIFY_ACTOR_GOOGLE_MAPS", group: "Apify", label: "Google Maps actor ID", description: "Actor ID para local SEO competitive scan. Default: 'compass/crawler-google-places' (398K usuarios, 4.7).", sensitive: false, requiredFor: "local_google_maps_scraper" },
+  { name: "APIFY_ACTOR_WEB_CRAWLER", group: "Apify", label: "Website crawler actor ID", description: "Actor ID para crawl de contenido (Wayback recovery, audits competitivos). Default: 'apify/website-content-crawler' (124K usuarios, 4.6).", sensitive: false, requiredFor: "web_content_crawler" },
+  { name: "APIFY_ACTOR_INSTAGRAM", group: "Apify", label: "Instagram actor ID", description: "Actor ID para Instagram (perfiles/posts/hashtags). Default: 'apify/instagram-scraper' (256K usuarios, 4.7).", sensitive: false, requiredFor: "social_instagram_scraper" },
+  { name: "APIFY_ACTOR_YOUTUBE", group: "Apify", label: "YouTube actor ID", description: "Actor ID para YouTube. Default: 'happitap/youtube-transcript-scraper' (transcripciones — preferido sobre channel scrapers porque el texto es lo util para SEO/LLM analysis).", sensitive: false, requiredFor: "social_youtube_transcript" },
 ];
 
 type RuntimeVariableRow = {
