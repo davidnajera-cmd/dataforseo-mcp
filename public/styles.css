@@ -1058,6 +1058,49 @@ select {
 .task-card .kanban-col[data-col="blocked"] { background: #f4e4ff20; }
 .kanban-col[data-col="blocked"] header { color: #6b21a8; }
 
+.health-alert {
+  background: #fff2d8;
+  color: #5a3700;
+  border-left: 4px solid #b97a00;
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin: 12px 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+.backlog-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  margin: 12px 0 4px;
+}
+.stat-card {
+  background: #fff;
+  border: 1px solid var(--border, #e6e8ee);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stat-card .stat-value {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.1;
+  color: #14306b;
+}
+.stat-card .stat-label {
+  font-size: 11px;
+  color: #69717c;
+  font-weight: 600;
+}
+.stat-card.stat-recovery { border-left: 3px solid #b91c1c; }
+.stat-card.stat-growth { border-left: 3px solid #00795f; }
+.stat-card.stat-blocked { border-left: 3px solid #6b21a8; }
+.stat-card.stat-progress { border-left: 3px solid #2454ff; }
+.stat-card.stat-warn { background: #fff2d8; border-color: #b97a00; }
+.stat-card.stat-warn .stat-value { color: #b97a00; }
+
 .op-fields {
   display: grid;
   grid-template-columns: 1fr 1fr 1fr auto;

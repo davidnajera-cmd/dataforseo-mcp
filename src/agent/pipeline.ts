@@ -13,7 +13,7 @@ import {
   collectSitemapStatus,
   collectGa4ConversionEvents,
 } from "./data-collectors.js";
-import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun, applyAutoBlock, markStaleTasks } from "../backlog-store.js";
+import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun, applyAutoBlock, markStaleTasks, countPendingTasks } from "../backlog-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
 import { generateHeuristicTasks, CollectorPayload } from "./heuristic-tasks.js";
 import { pushTasksToSlack } from "../slack-sync.js";
@@ -126,7 +126,14 @@ export async function runAgent(): Promise<AgentRunResult> {
       }
     }
     const maxNewInsertsRaw = await getRuntimeVariable("AGENT_MAX_NEW_INSERTS_PER_RUN");
-    const maxNewInserts = Number(maxNewInsertsRaw ?? 12);
+    const baseMaxNewInserts = Number(maxNewInsertsRaw ?? 12);
+    // Dynamic cap: if backlog already has >200 pendientes, the agent should
+    // refresh existing tasks instead of inflating. Drop cap to 5 automatically.
+    const pendingCount = await countPendingTasks().catch(() => 0);
+    const maxNewInserts = pendingCount > 200 ? Math.min(baseMaxNewInserts, 5) : baseMaxNewInserts;
+    stats.pending_at_run_start = pendingCount;
+    stats.cap_max_new_inserts = maxNewInserts;
+    stats.cap_reason = pendingCount > 200 ? "backlog_>200_auto_throttle" : "default_cap";
     let heuristicUpsert = { inserted: 0, updated: 0, skipped: 0, capped: 0 };
     if (heuristicTotal.length > 0) {
       try {

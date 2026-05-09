@@ -409,6 +409,35 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     }
   }
 
+  // RULE 11: GA4 events configured WITH conversions — but quality unverified.
+  // We don't trust events blindly; ask a human to QA that the events that are
+  // marked as conversions actually represent SEO web conversions (whatsapp,
+  // form submit, call, scheduling) and are correctly attributed to Organic
+  // Search, fire on the right landing pages, and aren't duplicated.
+  if (ga4 && ga4.configured && ga4.total_seo_conversions_28d > 0) {
+    const seoEventNames = (ga4.events ?? []).filter((e) => e.is_seo_conversion_proxy).map((e) => e.name);
+    tasks.push({
+      signature_key: `heuristic::ga4_qa::${domain}`,
+      title: `QA de eventos GA4 marcados como conversiones SEO (${ga4.total_seo_conversions_28d} en 28d)`,
+      description: `GA4 reporta eventos coincidentes con patrones de conversion SEO (${seoEventNames.slice(0, 5).join(", ") || "ninguno detectado por nombre"}). Antes de basar decisiones de scoring/impact en estos numeros, verificar manualmente: (1) cada evento esta marcado como key_event/conversion en GA4 Events; (2) se atribuye a sessionDefaultChannelGroup='Organic Search'; (3) aparece registrado por landing page (no solo a nivel global); (4) no esta duplicado por implementacion (GTM + dataLayer + gtag a la vez); (5) realmente dispara en produccion al hacer la accion (test E2E con GA4 DebugView). Documentar resultados.`,
+      domain,
+      category: "tecnico",
+      priority: "alta",
+      impact_score: 75,
+      difficulty_score: 35,
+      confidence_score: 90,
+      impact_expected: `Confirmar que los eventos GA4 son confiables — base para todas las tareas con impacto en conversion. Sin QA, los numeros pueden estar inflados o subreportados y el agente confiaria en datos malos.`,
+      rationale: `GA4 ${domain} reporta ${ga4.total_seo_conversions_28d} eventos coincidentes con patterns de conversion SEO en 28d. Antes de operar el backlog en torno a esa metrica, validar atribucion + duplicados + landing pages + dispara en prod.`,
+      data_sources: { sources: ["ga4"], evidence: { events_28d: ga4.total_events_28d, seo_conversions_28d: ga4.total_seo_conversions_28d, candidate_event_names: seoEventNames.slice(0, 10) } },
+      source_type: "heuristic",
+      assignee_suggested: "ops",
+      action_type: "audit",
+      risk_level: "medium",
+      requires_human_review: true,
+      phase: "config",
+    });
+  }
+
   // RULE 9: Traffic exists but no conversion events from organic landing pages.
   // IMPORTANT: if GA4 has zero conversion events configured, "0 conversions" is
   // not a real signal — it just means we are not measuring. In that case we

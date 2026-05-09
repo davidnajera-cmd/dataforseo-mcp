@@ -46,6 +46,7 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "SLACK_USER_TOKEN", group: "Slack Sync", label: "User token (xoxp-)", description: "Slack user token para metodos slackLists.* (algunos requieren user scope).", sensitive: true, requiredFor: "Slack sync" },
   { name: "SLACK_LIST_ID", group: "Slack Sync", label: "List ID", description: "ID de la lista de Slack (formato Fxxxx). Default F0A0U27CYSX (Sprint de Marketing).", sensitive: false, requiredFor: "Slack sync" },
   { name: "SLACK_BACKLOG_OPTION_ID", group: "Slack Sync", label: "Backlog group option ID", description: "ID de la opcion 'Backlog SEO Agent' del campo Estado Sprint. Default OptL5NJTUJB.", sensitive: false, requiredFor: "Slack sync" },
+  { name: "DASHBOARD_URL", group: "Dashboard", label: "Dashboard URL base", description: "URL base del dashboard SEO (sin trailing slash). Usada para incluir deep-links a tareas en items de Slack. Ej: https://dataforseo-mcp-three.vercel.app", sensitive: false, requiredFor: "Slack deep-links al backlog" },
 ];
 
 type RuntimeVariableRow = {

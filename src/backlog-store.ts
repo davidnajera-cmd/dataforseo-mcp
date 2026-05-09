@@ -574,6 +574,55 @@ export async function markStaleTasks(daysThreshold: number = 30): Promise<{ mark
   return { marked: result.length };
 }
 
+export type BacklogStats = {
+  total_pendiente: number;
+  total_en_progreso: number;
+  total_blocked: number;
+  total_ejecutada: number;
+  total_descartada: number;
+  recovery_pendiente: number;
+  growth_pendiente: number;
+  overdue: number;
+  no_owner: number;
+  no_due_date: number;
+  stale: number;
+  health_alert: string | null;
+};
+
+export async function getBacklogStats(): Promise<BacklogStats> {
+  const sql = getSql();
+  const empty: BacklogStats = { total_pendiente: 0, total_en_progreso: 0, total_blocked: 0, total_ejecutada: 0, total_descartada: 0, recovery_pendiente: 0, growth_pendiente: 0, overdue: 0, no_owner: 0, no_due_date: 0, stale: 0, health_alert: null };
+  if (!sql) return empty;
+  await ensureBacklogSchema();
+  const rows = await sql`
+    select
+      count(*) filter (where status = 'pendiente')::int as total_pendiente,
+      count(*) filter (where status = 'en_progreso')::int as total_en_progreso,
+      count(*) filter (where status = 'blocked')::int as total_blocked,
+      count(*) filter (where status = 'ejecutada')::int as total_ejecutada,
+      count(*) filter (where status = 'descartada')::int as total_descartada,
+      count(*) filter (where status = 'pendiente' and phase = 'recovery')::int as recovery_pendiente,
+      count(*) filter (where status = 'pendiente' and phase = 'growth')::int as growth_pendiente,
+      count(*) filter (where status in ('pendiente','en_progreso') and due_date is not null and due_date < current_date)::int as overdue,
+      count(*) filter (where status in ('pendiente','en_progreso') and (owner is null or owner = ''))::int as no_owner,
+      count(*) filter (where status in ('pendiente','en_progreso') and due_date is null)::int as no_due_date,
+      count(*) filter (where stale_at is not null and status in ('pendiente','en_progreso','blocked'))::int as stale
+    from seo_backlog_tasks
+  ` as Array<BacklogStats>;
+  const stats = rows[0] ?? empty;
+  if (stats.total_pendiente > 200) stats.health_alert = "El backlog supera 200 tareas pendientes. Cap de inserts reducido a 5/run automaticamente. Priorizar asignacion, ejecucion o descarte antes de crear nuevas tareas.";
+  else if (stats.total_pendiente > 100) stats.health_alert = "El backlog supera 100 tareas pendientes. Priorizar asignacion, ejecucion o descarte antes de crear nuevas tareas.";
+  return stats;
+}
+
+export async function countPendingTasks(): Promise<number> {
+  const sql = getSql();
+  if (!sql) return 0;
+  await ensureBacklogSchema();
+  const rows = await sql`select count(*)::int as c from seo_backlog_tasks where status = 'pendiente'` as Array<{ c: number }>;
+  return rows[0]?.c ?? 0;
+}
+
 export async function listAgentRuns(limit: number = 20) {
   const sql = getSql();
   if (!sql) return [];

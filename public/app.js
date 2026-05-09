@@ -407,12 +407,64 @@ async function loadBacklog() {
         const text = (r.title + " " + r.description).toLowerCase();
         return r.action_type === "config" || /ga4|gtm|sitemap|robots|gsc|tracking|tag|consent|medici[oó]n|measurement/.test(text);
       });
+    } else if (track === "unassigned") {
+      rows = rows.filter((r) => (!r.owner || r.owner === "") || !r.due_date);
+    } else if (track === "overdue") {
+      const today = new Date().toISOString().slice(0, 10);
+      rows = rows.filter((r) => r.due_date && r.due_date < today && r.status !== "ejecutada" && r.status !== "descartada");
+    } else if (track === "recovery_focus") {
+      rows = rows.filter((r) =>
+        r.phase === "recovery"
+        && (r.status === "pendiente" || r.status === "en_progreso")
+        && (r.priority === "alta" || r.priority === "media")
+        && !r.stale_at
+      );
+      rows.sort((a, b) => (b.opportunity_score ?? 0) - (a.opportunity_score ?? 0));
     } else if (track && TRACK_CATEGORIES[track]) {
       rows = rows.filter((r) => TRACK_CATEGORIES[track].has(r.category));
     }
     renderBacklogBoard(rows);
+    loadBacklogStats();
   } catch (error) {
     board.textContent = `No se pudo cargar el backlog: ${error.message}`;
+  }
+}
+
+async function loadBacklogStats() {
+  const target = document.querySelector("#backlogStats");
+  const alertBox = document.querySelector("#backlogHealthAlert");
+  if (!target) return;
+  try {
+    const res = await fetch("/api/backlog?action=stats");
+    if (!res.ok) return;
+    const s = await res.json();
+    const cards = [
+      { label: "🛠 Recovery pendientes", value: s.recovery_pendiente, kind: "recovery" },
+      { label: "🚀 Growth pendientes", value: s.growth_pendiente, kind: "growth" },
+      { label: "🔒 Bloqueadas", value: s.total_blocked, kind: "blocked" },
+      { label: "⏳ En progreso", value: s.total_en_progreso, kind: "progress" },
+      { label: "⏰ Vencidas", value: s.overdue, kind: s.overdue > 0 ? "warn" : "neutral" },
+      { label: "👤 Sin owner", value: s.no_owner, kind: s.no_owner > 5 ? "warn" : "neutral" },
+      { label: "📅 Sin due date", value: s.no_due_date, kind: s.no_due_date > 5 ? "warn" : "neutral" },
+      { label: "🕒 Stale", value: s.stale, kind: "neutral" },
+    ];
+    // eslint-disable-next-line no-unsanitized/property
+    target.innerHTML = cards.map((c) => `
+      <div class="stat-card stat-${esc(c.kind)}">
+        <span class="stat-value">${esc(c.value)}</span>
+        <span class="stat-label">${esc(c.label)}</span>
+      </div>
+    `).join("");
+    if (alertBox) {
+      if (s.health_alert) {
+        alertBox.hidden = false;
+        alertBox.textContent = s.health_alert;
+      } else {
+        alertBox.hidden = true;
+      }
+    }
+  } catch {
+    // silent
   }
 }
 
@@ -751,5 +803,18 @@ function displayValue(value, suffix = "") {
   if (value === null || value === undefined) return "Sin datos";
   return `${value}${suffix}`;
 }
+
+// Deep-link: ?view=backlog&task=N opens that task's modal at load.
+(function applyDeepLinkOnLoad() {
+  const params = new URLSearchParams(window.location.search);
+  const view = params.get("view");
+  const taskId = params.get("task");
+  if (view === "backlog") {
+    setView("backlog");
+    if (taskId && /^\d+$/.test(taskId)) {
+      setTimeout(() => openTaskModal(Number(taskId)), 1200);
+    }
+  }
+})();
 
 loadDashboard();

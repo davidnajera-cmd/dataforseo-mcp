@@ -69,14 +69,19 @@ export async function pushTasksToSlack(maxTasks: number = 50): Promise<SlackOutb
   let failed = 0;
   const errors: SlackOutboundSummary["errors"] = [];
 
+  // Resolve dashboard URL once per run so every item gets the deep-link.
+  const dashboardBase = (await getRuntimeVariable("DASHBOARD_URL")) ?? "https://dataforseo-mcp-three.vercel.app";
+
   for (const row of rows) {
     try {
+      const taskUrl = `${dashboardBase.replace(/\/$/, "")}/?view=backlog&task=${row.id}`;
+      const descWithLink = `${row.description}\n\nVer en dashboard: ${taskUrl}`;
       if (!row.slack_list_item_id) {
-        const created = await createBacklogItem({ title: row.title, description: row.description, priority: row.priority });
+        const created = await createBacklogItem({ title: row.title, description: descWithLink, priority: row.priority });
         await sql`update seo_backlog_tasks set slack_list_item_id = ${created.id}, slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
         pushed++;
       } else {
-        await updateBacklogItem(row.slack_list_item_id, { title: row.title, description: row.description, priority: row.priority });
+        await updateBacklogItem(row.slack_list_item_id, { title: row.title, description: descWithLink, priority: row.priority });
         await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
         updated++;
       }

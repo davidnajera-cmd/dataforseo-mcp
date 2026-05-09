@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { listBacklog, getBacklogTask, updateTaskStatus, addTaskNote, listAgentRuns, BacklogStatus, BacklogPriority, BacklogCategory } from "../src/backlog-store.js";
+import { listBacklog, getBacklogTask, updateTaskStatus, addTaskNote, listAgentRuns, getBacklogStats, BacklogStatus, BacklogPriority, BacklogCategory } from "../src/backlog-store.js";
 import { assertVariablesAdminToken, clearRuntimeVariableCache } from "../src/runtime-config.js";
 import { clearGoogleAccessTokenCache } from "../src/gsc-client.js";
 import { runAgent } from "../src/agent/pipeline.js";
@@ -35,6 +35,12 @@ export default async function handler(
       const id = Number(url.searchParams.get("id"));
       const task = await getBacklogTask(id);
       send(res, task ? 200 : 404, task ?? { error: "not_found" });
+      return;
+    }
+
+    if (req.method === "GET" && action === "stats") {
+      const stats = await getBacklogStats();
+      send(res, 200, stats);
       return;
     }
 

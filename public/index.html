@@ -231,11 +231,14 @@
                   <option value="manual">Manual</option>
                 </select>
                 <select id="backlogFilterTrack">
+                  <option value="recovery_focus" selected>🎯 Recovery Focus (default)</option>
                   <option value="">Recovery + Growth</option>
                   <option value="recovery">🛠 Recovery (post-migración)</option>
                   <option value="growth">🚀 Growth (oportunidades)</option>
                   <option value="config">⚙ Config (medición)</option>
                   <option value="risky">⚠ Requiere revisión humana</option>
+                  <option value="unassigned">👤 Sin owner / sin due date</option>
+                  <option value="overdue">⏰ Vencidas</option>
                 </select>
                 <select id="backlogSort">
                   <option value="score">Sort: Opportunity score</option>
@@ -247,6 +250,8 @@
               </div>
             </div>
             <div id="agentStatus" class="summary"></div>
+            <div id="backlogHealthAlert" class="health-alert" hidden></div>
+            <div id="backlogStats" class="backlog-stats"></div>
             <div id="backlogBoard" class="backlog-board"></div>
           </div>
 
