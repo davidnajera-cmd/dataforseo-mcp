@@ -86,7 +86,7 @@ export async function createBacklogItem(input: { title: string; description: str
   ];
   if (input.priority) {
     const ratingByPriority = { alta: 5, media: 3, baja: 1 } as const;
-    initial_fields.push({ column_id: SLACK_COLS.PRIORIDAD, rating: ratingByPriority[input.priority] });
+    initial_fields.push({ column_id: SLACK_COLS.PRIORIDAD, rating: [ratingByPriority[input.priority]] });
   }
   const result = await slackPost<{ item: { id: string } }>("slackLists.items.create", { list_id, initial_fields });
   return { id: result.item.id };
@@ -99,7 +99,7 @@ export async function updateBacklogItem(rowId: string, input: { title?: string; 
   if (input.description !== undefined) cells.push({ row_id: rowId, column_id: SLACK_COLS.DESCRIPCION, rich_text: richText(input.description.slice(0, 1500)) });
   if (input.priority !== undefined) {
     const ratingByPriority = { alta: 5, media: 3, baja: 1 } as const;
-    cells.push({ row_id: rowId, column_id: SLACK_COLS.PRIORIDAD, rating: ratingByPriority[input.priority] });
+    cells.push({ row_id: rowId, column_id: SLACK_COLS.PRIORIDAD, rating: [ratingByPriority[input.priority]] });
   }
   if (input.completed !== undefined) cells.push({ row_id: rowId, column_id: SLACK_COLS.COMPLETED, checkbox: input.completed });
   if (input.estado_option) cells.push({ row_id: rowId, column_id: SLACK_COLS.ESTADO, select: [input.estado_option] });
