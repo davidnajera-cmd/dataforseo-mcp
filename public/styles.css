@@ -995,3 +995,25 @@ select {
 }
 .modal-scores span { display: flex; flex-direction: column; gap: 2px; }
 .modal-scores strong { font-size: 10px; text-transform: uppercase; color: #69717c; letter-spacing: 0.04em; }
+
+.risk-badge,
+.review-badge,
+.action-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.risk-badge.risk-medium { background: #fff2d8; color: #b97a00; }
+.risk-badge.risk-high { background: #ffd9d9; color: #b91c1c; }
+.review-badge { background: #f7e8ff; color: #6b21a8; }
+.action-badge { background: #eef0f5; color: #444; }
+.action-badge.action-audit, .action-badge.action-audit_backlinks { background: #fff2d8; color: #b97a00; }
+.action-badge.action-disavow_candidate { background: #ffd9d9; color: #b91c1c; }
+.action-badge.action-config { background: #d6f5ec; color: #00795f; }
+
+.task-card.needs-review { border-left-style: dashed; }

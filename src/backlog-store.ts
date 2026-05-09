@@ -19,7 +19,17 @@ export type BacklogCategory =
   | "link-building" | "ai-optimization" | "schema" | "sitemap"
   | "ctr" | "indexacion" | "seo-local" | "performance" | "ecommerce" | "llm-visibility";
 export type BacklogSourceType = "agent" | "heuristic" | "manual";
-export type BacklogIntencion = "branded" | "navegacional" | "informacional" | "comercial" | "local";
+export type BacklogIntencion = "branded" | "navegacional" | "informacional" | "comercial" | "local" | "ambiguous";
+export type BacklogActionType =
+  | "audit"               // sólo investigar, no ejecutar nada todavía
+  | "execution"           // acción directa segura (reescribir meta, agregar schema)
+  | "audit_backlinks"     // específico para enlaces
+  | "reclaim_lost_links"
+  | "build_local_links"
+  | "disavow_candidate"   // candidatos a disavow, requiere revisión humana
+  | "outreach_opportunity"
+  | "config";             // setup técnico (GA4 events, sitemap)
+export type BacklogRiskLevel = "low" | "medium" | "high";
 
 export type BacklogTask = {
   id: number;
@@ -50,6 +60,9 @@ export type BacklogTask = {
   sede_relacionada: string | null;
   modalidad_jornada: string | null;
   intencion: BacklogIntencion | null;
+  action_type: BacklogActionType | null;
+  risk_level: BacklogRiskLevel | null;
+  requires_human_review: boolean | null;
   notes: string | null;
   slack_list_item_id: string | null;
   slack_synced_at: string | null;
@@ -93,6 +106,9 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists sede_relacionada text`;
   await sql`alter table seo_backlog_tasks add column if not exists modalidad_jornada text`;
   await sql`alter table seo_backlog_tasks add column if not exists intencion text`;
+  await sql`alter table seo_backlog_tasks add column if not exists action_type text`;
+  await sql`alter table seo_backlog_tasks add column if not exists risk_level text`;
+  await sql`alter table seo_backlog_tasks add column if not exists requires_human_review boolean default false`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_list_item_id text`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_synced_at timestamptz`;
   await sql`create index if not exists seo_backlog_slack on seo_backlog_tasks (slack_list_item_id) where slack_list_item_id is not null`;
@@ -146,6 +162,9 @@ export type ProposedTask = {
   sede_relacionada?: string | null;
   modalidad_jornada?: string | null;
   intencion?: BacklogIntencion | null;
+  action_type?: BacklogActionType | null;
+  risk_level?: BacklogRiskLevel | null;
+  requires_human_review?: boolean | null;
 };
 
 function clampScore(v: unknown): number | null {
@@ -185,7 +204,8 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           (task_signature, title, description, domain, category, priority, impact_expected, impact_conversion,
            rationale, data_sources, status, proposed_by, source_type,
            impact_score, difficulty_score, confidence_score, opportunity_score, assignee_suggested,
-           programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion)
+           programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
+           action_type, risk_level, requires_human_review)
         values
           (${signature}, ${task.title}, ${task.description}, ${task.domain}, ${task.category}, ${task.priority},
            ${task.impact_expected ?? null}, ${task.impact_conversion ?? null},
@@ -193,7 +213,8 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
            'pendiente', ${sourceType}, ${sourceType},
            ${impact}, ${difficulty}, ${confidence}, ${opportunity}, ${task.assignee_suggested ?? null},
            ${task.programa_relacionado ?? null}, ${task.materia_relacionada ?? null}, ${task.sede_relacionada ?? null},
-           ${task.modalidad_jornada ?? null}, ${task.intencion ?? null})
+           ${task.modalidad_jornada ?? null}, ${task.intencion ?? null},
+           ${task.action_type ?? null}, ${task.risk_level ?? null}, ${task.requires_human_review ?? false})
       `;
       inserted++;
       continue;
@@ -223,6 +244,9 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           sede_relacionada = coalesce(${task.sede_relacionada ?? null}, sede_relacionada),
           modalidad_jornada = coalesce(${task.modalidad_jornada ?? null}, modalidad_jornada),
           intencion = coalesce(${task.intencion ?? null}, intencion),
+          action_type = coalesce(${task.action_type ?? null}, action_type),
+          risk_level = coalesce(${task.risk_level ?? null}, risk_level),
+          requires_human_review = coalesce(${task.requires_human_review ?? null}, requires_human_review),
           updated_at = now()
       where id = ${row.id}
     `;
@@ -256,7 +280,8 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
       impact_score, difficulty_score, confidence_score, opportunity_score,
       impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
       proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
-      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes,
+      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
+      action_type, risk_level, requires_human_review, notes,
       slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
@@ -278,7 +303,8 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
       impact_score, difficulty_score, confidence_score, opportunity_score,
       impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
       proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
-      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes,
+      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
+      action_type, risk_level, requires_human_review, notes,
       slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];

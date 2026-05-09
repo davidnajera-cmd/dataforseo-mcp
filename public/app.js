@@ -441,11 +441,17 @@ function renderTaskCard(row) {
     ${row.opportunity_score !== null && row.opportunity_score !== undefined ? `<small class="opp-score">Opp ${esc(Math.round(row.opportunity_score))}</small>` : ""}
   ` : "";
   const sourceBadge = row.source_type ? `<span class="source-badge source-${esc(row.source_type)}">${esc(row.source_type)}</span>` : "";
+  const riskBadge = row.risk_level && row.risk_level !== "low" ? `<span class="risk-badge risk-${esc(row.risk_level)}">⚠ ${esc(row.risk_level)}</span>` : "";
+  const reviewBadge = row.requires_human_review ? `<span class="review-badge">👤 review</span>` : "";
+  const actionBadge = row.action_type && row.action_type !== "execution" ? `<span class="action-badge action-${esc(row.action_type)}">${esc(row.action_type)}</span>` : "";
   return `
-    <article class="task-card priority-${esc(row.priority)}" data-id="${esc(row.id)}">
+    <article class="task-card priority-${esc(row.priority)}${row.requires_human_review ? " needs-review" : ""}" data-id="${esc(row.id)}">
       <header>
         <span class="priority-pill priority-${esc(row.priority)}">${esc(row.priority)}</span>
         <span class="category-pill">${esc(row.category)}</span>
+        ${actionBadge}
+        ${riskBadge}
+        ${reviewBadge}
         ${sourceBadge}
       </header>
       <h4>${esc(row.title)}</h4>
@@ -484,6 +490,9 @@ async function openTaskModal(id) {
       <span class="priority-pill priority-${esc(task.priority)}">${esc(task.priority)}</span>
       <span class="category-pill">${esc(task.category)}</span>
       <span class="domain-tag">${esc(siteLabel(task.domain))}</span>
+      ${task.action_type && task.action_type !== "execution" ? `<span class="action-badge action-${esc(task.action_type)}">${esc(task.action_type)}</span>` : ""}
+      ${task.risk_level && task.risk_level !== "low" ? `<span class="risk-badge risk-${esc(task.risk_level)}">⚠ riesgo ${esc(task.risk_level)}</span>` : ""}
+      ${task.requires_human_review ? `<span class="review-badge">👤 requiere revisión humana</span>` : ""}
       ${task.source_type ? `<span class="source-badge source-${esc(task.source_type)}">${esc(task.source_type)}</span>` : ""}
       <button class="modal-close" type="button">×</button>
     </header>

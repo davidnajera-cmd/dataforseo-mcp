@@ -46,6 +46,24 @@ function isSpamAnchor(anchor: string): boolean {
   return SPAM_ANCHOR_PATTERNS.some((p) => p.test(anchor));
 }
 
+// Queries demasiado genéricas/ambiguas que NO deben dominar el backlog sin
+// validación humana. Matches por longitud + lista negra de tokens comunes.
+const AMBIGUOUS_TOKENS = new Set([
+  "dna", "music", "audio", "q10", "tienda", "escuela", "curso", "academia",
+  "song", "songs", "djs", "dj", "beat", "mix", "mp3", "songwriting",
+]);
+
+export function isAmbiguousQuery(query: string): boolean {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed.length <= 3) return true;
+  const tokens = trimmed.split(/\s+/);
+  if (tokens.length === 1 && AMBIGUOUS_TOKENS.has(tokens[0])) return true;
+  // 2 tokens donde ambos son ambiguos también sospechosos (ej. "dna music")
+  // pero "dna music" es brand legítima — pasa solo si TODOS son ambiguos genéricos
+  // no específicos a la marca.
+  return false;
+}
+
 export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[] {
   const tasks: ProposedTask[] = [];
   const domain = payload.domain;
@@ -54,11 +72,42 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
   const quickWins = (payload.gsc_opportunities ?? [])
     .filter((o) => o.position >= 4 && o.position <= 10 && o.impressions >= 100 && o.ctr < 0.03)
     .sort((a, b) => b.opportunity_score - a.opportunity_score)
-    .slice(0, 5);
+    .slice(0, 8); // ampliamos para que tras filtrar ambigüedad queden suficientes
   for (const qw of quickWins) {
     const mapping = qw.mapping;
     const targetPage = mapping?.primary_program_path ?? qw.page;
     const wrongPage = qw.page !== targetPage && targetPage !== null;
+    const ambiguous = isAmbiguousQuery(qw.query);
+
+    if (ambiguous) {
+      // Las queries ambiguas no entran como quick win directo. Se proponen como
+      // tareas de AUDITORÍA con confianza baja y no priorizadas.
+      tasks.push({
+        signature_key: `heuristic::audit_ambiguous_query::${qw.query}`.slice(0, 80),
+        title: `Auditar query ambigua '${qw.query}' antes de optimizar (pos ${qw.position.toFixed(1)})`,
+        description: `La query '${qw.query}' tiene ${qw.impressions} impresiones en posición ${qw.position.toFixed(1)} pero es demasiado corta o genérica para asumir intención. Revisar SERP actual con serp_google_organic_live, validar si las impresiones provienen de la marca DNA Music o de búsquedas no relacionadas (genética, etc.), y decidir si vale optimizar la página actual ${qw.page}.`,
+        domain,
+        category: "ctr",
+        priority: "baja",
+        impact_score: 35,
+        difficulty_score: 15,
+        confidence_score: 50,
+        impact_expected: `Sin estimación: depende de si las impresiones son de la marca o noise.`,
+        rationale: `Query '${qw.query}' marcada como ambigua (longitud ${qw.query.length} o token genérico). NO debe entrar como quick win automático. ${qw.impressions} impresiones, CTR ${(qw.ctr * 100).toFixed(2)}%.`,
+        data_sources: { sources: ["gsc"], evidence: { query: qw.query, ambiguous: true, position: qw.position, impressions: qw.impressions, clicks: qw.clicks, ctr: qw.ctr } },
+        source_type: "heuristic",
+        assignee_suggested: "SEO",
+        programa_relacionado: mapping?.primary_program_slug ?? null,
+        materia_relacionada: mapping?.matched_materia ?? null,
+        sede_relacionada: mapping?.matched_sede ?? null,
+        intencion: "ambiguous",
+        action_type: "audit",
+        risk_level: "low",
+        requires_human_review: true,
+      });
+      continue;
+    }
+
     tasks.push({
       signature_key: `heuristic::ctr_quick_win::${qw.query}`.slice(0, 80),
       title: `CTR quick win: '${qw.query}' (pos ${qw.position.toFixed(1)})`,
@@ -83,7 +132,11 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       materia_relacionada: mapping?.matched_materia ?? null,
       sede_relacionada: mapping?.matched_sede ?? null,
       intencion: mapping?.intent === "branded" ? "branded" : mapping?.intent === "informational" ? "informacional" : mapping?.intent === "commercial" ? "comercial" : mapping?.intent === "transactional" ? "comercial" : null,
+      action_type: "execution",
+      risk_level: "low",
+      requires_human_review: false,
     });
+    if (tasks.filter((t) => t.signature_key.startsWith("heuristic::ctr_quick_win::")).length >= 5) break;
   }
 
   // RULE 2: Top losers in 60d window with sustained drop
@@ -110,26 +163,32 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     });
   }
 
-  // RULE 3: Toxic backlinks anchors
+  // RULE 3: Toxic backlinks anchors → AUDIT (no disavow directo)
+  // GUARDRAIL: solo tenemos datos a nivel anchor agregado, NO a nivel backlink
+  // individual (source_url, target_url, ASN, first_seen, link_type, rel, etc).
+  // Disavow ejecutivo NUNCA debe proponerse desde aquí. Solo auditoría.
   if (payload.backlinks_anchors && payload.backlinks_anchors.length > 0) {
     const spamAnchors = payload.backlinks_anchors.filter((a) => isSpamAnchor(a.anchor));
     const totalSpamBacklinks = spamAnchors.reduce((acc, a) => acc + Number(a.backlinks ?? 0), 0);
     if (spamAnchors.length >= 1 && totalSpamBacklinks >= 20) {
       tasks.push({
-        signature_key: `heuristic::disavow::${domain}`,
-        title: `Disavow ${totalSpamBacklinks} backlinks tóxicos en ${domain}`,
-        description: `Generar archivo disavow.txt incluyendo los ${spamAnchors.length} anchor patterns spammy detectados (${spamAnchors.slice(0, 3).map((a) => `'${a.anchor}'`).join(", ")}${spamAnchors.length > 3 ? "…" : ""}). Subir a Google Search Console.`,
+        signature_key: `heuristic::audit_anchors::${domain}`,
+        title: `Auditar ${totalSpamBacklinks} backlinks potencialmente tóxicos antes de considerar disavow`,
+        description: `Pre-auditoría: detectados ${spamAnchors.length} anchor patterns sospechosos (${spamAnchors.slice(0, 3).map((a) => `'${a.anchor}'`).join(", ")}${spamAnchors.length > 3 ? "…" : ""}) con ~${totalSpamBacklinks} backlinks combinados. Antes de cualquier disavow, listar a nivel granular con backlinks_list cada backlink: source_url, target_url, anchor_text, spam_score individual, country/IP/ASN si disponible, first_seen, link_type, rel, página objetivo. Validar que (a) los anchors son manipulativos, (b) las páginas origen son irrelevantes/sospechosas, (c) hay correlación temporal con drops SEO. Disavow ejecutivo SOLO con revisión humana de la lista granular y documentación del caso.`,
         domain,
         category: "link-building",
-        priority: totalSpamBacklinks > 50 ? "alta" : "media",
-        impact_score: Math.min(90, 40 + Math.round(totalSpamBacklinks / 5)),
-        difficulty_score: 15,
-        confidence_score: 90,
-        impact_expected: `Mitigar riesgo de penalización Penguin algorítmica; proteger rankings actuales`,
-        rationale: `${spamAnchors.length} anchors detectados como spam (Telegram, SEO_*, etc.) con ${totalSpamBacklinks} backlinks combinados. Spam score del dominio: ${payload.backlinks?.spam_score ?? "?"}.`,
-        data_sources: { sources: ["backlinks"], evidence: { spam_anchors: spamAnchors.slice(0, 10), total_spam_backlinks: totalSpamBacklinks, domain_spam_score: payload.backlinks?.spam_score ?? null } },
+        priority: "media",
+        impact_score: Math.min(70, 30 + Math.round(totalSpamBacklinks / 10)),
+        difficulty_score: 35,
+        confidence_score: 55, // bajo: solo tenemos datos agregados
+        impact_expected: `Si la auditoría confirma toxicidad real, abre la puerta a un disavow quirúrgico que mitigue riesgo Penguin. Sin auditoría granular, NO se ejecuta nada.`,
+        rationale: `${spamAnchors.length} anchors patternsmatch spam (Telegram, SEO_*, etc.) con ~${totalSpamBacklinks} backlinks. Spam score agregado: ${payload.backlinks?.spam_score ?? "?"}. Datos a nivel anchor solamente — falta evidencia backlink-level antes de cualquier acción ejecutiva.`,
+        data_sources: { sources: ["backlinks"], evidence: { spam_anchors: spamAnchors.slice(0, 10), total_spam_backlinks: totalSpamBacklinks, domain_spam_score: payload.backlinks?.spam_score ?? null, granularity_available: "anchor_level_only", granularity_required_for_execution: "individual_backlinks_with_source_url_and_metadata" } },
         source_type: "heuristic",
         assignee_suggested: "linkbuilder",
+        action_type: "audit_backlinks",
+        risk_level: "high",
+        requires_human_review: true,
       });
     }
   }

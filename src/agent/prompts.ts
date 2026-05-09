@@ -67,6 +67,24 @@ REGLAS DURAS:
 - NO digas "esto genera matrículas" o "aumenta inscripciones": esa conversión NO está conectada. Habla de clicks orgánicos, CTR, sesiones, eventos GA4 (WhatsApp, forms, calls, scheduling).
 - Si no hay eventos GA4 de WhatsApp/formulario detectados, INCLUYE al menos una tarea para configurarlos correctamente.
 
+GUARDRAILS DE RIESGO (CRÍTICO):
+
+Acciones EJECUTIVAS de alto riesgo NO pueden proponerse sin evidencia granular + revisión humana:
+- DISAVOW de backlinks: solo proponer como 'audit_backlinks' (NO disavow directo) si tenemos exclusivamente datos agregados (anchors o spam_score de dominio). Para proponer 'disavow_candidate' como action_type ejecutivo se requiere TODOS estos: lista granular con source_url + target_url + anchor_text + spam_score INDIVIDUAL + country/IP/ASN del origen + first_seen + link_type + rel + razón específica de toxicidad por backlink. SIN ESO → action_type='audit_backlinks', priority<=media, confidence<=60, requires_human_review=true.
+- REDIRECTS (301/302): solo si hay evidencia clara de URL antigua con tráfico medible histórico Y URL nueva con contenido equivalente. risk_level=medium.
+- CANONICALS: cambiar canónicas mal puede destruir rankings. action_type='audit' por default, requires_human_review=true para cambios.
+- ELIMINAR PÁGINAS / 410 / noindex: action_type='audit', requires_human_review=true SIEMPRE. NUNCA action_type='execution' aunque la página parezca huérfana.
+
+QUERIES AMBIGUAS (guardrail de calidad):
+- Queries de ≤3 caracteres o single tokens genéricos ('dna', 'music', 'audio', 'q10', 'tienda', 'curso') NO entran como quick wins automáticos.
+- Si detectas una query ambigua con tráfico, propon una tarea 'audit' con intencion='ambiguous', confidence<=60, priority<=media. La tarea pide validar la SERP real (con serp_google_organic_live) para decidir si las impresiones son de la marca o noise (ej. 'dna' puede ser ADN biológico).
+- Prioridad estructural: queries CLARAS con intent comercial/local/branded de marca (ej. 'curso de dj bogota', 'academia de musica medellin', 'dna music') > queries ambiguas, incluso si la ambigua tiene mayor opportunity_score crudo.
+
+CONVERSIÓN WEB EN SCORING:
+- Si el input incluye ga4_conversions con eventos seo_conversion>0 para una landing page específica, AUMENTA impact_score y AGREGA impact_conversion concreto.
+- Si una página tiene tráfico (sessions>50) pero conversions=0, propon tarea de revisar CTAs con impact_conversion estimado conservador.
+- Si ga4_conversions.total_seo_conversions_28d=0 (no hay eventos configurados), TODAS las tareas con impacto en conversión deben tener confidence<=70 y mencionar la falta de medición en rationale.
+
 DECISIONES OBLIGATORIAS:
 - Si una página antigua perdió tráfico tras la migración → tarea de auditoría redirect/canonical/indexación/equivalencia de contenido (categoría 'migracion').
 - Si una query relevante rankea con la página equivocada → tarea de re-targeting (categoría 'on-page').
@@ -121,7 +139,10 @@ OUTPUT JSON SCHEMA:
     "materia_relacionada": "nombre canónico de la materia si aplica (ej. 'Masterización', 'Beat Making').",
     "sede_relacionada": "Bogotá | Medellín | Cali | Barranquilla | Pereira | (omit).",
     "modalidad_jornada": "Presencial | Hibrida | Virtual | 100% Virtual | manana | tarde | noche | (omit).",
-    "intencion": "branded | navegacional | informacional | comercial | local | (omit si no aplica)",
+    "intencion": "branded | navegacional | informacional | comercial | local | ambiguous | (omit si no aplica)",
+    "action_type": "audit | execution | audit_backlinks | reclaim_lost_links | build_local_links | disavow_candidate | outreach_opportunity | config (USA 'audit' por default cuando hay incertidumbre)",
+    "risk_level": "low | medium | high (high si la acción puede destruir rankings — disavow, redirects masivos, canonical, noindex; medium si es estructural pero reversible; low si es una edición de meta/schema)",
+    "requires_human_review": true | false (SIEMPRE true para risk_level=high y para cualquier disavow_candidate),
     "data_sources": {
       "sources": ["gsc","ga4","dataforseo","pagespeed","sitemap","backlinks","llm-visibility"],
       "evidence": { /* números/strings concretos del input */ }
