@@ -10,7 +10,8 @@ function getSql() {
   return client;
 }
 
-export type BacklogStatus = "pendiente" | "en_progreso" | "ejecutada" | "descartada";
+export type BacklogStatus = "pendiente" | "en_progreso" | "ejecutada" | "descartada" | "blocked";
+export type BacklogPhase = "recovery" | "growth" | "config" | "neutral";
 export type BacklogPriority = "alta" | "media" | "baja";
 export type BacklogCategory =
   | "technical" | "tecnico"
@@ -70,6 +71,13 @@ export type BacklogTask = {
   funnel_stage: BacklogFunnelStage | null;
   conversion_expected: BacklogConversionExpected | null;
   business_goal: string | null;
+  phase: BacklogPhase | null;
+  owner: string | null;
+  due_date: string | null;
+  team_area: string | null;
+  blocked_by: number[] | null;       // task IDs this task depends on
+  blocked_reason: string | null;
+  stale_at: string | null;
   notes: string | null;
   slack_list_item_id: string | null;
   slack_synced_at: string | null;
@@ -120,6 +128,13 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists funnel_stage text`;
   await sql`alter table seo_backlog_tasks add column if not exists conversion_expected text`;
   await sql`alter table seo_backlog_tasks add column if not exists business_goal text`;
+  await sql`alter table seo_backlog_tasks add column if not exists phase text`;
+  await sql`alter table seo_backlog_tasks add column if not exists owner text`;
+  await sql`alter table seo_backlog_tasks add column if not exists due_date date`;
+  await sql`alter table seo_backlog_tasks add column if not exists team_area text`;
+  await sql`alter table seo_backlog_tasks add column if not exists blocked_by jsonb`;
+  await sql`alter table seo_backlog_tasks add column if not exists blocked_reason text`;
+  await sql`alter table seo_backlog_tasks add column if not exists stale_at timestamptz`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_list_item_id text`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_synced_at timestamptz`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_last_pushed_status text`;
@@ -181,7 +196,28 @@ export type ProposedTask = {
   funnel_stage?: BacklogFunnelStage | null;
   conversion_expected?: BacklogConversionExpected | null;
   business_goal?: string | null;
+  phase?: BacklogPhase | null;
+  owner?: string | null;
+  due_date?: string | null;
+  team_area?: string | null;
+  blocked_by_signature_keys?: string[] | null;  // signature keys to resolve to ids
+  blocked_reason?: string | null;
 };
+
+// Cheap word-overlap similarity used to detect semantic duplicates between
+// heuristic-generated and Opus-generated tasks. Tokenizes lowercase and
+// counts common token ratio over the union (Jaccard).
+function titleSimilarity(a: string, b: string): number {
+  const tok = (s: string) => new Set(
+    s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
+      .replace(/[^\w\s]/g, " ").split(/\s+/).filter((t) => t.length > 2)
+  );
+  const A = tok(a), B = tok(b);
+  if (A.size === 0 || B.size === 0) return 0;
+  let intersect = 0;
+  for (const t of A) if (B.has(t)) intersect++;
+  return intersect / new Set([...A, ...B]).size;
+}
 
 function clampScore(v: unknown): number | null {
   const n = typeof v === "number" ? v : Number(v);
@@ -189,32 +225,103 @@ function clampScore(v: unknown): number | null {
   return Math.max(0, Math.min(100, n));
 }
 
-function computeOpportunityScore(impact: number | null, difficulty: number | null, confidence: number | null): number | null {
+function computeOpportunityScore(impact: number | null, difficulty: number | null, confidence: number | null, phase: BacklogPhase | null): number | null {
   if (impact === null && difficulty === null && confidence === null) return null;
   const i = impact ?? 50;
   const d = difficulty ?? 50;
   const c = confidence ?? 70;
   // Score 0..100. Prefer high impact + high confidence + low difficulty.
-  return Math.round((i * c) / Math.max(d, 1));
+  let score = (i * c) / Math.max(d, 1);
+  // Phase boost: while we are in post-migration recovery focus, recovery and
+  // config tasks get a 15% multiplier so they outrank growth tasks at equal
+  // raw score. Easy to retire later by setting RECOVERY_FOCUS_ACTIVE=false.
+  if (phase === "recovery") score *= 1.15;
+  if (phase === "config") score *= 1.20;
+  return Math.round(Math.min(score, 999));
 }
 
-export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inserted: number; updated: number; skipped: number }> {
+const PHASE_BY_CATEGORY: Record<string, BacklogPhase> = {
+  migracion: "recovery",
+  technical: "recovery",
+  tecnico: "recovery",
+  indexacion: "recovery",
+  schema: "recovery",
+  sitemap: "recovery",
+  performance: "recovery",
+  ctr: "growth",
+  "on-page": "growth",
+  content: "growth",
+  social: "growth",
+  "seo-local": "growth",
+  "llm-visibility": "growth",
+  "ai-optimization": "growth",
+  ecommerce: "growth",
+  "link-building": "neutral", // depends on action — audit vs build
+};
+
+function derivePhase(category: BacklogCategory, declared?: BacklogPhase | null): BacklogPhase {
+  if (declared) return declared;
+  return PHASE_BY_CATEGORY[category] ?? "neutral";
+}
+
+export async function upsertProposedTasks(tasks: ProposedTask[], options: { maxNewInserts?: number } = {}): Promise<{ inserted: number; updated: number; skipped: number; capped: number }> {
   const sql = getSql();
   if (!sql) throw new Error("DATABASE_URL not configured");
   await ensureBacklogSchema();
-  let inserted = 0, updated = 0, skipped = 0;
+  let inserted = 0, updated = 0, skipped = 0, capped = 0;
+
+  // Resolve blocked_by_signature_keys → integer task IDs by looking up
+  // existing rows with matching signatures (could be from same batch or earlier).
+  const sqlRef = sql; // capture non-null for inner closure
+  async function resolveBlockedBy(keys: string[] | null | undefined, currentDomain: string): Promise<number[] | null> {
+    if (!keys || keys.length === 0) return null;
+    const ids: number[] = [];
+    for (const key of keys) {
+      const rows = await sqlRef`
+        select id from seo_backlog_tasks
+        where domain = ${currentDomain}
+          and (task_signature like ${"%" + key + "%"} or title ilike ${"%" + key + "%"})
+        order by id desc limit 1
+      ` as Array<{ id: number }>;
+      if (rows.length > 0) ids.push(rows[0].id);
+    }
+    return ids.length > 0 ? ids : null;
+  }
+
   for (const task of tasks) {
     const signature = makeTaskSignature(task.domain, task.category, task.signature_key);
     const impact = clampScore(task.impact_score);
     const difficulty = clampScore(task.difficulty_score);
     const confidence = clampScore(task.confidence_score);
-    const opportunity = computeOpportunityScore(impact, difficulty, confidence);
+    const phase = derivePhase(task.category, task.phase);
+    const opportunity = computeOpportunityScore(impact, difficulty, confidence, phase);
     const sourceType = task.source_type ?? "agent";
+    const blockedByIds = await resolveBlockedBy(task.blocked_by_signature_keys, task.domain);
 
-    const existing = await sql`
+    // Semantic dedup: also look for a recent open task with same domain + category
+    // and >= 75% title overlap. Treat as the same task and update it instead of
+    // inserting a duplicate.
+    let existing: Array<{ id: number; status: string }> = await sql`
       select id, status from seo_backlog_tasks where task_signature = ${signature} limit 1
     ` as Array<{ id: number; status: string }>;
     if (existing.length === 0) {
+      const candidates = await sql`
+        select id, status, title from seo_backlog_tasks
+        where domain = ${task.domain} and category = ${task.category}
+          and status in ('pendiente','en_progreso','blocked')
+        order by proposed_at desc limit 25
+      ` as Array<{ id: number; status: string; title: string }>;
+      const matchedSemantic = candidates.find((c) => titleSimilarity(c.title, task.title) >= 0.75);
+      if (matchedSemantic) {
+        existing = [{ id: matchedSemantic.id, status: matchedSemantic.status }];
+      }
+    }
+    if (existing.length === 0) {
+      // Cap on new inserts per call. Once exceeded we mark as 'capped' (skipped).
+      if (options.maxNewInserts !== undefined && inserted >= options.maxNewInserts) {
+        capped++;
+        continue;
+      }
       await sql`
         insert into seo_backlog_tasks
           (task_signature, title, description, domain, category, priority, impact_expected, impact_conversion,
@@ -232,14 +339,20 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
            ${task.modalidad_jornada ?? null}, ${task.intencion ?? null},
            ${task.action_type ?? null}, ${task.risk_level ?? null}, ${task.requires_human_review ?? false})
       `;
-      // Set the new business-classification columns separately to keep the main
+      // Set the new business + operational columns separately to keep the main
       // insert backwards-compatible if any of them are missing in the row.
       await sql`
         update seo_backlog_tasks
         set audience = ${task.audience ?? null},
             funnel_stage = ${task.funnel_stage ?? null},
             conversion_expected = ${task.conversion_expected ?? null},
-            business_goal = ${task.business_goal ?? null}
+            business_goal = ${task.business_goal ?? null},
+            phase = ${phase},
+            owner = ${task.owner ?? null},
+            due_date = ${task.due_date ?? null}::date,
+            team_area = ${task.team_area ?? null},
+            blocked_by = ${blockedByIds ? JSON.stringify(blockedByIds) : null}::jsonb,
+            blocked_reason = ${task.blocked_reason ?? null}
         where task_signature = ${signature}
       `;
       inserted++;
@@ -277,12 +390,18 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           funnel_stage = coalesce(${task.funnel_stage ?? null}, funnel_stage),
           conversion_expected = coalesce(${task.conversion_expected ?? null}, conversion_expected),
           business_goal = coalesce(${task.business_goal ?? null}, business_goal),
+          phase = ${phase},
+          owner = coalesce(${task.owner ?? null}, owner),
+          due_date = coalesce(${task.due_date ?? null}::date, due_date),
+          team_area = coalesce(${task.team_area ?? null}, team_area),
+          blocked_by = coalesce(${blockedByIds ? JSON.stringify(blockedByIds) : null}::jsonb, blocked_by),
+          blocked_reason = coalesce(${task.blocked_reason ?? null}, blocked_reason),
           updated_at = now()
       where id = ${row.id}
     `;
     updated++;
   }
-  return { inserted, updated, skipped };
+  return { inserted, updated, skipped, capped };
 }
 
 export type BacklogFilters = {
@@ -313,6 +432,7 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
       programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
       action_type, risk_level, requires_human_review,
       audience, funnel_stage, conversion_expected, business_goal,
+      phase, owner, due_date::text, team_area, blocked_by, blocked_reason, stale_at::text,
       notes, slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
@@ -337,6 +457,7 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
       programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion,
       action_type, risk_level, requires_human_review,
       audience, funnel_stage, conversion_expected, business_goal,
+      phase, owner, due_date::text, team_area, blocked_by, blocked_reason, stale_at::text,
       notes, slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];
@@ -395,6 +516,62 @@ export async function finishAgentRun(runId: number, status: string, summary: { p
         errors = ${summary.errors === null || summary.errors === undefined ? null : JSON.stringify(summary.errors)}::jsonb
     where id = ${runId}
   `;
+}
+
+// Auto-block tasks that depend on others which are not yet ejecutada.
+// Idempotent — runs after every upsert and via cron.
+export async function applyAutoBlock(): Promise<{ blocked: number; unblocked: number }> {
+  const sql = getSql();
+  if (!sql) return { blocked: 0, unblocked: 0 };
+  await ensureBacklogSchema();
+  // Block: tasks whose blocked_by contains any id NOT in ejecutada.
+  const blocked = await sql`
+    update seo_backlog_tasks t
+    set status = 'blocked', updated_at = now()
+    where status in ('pendiente','en_progreso')
+      and blocked_by is not null
+      and exists (
+        select 1 from jsonb_array_elements_text(blocked_by) dep_id
+        join seo_backlog_tasks dep on dep.id = dep_id::int
+        where dep.status <> 'ejecutada'
+      )
+    returning id
+  ` as Array<{ id: number }>;
+  // Unblock: tasks currently blocked whose ALL dependencies are now ejecutada.
+  const unblocked = await sql`
+    update seo_backlog_tasks t
+    set status = 'pendiente', updated_at = now(),
+        notes = coalesce(notes || E'\n---\n','') || '[auto-unblock] dependencias completadas, tarea reabierta a pendiente.'
+    where status = 'blocked'
+      and (blocked_by is null
+        or not exists (
+          select 1 from jsonb_array_elements_text(blocked_by) dep_id
+          join seo_backlog_tasks dep on dep.id = dep_id::int
+          where dep.status <> 'ejecutada'
+        )
+      )
+    returning id
+  ` as Array<{ id: number }>;
+  return { blocked: blocked.length, unblocked: unblocked.length };
+}
+
+// Mark tasks as stale (annotation only, doesn't change status) when they have
+// been pendiente or en_progreso for >30 days without an update. Adds a note;
+// does NOT auto-discard — important tasks must keep human review.
+export async function markStaleTasks(daysThreshold: number = 30): Promise<{ marked: number }> {
+  const sql = getSql();
+  if (!sql) return { marked: 0 };
+  await ensureBacklogSchema();
+  const result = await sql`
+    update seo_backlog_tasks
+    set stale_at = now(),
+        notes = coalesce(notes || E'\n---\n','') || ${'[stale-' + daysThreshold + 'd] sin updates >' + daysThreshold + ' dias. Revisar si sigue siendo relevante.'}
+    where status in ('pendiente','en_progreso','blocked')
+      and stale_at is null
+      and updated_at < now() - (interval '1 day' * ${daysThreshold})
+    returning id
+  ` as Array<{ id: number }>;
+  return { marked: result.length };
 }
 
 export async function listAgentRuns(limit: number = 20) {

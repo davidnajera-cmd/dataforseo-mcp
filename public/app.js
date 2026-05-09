@@ -425,11 +425,12 @@ function renderBacklogBoard(rows) {
     return;
   }
   board.classList.remove("empty-state");
-  const buckets = { pendiente: [], en_progreso: [], ejecutada: [], descartada: [] };
+  const buckets = { pendiente: [], en_progreso: [], blocked: [], ejecutada: [], descartada: [] };
   for (const row of rows) (buckets[row.status] ?? buckets.pendiente).push(row);
   const columns = [
     { key: "pendiente", label: "Pendiente" },
     { key: "en_progreso", label: "En progreso" },
+    { key: "blocked", label: "Bloqueada" },
     { key: "ejecutada", label: "Ejecutada" },
     { key: "descartada", label: "Descartada" },
   ];
@@ -464,6 +465,10 @@ function renderTaskCard(row) {
   const reviewBadge = row.requires_human_review ? `<span class="review-badge">👤 review</span>` : "";
   const actionBadge = row.action_type && row.action_type !== "execution" ? `<span class="action-badge action-${esc(row.action_type)}">${esc(row.action_type)}</span>` : "";
   const audienceBadge = row.audience === "estudiantes_actuales" ? `<span class="audience-badge audience-current">🎓 estudiantes actuales</span>` : "";
+  const blockedChip = row.status === "blocked" ? `<span class="blocked-chip">🔒 bloqueada${row.blocked_by ? ` (por #${row.blocked_by.join(',#')})` : ""}</span>` : "";
+  const ownerChip = row.owner ? `<span class="owner-chip">👤 ${esc(row.owner)}</span>` : "";
+  const dueChip = row.due_date ? `<span class="due-chip">📅 ${esc(row.due_date)}</span>` : "";
+  const phaseChip = row.phase === "recovery" ? `<span class="phase-chip phase-recovery">🛠 recovery</span>` : row.phase === "growth" ? `<span class="phase-chip phase-growth">🚀 growth</span>` : "";
   return `
     <article class="task-card priority-${esc(row.priority)}${row.requires_human_review ? " needs-review" : ""}" data-id="${esc(row.id)}">
       <header>
@@ -471,10 +476,13 @@ function renderTaskCard(row) {
         <span class="category-pill">${esc(row.category)}</span>
         ${actionBadge}
         ${audienceBadge}
+        ${phaseChip}
+        ${blockedChip}
         ${riskBadge}
         ${reviewBadge}
         ${sourceBadge}
       </header>
+      <div class="task-meta">${ownerChip}${dueChip}</div>
       <h4>${esc(row.title)}</h4>
       <p>${esc(row.description.length > 140 ? row.description.slice(0, 140) + "…" : row.description)}</p>
       ${scoresBlock}
@@ -536,14 +544,40 @@ async function openTaskModal(id) {
     ${task.notes ? `<h5>Notas</h5><pre>${esc(task.notes)}</pre>` : ""}
     <h5>Estado</h5>
     <div class="status-actions">
-      ${["pendiente", "en_progreso", "ejecutada", "descartada"].map((s) => `
+      ${["pendiente", "en_progreso", "blocked", "ejecutada", "descartada"].map((s) => `
         <button class="small-button ${task.status === s ? "is-active" : ""}" data-status="${esc(s)}">${esc(s)}</button>
       `).join("")}
     </div>
+    <h5>Operación</h5>
+    <div class="op-fields">
+      <label>Owner <input id="taskOwnerInput" type="text" value="${esc(task.owner ?? '')}" placeholder="Nombre o email" /></label>
+      <label>Due date <input id="taskDueInput" type="date" value="${esc(task.due_date ?? '')}" /></label>
+      <label>Team area <input id="taskTeamInput" type="text" value="${esc(task.team_area ?? '')}" placeholder="SEO | dev | content | ops" /></label>
+      <button class="small-button" id="saveOpFields" type="button">Guardar</button>
+    </div>
+    ${task.blocked_by && task.blocked_by.length ? `<p class="blocked-note">🔒 Bloqueada por tareas: ${task.blocked_by.map((id) => `#${esc(id)}`).join(', ')}${task.blocked_reason ? '. ' + esc(task.blocked_reason) : ''}</p>` : ""}
     <textarea id="taskNoteInput" placeholder="Agregar nota (opcional al cambiar estado)"></textarea>
   `;
   modal.classList.add("visible");
   modal.querySelector(".modal-close").addEventListener("click", () => modal.classList.remove("visible"));
+  modal.querySelector("#saveOpFields")?.addEventListener("click", async () => {
+    const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+    if (!token) { alert("Configura admin token primero."); return; }
+    const body = {
+      id: task.id,
+      owner: modal.querySelector("#taskOwnerInput")?.value || null,
+      due_date: modal.querySelector("#taskDueInput")?.value || null,
+      team_area: modal.querySelector("#taskTeamInput")?.value || null,
+    };
+    const res = await fetch("/api/backlog?action=assign", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-admin-token": token },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) { modal.classList.remove("visible"); loadBacklog(); }
+    else alert(`No se pudo guardar: ${res.status}`);
+  });
+
   modal.querySelectorAll("[data-status]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const status = btn.dataset.status;

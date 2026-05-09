@@ -409,27 +409,43 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     }
   }
 
-  // RULE 9: Traffic exists but no conversion events from organic landing pages
+  // RULE 9: Traffic exists but no conversion events from organic landing pages.
+  // IMPORTANT: if GA4 has zero conversion events configured, "0 conversions" is
+  // not a real signal — it just means we are not measuring. In that case we
+  // declare a dependency on the ga4_seo_events config task so this task auto-
+  // blocks until measurement is fixed.
   if (ga4 && ga4.configured && ga4.by_landing_page.length > 0) {
+    const measurementBroken = ga4.total_seo_conversions_28d === 0;
     const trafficZeroConv = ga4.by_landing_page
       .filter((lp) => lp.sessions >= 50 && lp.conversions === 0)
       .slice(0, 3);
     for (const lp of trafficZeroConv) {
       tasks.push({
         signature_key: `heuristic::no_conv_lp::${lp.landing_page}`.slice(0, 80),
-        title: `Revisar CTAs en ${lp.landing_page} (${lp.sessions} sesiones / 0 conversiones)`,
-        description: `Esta landing page recibió ${lp.sessions} sesiones orgánicas en los últimos 28 días pero registró 0 conversiones (WhatsApp/formulario/llamada). Revisar: presencia de CTA visible, claridad del mensaje, alineación con la query de entrada, UX. Proponer ajustes específicos.`,
+        title: `Revisar CTAs en ${lp.landing_page} (${lp.sessions} sesiones / 0 conversiones${measurementBroken ? ' [medicion sin verificar]' : ''})`,
+        description: measurementBroken
+          ? `Esta landing page recibio ${lp.sessions} sesiones organicas en 28 dias pero GA4 muestra 0 conversiones. CRITICO: la medicion de eventos SEO no esta configurada todavia, asi que el "0 conversiones" no es un signal valido. Esta tarea queda BLOQUEADA hasta que la tarea "Configurar eventos GA4 de conversion web" este ejecutada y haya datos reales que validar.`
+          : `Esta landing page recibio ${lp.sessions} sesiones organicas en los ultimos 28 dias pero registro 0 conversiones (WhatsApp/formulario/llamada). Revisar: presencia de CTA visible, claridad del mensaje, alineacion con la query de entrada, UX. Proponer ajustes especificos.`,
         domain,
         category: "on-page",
         priority: lp.sessions >= 200 ? "alta" : "media",
         impact_score: Math.min(70, 30 + Math.round(lp.sessions / 10)),
         difficulty_score: 35,
-        confidence_score: 80,
-        impact_expected: `Si CTR a CTA pasa de 0% a 2-5%, generaría ~${Math.round(lp.sessions * 0.03)} conversiones/mes adicionales`,
-        rationale: `GA4 reporta ${lp.sessions} sesiones orgánicas en ${lp.landing_page} sin ninguna conversión registrada (eventos clave 0). Indica fricción de CTA o desalineación intent/contenido.`,
-        data_sources: { sources: ["ga4"], evidence: { landing_page: lp.landing_page, sessions: lp.sessions, conversions: 0 } },
+        confidence_score: measurementBroken ? 40 : 80,
+        impact_expected: `Si CTR a CTA pasa de 0% a 2-5%, generaria ~${Math.round(lp.sessions * 0.03)} eventos/mes adicionales (asumiendo medicion valida).`,
+        rationale: measurementBroken
+          ? `GA4 reporta ${lp.sessions} sesiones organicas en ${lp.landing_page} con 0 conversiones, pero el sistema NO tiene eventos SEO configurados. Sin medicion confiable, no podemos diagnosticar friccion de CTA. Tarea bloqueada por dependencia.`
+          : `GA4 reporta ${lp.sessions} sesiones organicas en ${lp.landing_page} sin ninguna conversion registrada (eventos clave 0). Indica friccion de CTA o desalineacion intent/contenido.`,
+        data_sources: { sources: ["ga4"], evidence: { landing_page: lp.landing_page, sessions: lp.sessions, conversions: 0, ga4_events_total_28d: ga4.total_events_28d, ga4_seo_conversions_28d: ga4.total_seo_conversions_28d, measurement_broken: measurementBroken } },
         source_type: "heuristic",
-        assignee_suggested: "designer",
+        assignee_suggested: measurementBroken ? "ops" : "designer",
+        action_type: measurementBroken ? "audit" : "execution",
+        risk_level: "low",
+        requires_human_review: false,
+        // If measurement is broken, declare a dependency on the GA4 config task.
+        // The blocked_by resolver will look up by signature key fragment.
+        blocked_by_signature_keys: measurementBroken ? [`ga4_seo_events::${domain}`] : null,
+        blocked_reason: measurementBroken ? "Depende de configuracion de eventos GA4 (medicion SEO sin verificar)" : null,
       });
     }
   }

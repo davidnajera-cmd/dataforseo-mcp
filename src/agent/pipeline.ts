@@ -13,7 +13,7 @@ import {
   collectSitemapStatus,
   collectGa4ConversionEvents,
 } from "./data-collectors.js";
-import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun } from "../backlog-store.js";
+import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun, applyAutoBlock, markStaleTasks } from "../backlog-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
 import { generateHeuristicTasks, CollectorPayload } from "./heuristic-tasks.js";
 import { pushTasksToSlack } from "../slack-sync.js";
@@ -125,10 +125,12 @@ export async function runAgent(): Promise<AgentRunResult> {
         errors.push({ stage: "heuristic", domain, error: error instanceof Error ? error.message : "unknown" });
       }
     }
-    let heuristicUpsert = { inserted: 0, updated: 0, skipped: 0 };
+    const maxNewInsertsRaw = await getRuntimeVariable("AGENT_MAX_NEW_INSERTS_PER_RUN");
+    const maxNewInserts = Number(maxNewInsertsRaw ?? 12);
+    let heuristicUpsert = { inserted: 0, updated: 0, skipped: 0, capped: 0 };
     if (heuristicTotal.length > 0) {
       try {
-        heuristicUpsert = await upsertProposedTasks(heuristicTotal);
+        heuristicUpsert = await upsertProposedTasks(heuristicTotal, { maxNewInserts });
       } catch (error) {
         errors.push({ stage: "heuristic_upsert", error: error instanceof Error ? error.message : "unknown" });
       }
@@ -209,14 +211,27 @@ export async function runAgent(): Promise<AgentRunResult> {
     stats.opus_proposed_tasks = proposedTasks.length;
 
     // 4. Dedup + insert (Opus-proposed tasks — heuristic ones already inserted in step 1.5)
+    // Reserve insert budget already used by heuristics so we don't blow past the cap.
+    const remainingNewInserts = Math.max(0, maxNewInserts - heuristicUpsert.inserted);
     const opusUpsert = proposedTasks.length
-      ? await upsertProposedTasks(proposedTasks)
-      : { inserted: 0, updated: 0, skipped: 0 };
+      ? await upsertProposedTasks(proposedTasks, { maxNewInserts: remainingNewInserts })
+      : { inserted: 0, updated: 0, skipped: 0, capped: 0 };
 
     const totalProposed = proposedTasks.length + heuristicTotal.length;
     const totalInserted = opusUpsert.inserted + heuristicUpsert.inserted;
     const totalUpdated = opusUpsert.updated + heuristicUpsert.updated;
     const totalSkipped = opusUpsert.skipped + heuristicUpsert.skipped;
+
+    // 4.5 Apply auto-block + stale annotations after the upsert so dependencies
+    // resolved in this run flip the right rows.
+    try {
+      const autoBlock = await applyAutoBlock();
+      const stale = await markStaleTasks(30);
+      stats.auto_block = autoBlock;
+      stats.stale_marked = stale.marked;
+    } catch (error) {
+      errors.push({ stage: "auto_block_or_stale", error: error instanceof Error ? error.message : "unknown" });
+    }
 
     // 5. Outbound Slack sync (best-effort: errors do NOT fail the agent run).
     try {

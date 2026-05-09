@@ -53,6 +53,19 @@ export default async function handler(
       return;
     }
 
+    if (req.method === "POST" && action === "assign") {
+      assertVariablesAdminToken(header(req, "x-admin-token"));
+      const body = await readJson(req);
+      const id = Number(body.id);
+      const { neon } = await import("@neondatabase/serverless");
+      if (!process.env.DATABASE_URL) { send(res, 500, { error: "no_db" }); return; }
+      const db = neon(process.env.DATABASE_URL);
+      await db`update seo_backlog_tasks set owner = coalesce(${(body.owner ?? null) as string | null}, owner), due_date = coalesce(${(body.due_date ?? null) as string | null}::date, due_date), team_area = coalesce(${(body.team_area ?? null) as string | null}, team_area), updated_at = now() where id = ${id}`;
+      const updated = await getBacklogTask(id);
+      send(res, updated ? 200 : 404, updated ?? { error: "not_found" });
+      return;
+    }
+
     if (req.method === "POST" && (action === "update_status" || action === "add_note")) {
       assertVariablesAdminToken(header(req, "x-admin-token"));
       const body = await readJson(req);

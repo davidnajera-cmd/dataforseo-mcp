@@ -1029,3 +1029,68 @@ select {
   text-transform: none;
 }
 .audience-badge.audience-current { background: #fff2d8; color: #5a3700; }
+
+.blocked-chip,
+.owner-chip,
+.due-chip,
+.phase-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 2px 7px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.blocked-chip { background: #f4e4ff; color: #6b21a8; }
+.owner-chip { background: #e8edff; color: #2454ff; text-transform: none; letter-spacing: 0; }
+.due-chip { background: #fff2d8; color: #b97a00; text-transform: none; letter-spacing: 0; }
+.phase-chip.phase-recovery { background: #ffd9d9; color: #b91c1c; }
+.phase-chip.phase-growth { background: #d6f5ec; color: #00795f; }
+
+.task-meta {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+.task-card .kanban-col[data-col="blocked"] { background: #f4e4ff20; }
+.kanban-col[data-col="blocked"] header { color: #6b21a8; }
+
+.op-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr auto;
+  gap: 8px;
+  align-items: end;
+  margin-top: 8px;
+}
+.op-fields label {
+  display: flex;
+  flex-direction: column;
+  font-size: 11px;
+  color: #69717c;
+  gap: 2px;
+}
+.op-fields input {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid var(--border, #e6e8ee);
+  font-size: 12px;
+}
+
+.blocked-note {
+  background: #f4e4ff;
+  color: #6b21a8;
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  margin: 8px 0;
+}
+
+@media (max-width: 1280px) {
+  .backlog-board { grid-template-columns: repeat(3, 1fr); }
+}
+@media (max-width: 1024px) {
+  .backlog-board { grid-template-columns: repeat(2, 1fr); }
+}
