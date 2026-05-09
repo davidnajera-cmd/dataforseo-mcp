@@ -89,6 +89,7 @@ export async function runAgent(): Promise<AgentRunResult> {
           : movers;
 
         rawPerSite[site.domain] = {
+          domain: site.domain,
           country: site.countryCode,
           uses_dna_catalog: annotateQueries,
           gsc_opportunities: annotatedOpportunities,
