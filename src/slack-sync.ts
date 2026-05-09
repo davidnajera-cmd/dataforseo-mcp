@@ -16,6 +16,10 @@ import { createBacklogItem, updateBacklogItem, listBacklogItems, itemFieldsByCol
 import { ensureBacklogSchema, BacklogTask, BacklogStatus, updateTaskStatus } from "./backlog-store.js";
 import { getRuntimeVariable } from "./runtime-config.js";
 
+// We track separately whether the CURRENT local status has been pushed to Slack
+// using a small jsonb field on the row: slack_last_pushed_status. If the local
+// status changed since the last push, we re-push.
+
 let client: ReturnType<typeof neon> | null = null;
 function getSql() {
   if (!process.env.DATABASE_URL) return null;
@@ -69,11 +73,11 @@ export async function pushTasksToSlack(maxTasks: number = 50): Promise<SlackOutb
     try {
       if (!row.slack_list_item_id) {
         const created = await createBacklogItem({ title: row.title, description: row.description, priority: row.priority });
-        await sql`update seo_backlog_tasks set slack_list_item_id = ${created.id}, slack_synced_at = now() where id = ${row.id}`;
+        await sql`update seo_backlog_tasks set slack_list_item_id = ${created.id}, slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
         pushed++;
       } else {
         await updateBacklogItem(row.slack_list_item_id, { title: row.title, description: row.description, priority: row.priority });
-        await sql`update seo_backlog_tasks set slack_synced_at = now() where id = ${row.id}`;
+        await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
         updated++;
       }
     } catch (error) {
@@ -82,6 +86,65 @@ export async function pushTasksToSlack(maxTasks: number = 50): Promise<SlackOutb
     }
   }
   return { enabled: true, pushed, updated, failed, errors };
+}
+
+export type SlackClosedSyncSummary = {
+  enabled: boolean;
+  marked_completed: number;
+  marked_descartada: number;
+  failed: number;
+  errors: Array<{ task_id: number; error: string }>;
+};
+
+// Mark Slack items as completed when the local task moved to ejecutada or
+// descartada. Idempotent: only acts on rows where slack_last_pushed_status
+// differs from the current local status (or where it's null but the task is
+// already closed).
+export async function pushClosedTasksToSlack(): Promise<SlackClosedSyncSummary> {
+  if (!await slackEnabled()) {
+    return { enabled: false, marked_completed: 0, marked_descartada: 0, failed: 0, errors: [] };
+  }
+  const sql = getSql();
+  if (!sql) return { enabled: true, marked_completed: 0, marked_descartada: 0, failed: 0, errors: [] };
+  await ensureBacklogSchema();
+
+  const rows = await sql`
+    select id, status, slack_list_item_id, title
+    from seo_backlog_tasks
+    where slack_list_item_id is not null
+      and status in ('ejecutada','descartada')
+      and (slack_last_pushed_status is null
+           or slack_last_pushed_status not in ('ejecutada','descartada'))
+    order by closed_at desc nulls last
+    limit 100
+  ` as Array<{ id: number; status: BacklogStatus; slack_list_item_id: string; title: string }>;
+
+  let executedCount = 0;
+  let discardedCount = 0;
+  let failed = 0;
+  const errors: SlackClosedSyncSummary["errors"] = [];
+
+  for (const row of rows) {
+    try {
+      // Both ejecutada and descartada → checkbox=true + Estado=Completadas in Slack.
+      // For descartada we also prepend the title with a marker so the team can tell.
+      const isDiscarded = row.status === "descartada";
+      const updates: Parameters<typeof updateBacklogItem>[1] = {
+        completed: true,
+        estado_option: SLACK_ESTADO_OPTIONS.COMPLETADAS,
+      };
+      if (isDiscarded && !row.title.startsWith("[DESCARTADA] ")) {
+        updates.title = `[DESCARTADA] ${row.title}`;
+      }
+      await updateBacklogItem(row.slack_list_item_id, updates);
+      await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
+      if (isDiscarded) discardedCount++; else executedCount++;
+    } catch (error) {
+      failed++;
+      errors.push({ task_id: row.id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+  return { enabled: true, marked_completed: executedCount, marked_descartada: discardedCount, failed, errors };
 }
 
 export type SlackInboundSummary = {

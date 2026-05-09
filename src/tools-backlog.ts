@@ -4,7 +4,7 @@ import {
   listBacklog, getBacklogTask, updateTaskStatus, addTaskNote, listAgentRuns,
 } from "./backlog-store.js";
 import { runAgent } from "./agent/pipeline.js";
-import { pushTasksToSlack, pullSlackToTasks } from "./slack-sync.js";
+import { pushTasksToSlack, pullSlackToTasks, pushClosedTasksToSlack } from "./slack-sync.js";
 
 function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
@@ -80,8 +80,9 @@ export function registerBacklogTools(server: McpServer) {
     {},
     async () => {
       const inbound = await pullSlackToTasks();
+      const closed = await pushClosedTasksToSlack();
       const outbound = await pushTasksToSlack(50);
-      return { content: [{ type: "text" as const, text: formatResult({ inbound, outbound }) }] };
+      return { content: [{ type: "text" as const, text: formatResult({ inbound, closed, outbound }) }] };
     }
   );
 

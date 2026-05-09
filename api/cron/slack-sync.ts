@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { pullSlackToTasks, pushTasksToSlack } from "../../src/slack-sync.js";
+import { pullSlackToTasks, pushTasksToSlack, pushClosedTasksToSlack } from "../../src/slack-sync.js";
 import { getRuntimeVariable, clearRuntimeVariableCache } from "../../src/runtime-config.js";
 
 export const config = { maxDuration: 120 };
@@ -16,11 +16,15 @@ export default async function handler(
     const provided = (auth ?? "").replace(/^Bearer\s+/i, "");
     if (provided !== expected) { send(res, 401, { error: "unauthorized" }); return; }
 
-    // Pull first (so we mark items closed in Slack as ejecutada locally),
-    // then push (so newly-closed items are not re-pushed as pending).
+    // Order matters:
+    //  1. Pull from Slack (marks Slack-completed items as ejecutada locally).
+    //  2. Push closed (writes ejecutada/descartada local statuses back to Slack
+    //     as completed=true + Estado=Completadas).
+    //  3. Push open (creates/refreshes pending and en_progreso items in Slack).
     const inbound = await pullSlackToTasks();
+    const closed = await pushClosedTasksToSlack();
     const outbound = await pushTasksToSlack(50);
-    send(res, 200, { inbound, outbound });
+    send(res, 200, { inbound, closed, outbound });
   } catch (error) {
     send(res, 500, { error: "slack_sync_failed", message: error instanceof Error ? error.message : "unknown" });
   }

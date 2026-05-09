@@ -111,6 +111,7 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists requires_human_review boolean default false`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_list_item_id text`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_synced_at timestamptz`;
+  await sql`alter table seo_backlog_tasks add column if not exists slack_last_pushed_status text`;
   await sql`create index if not exists seo_backlog_slack on seo_backlog_tasks (slack_list_item_id) where slack_list_item_id is not null`;
   await sql`create index if not exists seo_backlog_lookup on seo_backlog_tasks (domain, status, priority)`;
   await sql`create index if not exists seo_backlog_proposed on seo_backlog_tasks (proposed_at desc)`;
