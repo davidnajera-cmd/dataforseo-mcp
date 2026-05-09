@@ -12,9 +12,16 @@
 // en_progreso). Local tasks already marked manually are not touched again.
 
 import { neon } from "@neondatabase/serverless";
-import { createBacklogItem, updateBacklogItem, listBacklogItems, itemFieldsByColumn, SLACK_COLS, SLACK_ESTADO_OPTIONS } from "./slack-client.js";
+import { createBacklogItem, updateBacklogItem, deleteBacklogItem, listBacklogItems, itemFieldsByColumn, SLACK_COLS, SLACK_ESTADO_OPTIONS } from "./slack-client.js";
 import { ensureBacklogSchema, BacklogTask, BacklogStatus, updateTaskStatus } from "./backlog-store.js";
 import { getRuntimeVariable } from "./runtime-config.js";
+
+// What we consider "high priority enough to live in Slack". Recovery Focus alta:
+// only tasks that are both priority='alta' AND phase='recovery' should be pushed
+// to or kept in the Slack list. Everything else stays in the dashboard backlog
+// but is not surfaced to the team via Slack.
+const SLACK_KEEP_PRIORITY: BacklogTask["priority"] = "alta";
+const SLACK_KEEP_PHASE = "recovery" as const;
 
 // We track separately whether the CURRENT local status has been pushed to Slack
 // using a small jsonb field on the row: slack_last_pushed_status. If the local
@@ -52,12 +59,14 @@ export async function pushTasksToSlack(maxTasks: number = 50): Promise<SlackOutb
   if (!sql) return { enabled: true, pushed: 0, updated: 0, failed: 0, errors: [] };
   await ensureBacklogSchema();
 
-  // Pull recent open tasks ordered by opportunity score so the highest-value
-  // ones reach Slack first (Slack shows in creation order which matters).
+  // Slack keeps only Recovery Focus alta. Pull only the tasks that pass the
+  // gate; the dashboard still shows everything else.
   const rows = await sql`
     select id, title, description, priority, status, slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks
     where status in ('pendiente','en_progreso')
+      and priority = ${SLACK_KEEP_PRIORITY}
+      and phase = ${SLACK_KEEP_PHASE}
     order by opportunity_score desc nulls last,
       case priority when 'alta' then 1 when 'media' then 2 else 3 end,
       proposed_at desc
@@ -207,4 +216,57 @@ export async function pullSlackToTasks(): Promise<SlackInboundSummary> {
   }
 
   return { enabled: true, scanned_items: items.length, matched_local: matched, marked_ejecutada: markedDone, marked_descartada: markedDiscarded, errors };
+}
+
+export type SlackCleanupSummary = {
+  enabled: boolean;
+  scanned: number;
+  removed: number;
+  kept: number;
+  failed: number;
+  errors: Array<{ task_id: number; slack_id: string | null; error: string }>;
+};
+
+// Remove from the Slack "Backlog SEO Agent" group any open task that doesn't
+// pass the Recovery Focus alta gate (priority='alta' AND phase='recovery').
+// Local rows stay intact: we only delete the Slack row and clear the link
+// fields so a future push won't recreate it.
+export async function cleanupSlackBacklog(): Promise<SlackCleanupSummary> {
+  if (!await slackEnabled()) {
+    return { enabled: false, scanned: 0, removed: 0, kept: 0, failed: 0, errors: [] };
+  }
+  const sql = getSql();
+  if (!sql) return { enabled: true, scanned: 0, removed: 0, kept: 0, failed: 0, errors: [] };
+  await ensureBacklogSchema();
+
+  const rows = await sql`
+    select id, slack_list_item_id, priority, phase
+    from seo_backlog_tasks
+    where slack_list_item_id is not null
+      and status in ('pendiente','en_progreso')
+      and not (priority = ${SLACK_KEEP_PRIORITY} and phase = ${SLACK_KEEP_PHASE})
+  ` as Array<{ id: number; slack_list_item_id: string; priority: BacklogTask["priority"]; phase: string | null }>;
+
+  let removed = 0;
+  let failed = 0;
+  const errors: SlackCleanupSummary["errors"] = [];
+
+  for (const row of rows) {
+    try {
+      await deleteBacklogItem(row.slack_list_item_id);
+      await sql`update seo_backlog_tasks set slack_list_item_id = null, slack_last_pushed_status = null, slack_synced_at = now() where id = ${row.id}`;
+      removed++;
+    } catch (error) {
+      failed++;
+      errors.push({ task_id: row.id, slack_id: row.slack_list_item_id, error: error instanceof Error ? error.message : String(error) });
+    }
+  }
+
+  const keptRows = await sql`
+    select count(*)::int as n
+    from seo_backlog_tasks
+    where slack_list_item_id is not null and status in ('pendiente','en_progreso')
+  ` as Array<{ n: number }>;
+
+  return { enabled: true, scanned: rows.length, removed, kept: keptRows[0]?.n ?? 0, failed, errors };
 }

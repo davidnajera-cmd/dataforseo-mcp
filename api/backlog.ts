@@ -3,6 +3,7 @@ import { listBacklog, getBacklogTask, updateTaskStatus, addTaskNote, listAgentRu
 import { assertVariablesAdminToken, clearRuntimeVariableCache } from "../src/runtime-config.js";
 import { clearGoogleAccessTokenCache } from "../src/gsc-client.js";
 import { runAgent } from "../src/agent/pipeline.js";
+import { cleanupSlackBacklog } from "../src/slack-sync.js";
 
 export const config = { maxDuration: 300 };
 
@@ -55,6 +56,14 @@ export default async function handler(
       clearRuntimeVariableCache();
       clearGoogleAccessTokenCache();
       const result = await runAgent();
+      send(res, 200, result);
+      return;
+    }
+
+    if (req.method === "POST" && action === "cleanup_slack") {
+      assertVariablesAdminToken(header(req, "x-admin-token"));
+      clearRuntimeVariableCache();
+      const result = await cleanupSlackBacklog();
       send(res, 200, result);
       return;
     }
