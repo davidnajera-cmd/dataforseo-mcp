@@ -16,6 +16,7 @@ import {
 import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun } from "../backlog-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
 import { generateHeuristicTasks, CollectorPayload } from "./heuristic-tasks.js";
+import { pushTasksToSlack } from "../slack-sync.js";
 
 type DeepSeekSummary = {
   domain: string;
@@ -190,6 +191,17 @@ export async function runAgent(): Promise<AgentRunResult> {
     const totalInserted = opusUpsert.inserted + heuristicUpsert.inserted;
     const totalUpdated = opusUpsert.updated + heuristicUpsert.updated;
     const totalSkipped = opusUpsert.skipped + heuristicUpsert.skipped;
+
+    // 5. Outbound Slack sync (best-effort: errors do NOT fail the agent run).
+    try {
+      const slackOut = await pushTasksToSlack(50);
+      stats.slack_out = slackOut;
+      if (slackOut.failed > 0) {
+        for (const e of slackOut.errors.slice(0, 5)) errors.push({ stage: "slack_outbound", ...e });
+      }
+    } catch (error) {
+      errors.push({ stage: "slack_outbound", error: error instanceof Error ? error.message : "unknown" });
+    }
 
     const status: "ok" | "partial" | "failed" = errors.length === 0 ? "ok" : (totalProposed > 0 ? "partial" : "failed");
     if (runId > 0) {

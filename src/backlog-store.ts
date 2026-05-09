@@ -51,6 +51,8 @@ export type BacklogTask = {
   modalidad_jornada: string | null;
   intencion: BacklogIntencion | null;
   notes: string | null;
+  slack_list_item_id: string | null;
+  slack_synced_at: string | null;
 };
 
 export async function ensureBacklogSchema(): Promise<void> {
@@ -91,6 +93,9 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists sede_relacionada text`;
   await sql`alter table seo_backlog_tasks add column if not exists modalidad_jornada text`;
   await sql`alter table seo_backlog_tasks add column if not exists intencion text`;
+  await sql`alter table seo_backlog_tasks add column if not exists slack_list_item_id text`;
+  await sql`alter table seo_backlog_tasks add column if not exists slack_synced_at timestamptz`;
+  await sql`create index if not exists seo_backlog_slack on seo_backlog_tasks (slack_list_item_id) where slack_list_item_id is not null`;
   await sql`create index if not exists seo_backlog_lookup on seo_backlog_tasks (domain, status, priority)`;
   await sql`create index if not exists seo_backlog_proposed on seo_backlog_tasks (proposed_at desc)`;
   await sql`create index if not exists seo_backlog_score on seo_backlog_tasks (opportunity_score desc nulls last)`;
@@ -251,7 +256,8 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
       impact_score, difficulty_score, confidence_score, opportunity_score,
       impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
       proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
-      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes
+      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes,
+      slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
       and (${filters.status ?? null}::text is null or status = ${filters.status ?? null})
@@ -272,7 +278,8 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
       impact_score, difficulty_score, confidence_score, opportunity_score,
       impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
       proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
-      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes
+      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes,
+      slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];
   return rows[0] ?? null;

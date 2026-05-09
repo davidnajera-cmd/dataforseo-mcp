@@ -41,6 +41,10 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "DEEPSEEK_API_KEY", group: "SEO Agent", label: "DeepSeek API key", description: "API key de DeepSeek para tareas masivas (clasificacion, cluster, anchors).", sensitive: true, requiredFor: "SEO Agent (clasificacion)" },
   { name: "ANTHROPIC_API_KEY", group: "SEO Agent", label: "Anthropic API key", description: "API key de Anthropic para Claude Opus (estratega, prioriza tareas).", sensitive: true, requiredFor: "SEO Agent (estrategia)" },
   { name: "AGENT_MAX_TASKS_PER_RUN", group: "SEO Agent", label: "Max tareas por run", description: "Tope de tareas que el agente crea por ejecucion. Default 10.", sensitive: false, requiredFor: "SEO Agent" },
+  { name: "SLACK_BOT_TOKEN", group: "Slack Sync", label: "Bot token (xoxb-)", description: "Slack bot token para crear/leer items en la lista 'Sprint de Marketing'.", sensitive: true, requiredFor: "Slack sync" },
+  { name: "SLACK_USER_TOKEN", group: "Slack Sync", label: "User token (xoxp-)", description: "Slack user token para metodos slackLists.* (algunos requieren user scope).", sensitive: true, requiredFor: "Slack sync" },
+  { name: "SLACK_LIST_ID", group: "Slack Sync", label: "List ID", description: "ID de la lista de Slack (formato Fxxxx). Default F0A0U27CYSX (Sprint de Marketing).", sensitive: false, requiredFor: "Slack sync" },
+  { name: "SLACK_BACKLOG_OPTION_ID", group: "Slack Sync", label: "Backlog group option ID", description: "ID de la opcion 'Backlog SEO Agent' del campo Estado Sprint. Default OptL5NJTUJB.", sensitive: false, requiredFor: "Slack sync" },
 ];
 
 type RuntimeVariableRow = {

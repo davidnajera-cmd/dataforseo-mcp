@@ -4,6 +4,7 @@ import {
   listBacklog, getBacklogTask, updateTaskStatus, addTaskNote, listAgentRuns,
 } from "./backlog-store.js";
 import { runAgent } from "./agent/pipeline.js";
+import { pushTasksToSlack, pullSlackToTasks } from "./slack-sync.js";
 
 function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
@@ -70,6 +71,17 @@ export function registerBacklogTools(server: McpServer) {
     async () => {
       const result = await runAgent();
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "backlog_slack_sync_now",
+    "Trigger a manual two-way Slack sync of the backlog. Pulls completed items from Slack (mark local tasks as ejecutada) then pushes pending/in-progress local tasks to the Slack list 'Sprint de Marketing' under the 'Backlog SEO Agent' status. The cron runs this every 2 hours; this tool lets you force it.",
+    {},
+    async () => {
+      const inbound = await pullSlackToTasks();
+      const outbound = await pushTasksToSlack(50);
+      return { content: [{ type: "text" as const, text: formatResult({ inbound, outbound }) }] };
     }
   );
 
