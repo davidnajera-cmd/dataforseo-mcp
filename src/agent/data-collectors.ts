@@ -1,11 +1,13 @@
 import { post, get } from "../dataforseo-client.js";
 import { gscPost } from "../gsc-client.js";
+import { ga4Post } from "../ga4-client.js";
 import { getRuntimeVariable } from "../runtime-config.js";
 import { getLatestBacklinks, getBacklinksTrend, getLatestDomainRankings, getLatestLlmVisibility, getTrafficTrend } from "../persistence-store.js";
 
 export type SiteContext = {
   domain: string;
   gscProperty: string | null;
+  ga4PropertyId: string | null;
   countryCode: "co" | "mx";
   locationCode: number;
 };
@@ -14,15 +16,18 @@ export async function loadSiteContexts(): Promise<SiteContext[]> {
   const out: SiteContext[] = [];
   const co_domain = await getRuntimeVariable("DNA_DOMAIN_CO");
   const co_site = await getRuntimeVariable("DNA_SITE_CO");
-  if (co_domain) out.push({ domain: co_domain, gscProperty: co_site ?? null, countryCode: "co", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_CO") ?? 2170) });
+  const co_ga4 = (await getRuntimeVariable("GA4_PROPERTY_ID_CO")) ?? (await getRuntimeVariable("GA4_PROPERTY_ID")) ?? null;
+  if (co_domain) out.push({ domain: co_domain, gscProperty: co_site ?? null, ga4PropertyId: co_ga4, countryCode: "co", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_CO") ?? 2170) });
 
   const mx_domain = await getRuntimeVariable("DNA_DOMAIN_MX");
   const mx_site = await getRuntimeVariable("DNA_SITE_MX");
-  if (mx_domain) out.push({ domain: mx_domain, gscProperty: mx_site ?? null, countryCode: "mx", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484) });
+  const mx_ga4 = (await getRuntimeVariable("GA4_PROPERTY_ID_MX")) ?? null;
+  if (mx_domain) out.push({ domain: mx_domain, gscProperty: mx_site ?? null, ga4PropertyId: mx_ga4, countryCode: "mx", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484) });
 
   const lta_domain = await getRuntimeVariable("DNA_DOMAIN_LTA");
   const lta_site = await getRuntimeVariable("DNA_SITE_LTA");
-  if (lta_domain) out.push({ domain: lta_domain, gscProperty: lta_site ?? null, countryCode: "co", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_LTA") ?? 2170) });
+  const lta_ga4 = (await getRuntimeVariable("GA4_PROPERTY_ID_LTA")) ?? null;
+  if (lta_domain) out.push({ domain: lta_domain, gscProperty: lta_site ?? null, ga4PropertyId: lta_ga4, countryCode: "co", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_LTA") ?? 2170) });
 
   return out;
 }
@@ -131,5 +136,104 @@ export async function collectAccountUserData() {
     return await get("/appendix/user_data") as unknown;
   } catch {
     return null;
+  }
+}
+
+// GA4 key events / conversion summary for the site. Returns the top events by
+// count (last 28 days) with a flag for which look like web SEO conversions
+// (whatsapp / form / lead / call / scheduling). The agent uses this to:
+//   - Decide if conversion-based reasoning is grounded.
+//   - Detect if WhatsApp/form events are configured at all (heuristic rule).
+//   - Cross-reference traffic with conversion rate.
+export type Ga4KeyEvent = {
+  name: string;
+  count: number;
+  is_seo_conversion_proxy: boolean;
+};
+
+export type Ga4ConversionSnapshot = {
+  configured: boolean;
+  message: string;
+  total_events_28d: number;
+  total_seo_conversions_28d: number;
+  events: Ga4KeyEvent[];
+  by_landing_page: Array<{ landing_page: string; sessions: number; conversions: number }>;
+};
+
+const SEO_CONVERSION_NAME_PATTERNS = [
+  /whatsapp/i, /wa[_-]?click/i, /click[_-]?wa/i,
+  /form/i, /formulario/i, /lead/i,
+  /call/i, /llamada/i, /phone/i,
+  /schedul/i, /agend/i, /book/i, /cita/i,
+];
+
+function isSeoConversionEvent(name: string): boolean {
+  return SEO_CONVERSION_NAME_PATTERNS.some((p) => p.test(name));
+}
+
+export async function collectGa4ConversionEvents(site: SiteContext): Promise<Ga4ConversionSnapshot> {
+  if (!site.ga4PropertyId) {
+    return { configured: false, message: "Sin GA4_PROPERTY_ID para este sitio.", total_events_28d: 0, total_seo_conversions_28d: 0, events: [], by_landing_page: [] };
+  }
+  const property = site.ga4PropertyId.startsWith("properties/") ? site.ga4PropertyId : `properties/${site.ga4PropertyId}`;
+  const today = new Date().toISOString().slice(0, 10);
+  const start = new Date(Date.now() - 28 * 86400_000).toISOString().slice(0, 10);
+
+  try {
+    // Top events by count
+    const eventsRes = await ga4Post(`/${property}:runReport`, {
+      dateRanges: [{ startDate: start, endDate: today }],
+      dimensions: [{ name: "eventName" }],
+      metrics: [{ name: "eventCount" }, { name: "keyEvents" }],
+      orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+      limit: 50,
+    }) as { rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> };
+
+    const events: Ga4KeyEvent[] = (eventsRes.rows ?? []).map((r) => {
+      const name = r.dimensionValues?.[0]?.value ?? "(unknown)";
+      const count = Number(r.metricValues?.[0]?.value ?? 0);
+      return { name, count, is_seo_conversion_proxy: isSeoConversionEvent(name) };
+    });
+
+    const total = events.reduce((acc, e) => acc + e.count, 0);
+    const totalSeo = events.filter((e) => e.is_seo_conversion_proxy).reduce((acc, e) => acc + e.count, 0);
+
+    // Conversions by landing page (organic only)
+    let byLanding: Array<{ landing_page: string; sessions: number; conversions: number }> = [];
+    try {
+      const landRes = await ga4Post(`/${property}:runReport`, {
+        dateRanges: [{ startDate: start, endDate: today }],
+        dimensions: [{ name: "landingPage" }],
+        metrics: [{ name: "sessions" }, { name: "keyEvents" }],
+        dimensionFilter: { filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { value: "Organic Search", matchType: "EXACT" } } },
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit: 30,
+      }) as { rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> };
+      byLanding = (landRes.rows ?? []).map((r) => ({
+        landing_page: r.dimensionValues?.[0]?.value ?? "(unknown)",
+        sessions: Number(r.metricValues?.[0]?.value ?? 0),
+        conversions: Number(r.metricValues?.[1]?.value ?? 0),
+      }));
+    } catch {
+      // landing page query optional
+    }
+
+    return {
+      configured: true,
+      message: events.length > 0 ? "Eventos GA4 detectados." : "GA4 conectado pero sin eventos en los últimos 28 días.",
+      total_events_28d: total,
+      total_seo_conversions_28d: totalSeo,
+      events: events.slice(0, 25),
+      by_landing_page: byLanding,
+    };
+  } catch (error) {
+    return {
+      configured: false,
+      message: error instanceof Error ? error.message : "GA4 no respondió.",
+      total_events_28d: 0,
+      total_seo_conversions_28d: 0,
+      events: [],
+      by_landing_page: [],
+    };
   }
 }

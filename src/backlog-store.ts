@@ -13,10 +13,13 @@ function getSql() {
 export type BacklogStatus = "pendiente" | "en_progreso" | "ejecutada" | "descartada";
 export type BacklogPriority = "alta" | "media" | "baja";
 export type BacklogCategory =
-  | "technical" | "on-page" | "content" | "social"
+  | "technical" | "tecnico"
+  | "migracion"
+  | "on-page" | "content" | "social"
   | "link-building" | "ai-optimization" | "schema" | "sitemap"
-  | "ctr" | "indexacion" | "performance" | "ecommerce" | "llm-visibility";
+  | "ctr" | "indexacion" | "seo-local" | "performance" | "ecommerce" | "llm-visibility";
 export type BacklogSourceType = "agent" | "heuristic" | "manual";
+export type BacklogIntencion = "branded" | "navegacional" | "informacional" | "comercial" | "local";
 
 export type BacklogTask = {
   id: number;
@@ -26,11 +29,12 @@ export type BacklogTask = {
   domain: string;
   category: BacklogCategory;
   priority: BacklogPriority;
-  impact_score: number | null;       // 0..100
-  difficulty_score: number | null;   // 0..100
-  confidence_score: number | null;   // 0..100
-  opportunity_score: number | null;  // computed: impact * confidence / max(difficulty, 1)
+  impact_score: number | null;
+  difficulty_score: number | null;
+  confidence_score: number | null;
+  opportunity_score: number | null;
   impact_expected: string | null;
+  impact_conversion: string | null;
   rationale: string;
   data_sources: unknown;
   status: BacklogStatus;
@@ -41,6 +45,11 @@ export type BacklogTask = {
   closed_at: string | null;
   assignee: string | null;
   assignee_suggested: string | null;
+  programa_relacionado: string | null;
+  materia_relacionada: string | null;
+  sede_relacionada: string | null;
+  modalidad_jornada: string | null;
+  intencion: BacklogIntencion | null;
   notes: string | null;
 };
 
@@ -76,9 +85,16 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists opportunity_score numeric`;
   await sql`alter table seo_backlog_tasks add column if not exists source_type text not null default 'agent'`;
   await sql`alter table seo_backlog_tasks add column if not exists assignee_suggested text`;
+  await sql`alter table seo_backlog_tasks add column if not exists impact_conversion text`;
+  await sql`alter table seo_backlog_tasks add column if not exists programa_relacionado text`;
+  await sql`alter table seo_backlog_tasks add column if not exists materia_relacionada text`;
+  await sql`alter table seo_backlog_tasks add column if not exists sede_relacionada text`;
+  await sql`alter table seo_backlog_tasks add column if not exists modalidad_jornada text`;
+  await sql`alter table seo_backlog_tasks add column if not exists intencion text`;
   await sql`create index if not exists seo_backlog_lookup on seo_backlog_tasks (domain, status, priority)`;
   await sql`create index if not exists seo_backlog_proposed on seo_backlog_tasks (proposed_at desc)`;
   await sql`create index if not exists seo_backlog_score on seo_backlog_tasks (opportunity_score desc nulls last)`;
+  await sql`create index if not exists seo_backlog_taxonomy on seo_backlog_tasks (programa_relacionado, sede_relacionada, intencion)`;
 
   await sql`
     create table if not exists seo_agent_runs (
@@ -110,6 +126,7 @@ export type ProposedTask = {
   category: BacklogCategory;
   priority: BacklogPriority;
   impact_expected?: string | null;
+  impact_conversion?: string | null;
   rationale: string;
   data_sources: unknown;
   // Scoring (0..100). If omitted, opportunity_score stays null and the UI
@@ -119,6 +136,11 @@ export type ProposedTask = {
   confidence_score?: number;
   source_type?: BacklogSourceType;
   assignee_suggested?: string;
+  programa_relacionado?: string | null;
+  materia_relacionada?: string | null;
+  sede_relacionada?: string | null;
+  modalidad_jornada?: string | null;
+  intencion?: BacklogIntencion | null;
 };
 
 function clampScore(v: unknown): number | null {
@@ -155,14 +177,18 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
     if (existing.length === 0) {
       await sql`
         insert into seo_backlog_tasks
-          (task_signature, title, description, domain, category, priority, impact_expected,
+          (task_signature, title, description, domain, category, priority, impact_expected, impact_conversion,
            rationale, data_sources, status, proposed_by, source_type,
-           impact_score, difficulty_score, confidence_score, opportunity_score, assignee_suggested)
+           impact_score, difficulty_score, confidence_score, opportunity_score, assignee_suggested,
+           programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion)
         values
           (${signature}, ${task.title}, ${task.description}, ${task.domain}, ${task.category}, ${task.priority},
-           ${task.impact_expected ?? null}, ${task.rationale}, ${JSON.stringify(task.data_sources)}::jsonb,
+           ${task.impact_expected ?? null}, ${task.impact_conversion ?? null},
+           ${task.rationale}, ${JSON.stringify(task.data_sources)}::jsonb,
            'pendiente', ${sourceType}, ${sourceType},
-           ${impact}, ${difficulty}, ${confidence}, ${opportunity}, ${task.assignee_suggested ?? null})
+           ${impact}, ${difficulty}, ${confidence}, ${opportunity}, ${task.assignee_suggested ?? null},
+           ${task.programa_relacionado ?? null}, ${task.materia_relacionada ?? null}, ${task.sede_relacionada ?? null},
+           ${task.modalidad_jornada ?? null}, ${task.intencion ?? null})
       `;
       inserted++;
       continue;
@@ -178,6 +204,7 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           description = ${task.description},
           priority = ${task.priority},
           impact_expected = ${task.impact_expected ?? null},
+          impact_conversion = ${task.impact_conversion ?? null},
           rationale = ${task.rationale},
           data_sources = ${JSON.stringify(task.data_sources)}::jsonb,
           source_type = ${sourceType},
@@ -186,6 +213,11 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           confidence_score = ${confidence},
           opportunity_score = ${opportunity},
           assignee_suggested = coalesce(${task.assignee_suggested ?? null}, assignee_suggested),
+          programa_relacionado = coalesce(${task.programa_relacionado ?? null}, programa_relacionado),
+          materia_relacionada = coalesce(${task.materia_relacionada ?? null}, materia_relacionada),
+          sede_relacionada = coalesce(${task.sede_relacionada ?? null}, sede_relacionada),
+          modalidad_jornada = coalesce(${task.modalidad_jornada ?? null}, modalidad_jornada),
+          intencion = coalesce(${task.intencion ?? null}, intencion),
           updated_at = now()
       where id = ${row.id}
     `;
@@ -217,8 +249,9 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
   return await sql`
     select id, task_signature, title, description, domain, category, priority,
       impact_score, difficulty_score, confidence_score, opportunity_score,
-      impact_expected, rationale, data_sources, status, proposed_by, source_type,
-      proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested, notes
+      impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
+      proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
+      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
       and (${filters.status ?? null}::text is null or status = ${filters.status ?? null})
@@ -237,8 +270,9 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
   const rows = await sql`
     select id, task_signature, title, description, domain, category, priority,
       impact_score, difficulty_score, confidence_score, opportunity_score,
-      impact_expected, rationale, data_sources, status, proposed_by, source_type,
-      proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested, notes
+      impact_expected, impact_conversion, rationale, data_sources, status, proposed_by, source_type,
+      proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested,
+      programa_relacionado, materia_relacionada, sede_relacionada, modalidad_jornada, intencion, notes
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];
   return rows[0] ?? null;

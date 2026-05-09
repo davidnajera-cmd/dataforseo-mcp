@@ -20,8 +20,8 @@ export type CollectorPayload = {
     mapping?: ReturnType<typeof mapQueryToProgram>;
   }>;
   gsc_movers_60d: {
-    gainers: Array<{ query: string; clicks_current: number; clicks_prior: number; delta: number }>;
-    losers: Array<{ query: string; clicks_current: number; clicks_prior: number; delta: number }>;
+    gainers: Array<{ query: string; clicks_current: number; clicks_prior: number; delta: number; mapping?: ReturnType<typeof mapQueryToProgram> }>;
+    losers: Array<{ query: string; clicks_current: number; clicks_prior: number; delta: number; mapping?: ReturnType<typeof mapQueryToProgram> }>;
   };
   backlinks: { total_backlinks?: number | null; referring_domains?: number | null; spam_score?: number | null; broken_backlinks?: number | null } | null;
   backlinks_anchors: Array<{ anchor: string; backlinks: number; spam_score?: number }> | null;
@@ -29,6 +29,13 @@ export type CollectorPayload = {
   llm_visibility: Array<{ platform: string; mentions_count: number | null }>;
   traffic_trend_28d: { gsc: Array<{ date: string; clicks: number | null; impressions: number | null }>; ga4: Array<{ date: string; sessions: number | null }> };
   sitemaps: unknown;
+  ga4_conversions?: {
+    configured: boolean;
+    total_events_28d: number;
+    total_seo_conversions_28d: number;
+    events: Array<{ name: string; count: number; is_seo_conversion_proxy: boolean }>;
+    by_landing_page: Array<{ landing_page: string; sessions: number; conversions: number }>;
+  };
 };
 
 const SPAM_ANCHOR_PATTERNS = [
@@ -44,7 +51,6 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
   const domain = payload.domain;
 
   // RULE 1: Quick wins (pos 4-10, 100+ impressions, CTR < 0.03)
-  // Each high-score query becomes one CTR optimization task.
   const quickWins = (payload.gsc_opportunities ?? [])
     .filter((o) => o.position >= 4 && o.position <= 10 && o.impressions >= 100 && o.ctr < 0.03)
     .sort((a, b) => b.opportunity_score - a.opportunity_score)
@@ -73,6 +79,10 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       },
       source_type: "heuristic",
       assignee_suggested: "copywriter",
+      programa_relacionado: mapping?.primary_program_slug ?? null,
+      materia_relacionada: mapping?.matched_materia ?? null,
+      sede_relacionada: mapping?.matched_sede ?? null,
+      intencion: mapping?.intent === "branded" ? "branded" : mapping?.intent === "informational" ? "informacional" : mapping?.intent === "commercial" ? "comercial" : mapping?.intent === "transactional" ? "comercial" : null,
     });
   }
 
@@ -189,6 +199,76 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       source_type: "heuristic",
       assignee_suggested: "SEO",
     });
+  }
+
+  // RULE 7: Migration audit if 3+ losers with significant drop in 60d window
+  // Treat as POST-MIGRATION damage signal: cluster of queries lost on the same site.
+  const significantLosers = (payload.gsc_movers_60d?.losers ?? []).filter((l) => l.delta <= -50);
+  if (significantLosers.length >= 3) {
+    const totalLost = significantLosers.reduce((acc, l) => acc + Math.abs(l.delta), 0);
+    const sampleQueries = significantLosers.slice(0, 5).map((l) => `'${l.query}' (${l.delta})`).join(", ");
+    tasks.push({
+      signature_key: `heuristic::migration_audit::${domain}`,
+      title: `Auditoría post-migración: ${significantLosers.length} queries con caída fuerte (~${totalLost} clicks/mes)`,
+      description: `Para cada query con caída, identificar la URL que rankeaba antes y comparar con la URL que rankea ahora. Verificar redirects 301, canonical correctos, equivalencia de contenido. Especial atención a: ${sampleQueries}. Listar las URLs afectadas y proponer plan de recuperación.`,
+      domain,
+      category: "migracion",
+      priority: "alta",
+      impact_score: Math.min(95, 60 + Math.round(totalLost / 50)),
+      difficulty_score: 45,
+      confidence_score: 80,
+      impact_expected: `Recuperar parcial o totalmente ~${totalLost} clicks/mes perdidos en queries afectadas por la migración`,
+      rationale: `${significantLosers.length} queries con drop simultáneo de >50 clicks cada una sugieren impacto sistémico (cambios de URL, sitemap incompleto, redirects rotos). Patrón típico post-migración.`,
+      data_sources: { sources: ["gsc"], evidence: { losers_count: significantLosers.length, total_lost_clicks: totalLost, sample_queries: significantLosers.slice(0, 10) } },
+      source_type: "heuristic",
+      assignee_suggested: "SEO",
+    });
+  }
+
+  // RULE 8: GA4 has no SEO conversion events configured -> propose configuration task.
+  const ga4 = payload.ga4_conversions;
+  if (ga4 && ga4.configured && ga4.total_seo_conversions_28d === 0 && ga4.events.length > 0) {
+    tasks.push({
+      signature_key: `heuristic::ga4_seo_events::${domain}`,
+      title: `Configurar eventos GA4 de conversión web (WhatsApp, formularios, llamadas)`,
+      description: `GA4 está conectado pero no tiene eventos marcados como key_event para WhatsApp clicks, formularios diligenciados, clicks en llamada o agendamientos. Crear los eventos en GA4 → Events → Create event, marcarlos como key_event, esperar 24-48h para datos, y volver a evaluar tareas con conversión web.`,
+      domain,
+      category: "tecnico",
+      priority: "alta",
+      impact_score: 80,
+      difficulty_score: 25,
+      confidence_score: 95,
+      impact_expected: `Habilitar medición de conversión web SEO. Sin esto, todo el trabajo SEO queda sin atribución de impacto comercial.`,
+      rationale: `GA4 ${domain}: ${ga4.total_events_28d} eventos totales (28d), 0 marcados como conversión SEO web (whatsapp/form/call/scheduling). El equipo no puede medir si el SEO está generando leads.`,
+      data_sources: { sources: ["ga4"], evidence: { events_28d: ga4.total_events_28d, seo_conversions_28d: ga4.total_seo_conversions_28d, top_event_names: ga4.events.slice(0, 10).map((e) => e.name) } },
+      source_type: "heuristic",
+      assignee_suggested: "ops",
+    });
+  }
+
+  // RULE 9: Traffic exists but no conversion events from organic landing pages
+  if (ga4 && ga4.configured && ga4.by_landing_page.length > 0) {
+    const trafficZeroConv = ga4.by_landing_page
+      .filter((lp) => lp.sessions >= 50 && lp.conversions === 0)
+      .slice(0, 3);
+    for (const lp of trafficZeroConv) {
+      tasks.push({
+        signature_key: `heuristic::no_conv_lp::${lp.landing_page}`.slice(0, 80),
+        title: `Revisar CTAs en ${lp.landing_page} (${lp.sessions} sesiones / 0 conversiones)`,
+        description: `Esta landing page recibió ${lp.sessions} sesiones orgánicas en los últimos 28 días pero registró 0 conversiones (WhatsApp/formulario/llamada). Revisar: presencia de CTA visible, claridad del mensaje, alineación con la query de entrada, UX. Proponer ajustes específicos.`,
+        domain,
+        category: "on-page",
+        priority: lp.sessions >= 200 ? "alta" : "media",
+        impact_score: Math.min(70, 30 + Math.round(lp.sessions / 10)),
+        difficulty_score: 35,
+        confidence_score: 80,
+        impact_expected: `Si CTR a CTA pasa de 0% a 2-5%, generaría ~${Math.round(lp.sessions * 0.03)} conversiones/mes adicionales`,
+        rationale: `GA4 reporta ${lp.sessions} sesiones orgánicas en ${lp.landing_page} sin ninguna conversión registrada (eventos clave 0). Indica fricción de CTA o desalineación intent/contenido.`,
+        data_sources: { sources: ["ga4"], evidence: { landing_page: lp.landing_page, sessions: lp.sessions, conversions: 0 } },
+        source_type: "heuristic",
+        assignee_suggested: "designer",
+      });
+    }
   }
 
   return tasks;

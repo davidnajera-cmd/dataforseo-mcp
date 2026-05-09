@@ -11,6 +11,7 @@ import {
   collectLlmVisibility,
   collectTrafficTrend,
   collectSitemapStatus,
+  collectGa4ConversionEvents,
 } from "./data-collectors.js";
 import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun } from "../backlog-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
@@ -65,7 +66,7 @@ export async function runAgent(): Promise<AgentRunResult> {
     const rawPerSite: Record<string, unknown> = {};
     for (const site of sites) {
       try {
-        const [opportunities, movers, backlinks, rankings, llm, traffic, sitemaps] = await Promise.all([
+        const [opportunities, movers, backlinks, rankings, llm, traffic, sitemaps, ga4Conversions] = await Promise.all([
           collectGscOpportunities(site).catch(() => []),
           collectGscMovers(site).catch(() => ({ gainers: [], losers: [] })),
           collectBacklinksSnapshot(site).catch(() => ({ source: "missing" as const, data: null, anchors: null })),
@@ -73,6 +74,7 @@ export async function runAgent(): Promise<AgentRunResult> {
           collectLlmVisibility(site).catch(() => []),
           collectTrafficTrend(site, 28).catch(() => ({ gsc: [], ga4: [] })),
           collectSitemapStatus(site).catch(() => null),
+          collectGa4ConversionEvents(site).catch(() => ({ configured: false, message: "ga4 collector failed", total_events_28d: 0, total_seo_conversions_28d: 0, events: [], by_landing_page: [] })),
         ]);
 
         // Annotate top GSC queries with the DNA Music academic catalog mapper.
@@ -100,6 +102,7 @@ export async function runAgent(): Promise<AgentRunResult> {
           llm_visibility: llm,
           traffic_trend_28d: traffic,
           sitemaps,
+          ga4_conversions: ga4Conversions,
         };
       } catch (error) {
         errors.push({ stage: "collect", domain: site.domain, error: error instanceof Error ? error.message : "unknown" });

@@ -973,3 +973,25 @@ select {
 .source-badge.source-agent { background: #e8edff; color: #2454ff; }
 .source-badge.source-heuristic { background: #d6f5ec; color: #00795f; }
 .source-badge.source-manual { background: #f7e8ff; color: #6b21a8; }
+
+.taxonomy-line {
+  margin: 8px 0 12px;
+  font-size: 12px;
+  color: #69717c;
+  background: #f7f8fb;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border-left: 3px solid var(--accent, #2454ff);
+}
+.modal-scores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px;
+  background: #f7f8fb;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 12px;
+}
+.modal-scores span { display: flex; flex-direction: column; gap: 2px; }
+.modal-scores strong { font-size: 10px; text-transform: uppercase; color: #69717c; letter-spacing: 0.04em; }

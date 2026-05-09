@@ -464,20 +464,39 @@ async function openTaskModal(id) {
   if (!response.ok) return;
   const task = await response.json();
   const modal = document.querySelector("#taskModal") ?? createTaskModalElement();
+  const taxonomy = [
+    task.programa_relacionado ? `Programa: ${task.programa_relacionado}` : null,
+    task.materia_relacionada ? `Materia: ${task.materia_relacionada}` : null,
+    task.sede_relacionada ? `Sede: ${task.sede_relacionada}` : null,
+    task.modalidad_jornada ? `Modalidad: ${task.modalidad_jornada}` : null,
+    task.intencion ? `Intención: ${task.intencion}` : null,
+  ].filter(Boolean).map((t) => esc(t)).join(" · ");
+  const scoresPanel = task.impact_score !== null && task.impact_score !== undefined ? `
+    <div class="modal-scores">
+      <span><strong>Impact</strong> ${esc(Math.round(task.impact_score))}</span>
+      <span><strong>Difficulty</strong> ${esc(Math.round(task.difficulty_score ?? 0))}</span>
+      <span><strong>Confidence</strong> ${esc(Math.round(task.confidence_score ?? 0))}</span>
+      <span><strong>Opportunity</strong> ${esc(Math.round(task.opportunity_score ?? 0))}</span>
+    </div>` : "";
   // eslint-disable-next-line no-unsanitized/property
   modal.querySelector(".modal-body").innerHTML = `
     <header class="modal-head">
       <span class="priority-pill priority-${esc(task.priority)}">${esc(task.priority)}</span>
       <span class="category-pill">${esc(task.category)}</span>
       <span class="domain-tag">${esc(siteLabel(task.domain))}</span>
+      ${task.source_type ? `<span class="source-badge source-${esc(task.source_type)}">${esc(task.source_type)}</span>` : ""}
       <button class="modal-close" type="button">×</button>
     </header>
     <h3>${esc(task.title)}</h3>
+    ${taxonomy ? `<p class="taxonomy-line">${taxonomy}</p>` : ""}
+    ${scoresPanel}
     <p class="modal-desc">${esc(task.description)}</p>
     <h5>Por qué</h5>
     <p>${esc(task.rationale)}</p>
-    <h5>Impacto esperado</h5>
+    <h5>Impacto SEO esperado</h5>
     <p>${esc(task.impact_expected ?? "Sin estimación")}</p>
+    ${task.impact_conversion ? `<h5>Impacto en conversión web</h5><p>${esc(task.impact_conversion)}</p>` : ""}
+    ${task.assignee_suggested ? `<h5>Asignado sugerido</h5><p>${esc(task.assignee_suggested)}</p>` : ""}
     <h5>Fuentes / evidencia</h5>
     <pre class="evidence">${esc(JSON.stringify(task.data_sources, null, 2))}</pre>
     ${task.notes ? `<h5>Notas</h5><pre>${esc(task.notes)}</pre>` : ""}
