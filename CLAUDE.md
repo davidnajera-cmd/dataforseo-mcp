@@ -304,6 +304,33 @@ For dnamusic.edu.co specifically, both formats are verified (URL-prefix `https:/
 
 ---
 
+## Market Research Tools (4 tools, Colombia-first)
+
+Customer voice + news monitoring + TikTok organic content. Defaults `country=co`, `language=es`. **Primary signal for DNA's gen-Z Colombian audience: TikTok comments + Instagram comments**, NOT Reddit (Reddit usage is low in LATAM).
+
+| Tool | Description | Default actor |
+|------|-------------|---------------|
+| `social_tiktok_content` | TikTok organic videos by hashtag/profile/keyword | `clockworks/tiktok-scraper` |
+| `social_tiktok_comments` | Comments on specific TikTok videos — PRIMARY customer voice for Colombia | `apidojo/tiktok-comments-scraper` |
+| `market_reddit_intelligence` | Reddit posts/comments — secondary for Colombia, primary for English-language nichos | `trudax/reddit-scraper-lite` |
+| `market_news_monitor` | Google News for brand/category/regulatory tracking (El Tiempo, Semana, Shock, etc.) | `data_xplorer/google-news-scraper-fast` |
+
+**Customer voice priority order for DNA Music in Colombia:**
+1. **TikTok comments** (`social_tiktok_comments`) — gen-Z lives here, strongest signal
+2. **Instagram comments** (`social_instagram_scraper` with `results_type=comments`)
+3. **Google Maps reviews** (`local_google_maps_scraper` with `include_reviews=true`)
+4. **Reddit** (`market_reddit_intelligence`) — secondary, mostly English-language nichos
+5. **News** (`market_news_monitor`) — for category/brand mentions, not direct customer voice
+
+**Channels NOT wrapped (intentional):**
+- **Discord public channels** — Apify has actors but Discord ToS heavily restricts scraping. Use `apify_run_actor` with caution.
+- **Facebook groups** — ToS forbids scraping; available actors are risky and frequently broken.
+- **WhatsApp groups** — closed/encrypted by design. Not scrapable. The closest signal is `apify/whatsapp-message-scraper` for public WhatsApp Business catalog only.
+
+If a need emerges to monitor these, use `apify_run_actor` directly with explicit ToS awareness.
+
+---
+
 ## Apify Research Tools (4 tools)
 
 Beyond ad libraries: opinionated wrappers for the 4 recurring DNA SEO/marketing workflows. All Apify-backed, all configurable via runtime variables.

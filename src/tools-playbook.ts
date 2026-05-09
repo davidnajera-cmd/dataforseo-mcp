@@ -110,6 +110,46 @@ const PLAYBOOKS: Record<string, Playbook> = {
     synthesis_guidance: "Lista por status: URLs migradas correctamente / con redirect roto / sin redirect / con schema roto. Para cada caso, prioriza por tráfico histórico (de wayback + GSC).",
   },
 
+  "market_research_brief": {
+    name: "market_research_brief",
+    description: "Brief de investigación de mercado profunda Colombia-first. Orquesta SERP + Maps + competitor crawl + IG/TikTok customer voice + ad library + news + Reddit (secundario) en un brief estratégico estructurado. Úsalo cuando el usuario pregunte 'cuál es la oportunidad en X', 'cómo se mueve el mercado de Y', 'qué dicen los clientes sobre Z', 'qué hace nuestra competencia'.",
+    expected_minutes: 8,
+    cost_estimate_usd: 2.50,
+    steps: [
+      // 1. Demanda: tendencias de búsqueda + intent en Colombia
+      { call: "labs_google_top_searches", args: { location_code: 2170, language_code: "es", limit: 50 }, why: "Top searches en Colombia para detectar tendencias macro del país." },
+      { call: "labs_google_keyword_ideas", args: { keyword: "<topic seed>", location_code: 2170, language_code: "es", limit: 100 }, why: "Universo de keywords para el topic — volumen real CO." },
+      { call: "labs_google_search_intent", args: { keywords: ["<top kws>"], location_code: 2170, language_code: "es" }, why: "Clasificación intent (informational/commercial/local/navigational)." },
+      { call: "keywords_google_trends_live", args: { keywords: ["<top 5 kws>"], location_code: 2170, language_code: "es", date_from: "<12-months-ago>", date_to: "<today>" }, why: "Trayectoria 12 meses — categoría creciente o estancada." },
+      // 2. SERP & competidores orgánicos
+      { call: "labs_google_serp_competitors", args: { keywords: ["<core kws>"], location_code: 2170, language_code: "es", limit: 20 }, why: "Quién aparece en SERP para las keywords core." },
+      { call: "labs_google_competitors_domain", args: { target: "<our domain>", location_code: 2170, language_code: "es", limit: 10 }, why: "Top 10 dominios que comparten keywords con nosotros." },
+      { call: "serp_google_organic_live", args: { keyword: "<core kw>", location_code: 2170, language_code: "es", depth: 30 }, why: "Top 30 SERP real — para validar quién está rankeando ahora." },
+      // 3. Local SEO (97% del trafico CO; queries con intent local)
+      { call: "local_google_maps_scraper", args: { keyword: "<category> <city>", location: "<city>, Colombia", country_code: "co", max_items: 25 }, why: "Listings competitivos en Maps por ciudad. Repetir por cada sede/ciudad relevante (Bogotá, Medellín, Cali, etc.)." },
+      // 4. Voz del cliente: TikTok + IG (PRIMARIOS para Colombia gen Z)
+      { call: "social_tiktok_content", args: { hashtags: ["<topic-hashtag>"], country: "co", max_items: 30 }, why: "Videos orgánicos TikTok con el hashtag — captura tendencias actuales y creadores locales." },
+      { call: "social_tiktok_comments", args: { video_urls: ["<top videos del paso anterior>"], max_comments_per_video: 50 }, why: "Comentarios de los videos top — VOZ del cliente en su propio idioma. Sentimiento, dudas, comparaciones, objeciones." },
+      { call: "social_instagram_scraper", args: { search: "<hashtag o brand>", search_type: "hashtag", results_type: "posts", results_limit: 30 }, why: "Posts IG por hashtag/brand. Para influencers locales y contenido referente." },
+      { call: "social_instagram_scraper", args: { direct_urls: ["<top post URLs del paso anterior>"], results_type: "comments", results_limit: 50 }, why: "Comentarios IG en posts top — segunda fuente de voz del cliente." },
+      // 5. Pauta competitiva
+      { call: "serp_google_ads_advertisers_live", args: { keyword: "<topic or competitor>", location_code: 2170, language_code: "es" }, why: "Quién está pautando en Google. Devuelve advertiser_ids." },
+      { call: "adlib_meta_search", args: { search_terms: "<competitor brand>", country: "CO", ad_active_status: "active", max_items: 20 }, why: "Creativos activos de competencia en Meta Ad Library." },
+      { call: "adlib_google_search", args: { advertiser_id: "<advertiser_id from prev>", region: "CO", max_items: 20 }, why: "Creativos del competidor en Google Ads Transparency Center." },
+      // 6. Backlinks/PR landscape
+      { call: "labs_google_relevant_pages", args: { target: "<top competitor>", location_code: 2170, language_code: "es", limit: 20 }, why: "Páginas más fuertes del competidor — fuente para mapear topical authority." },
+      { call: "backlinks_referring_domains", args: { target: "<top competitor>", limit: 30 }, why: "Quién enlaza al competidor — partnerships, PR, medios." },
+      // 7. Noticias y categoría
+      { call: "market_news_monitor", args: { queries: ["<category in es>", "<our brand>", "<top competitor>"], country: "co", language: "es", time_range: "1m" }, why: "Cobertura mediática últimos 30 días — regulación, tendencias, menciones." },
+      // 8. AI visibility (¿qué dicen los LLMs sobre la categoría?)
+      { call: "ai_optimization_chatgpt_live", args: { prompt: "¿Cuáles son las mejores opciones en Colombia para <topic>?", model_name: "gpt-4.1-mini" }, why: "Qué responde ChatGPT — DNA aparece o no, qué competencia menciona." },
+      { call: "ai_optimization_perplexity_live", args: { prompt: "Best <category> in Colombia 2026" }, why: "Perplexity en inglés — relevante para perfil expat/bilingual." },
+      // 9. Reddit (secundario — uso bajo en CO pero útil para nichos en inglés)
+      { call: "market_reddit_intelligence", args: { search_terms: ["<topic in es>", "<topic in en>"], time_range: "year", max_items: 20, include_comments: true }, why: "Voz cliente complementaria. Para Colombia: r/Colombia, r/Bogota, r/Medellin; para nicho técnico: r/musicproduction, r/DJs (en inglés, hay voces colombianas)." },
+    ],
+    synthesis_guidance: "Estructura del brief en 7 secciones: (1) DEMANDA — volumen, intent mix, trayectoria 12m, top 10 keywords con score; (2) OFERTA — 5-8 competidores con domain/maps/SERP overlap, posicionamiento de cada uno; (3) VOZ DEL CLIENTE — citas literales de TikTok/IG comments + Reddit, agrupadas por: dudas, objeciones, comparaciones, motivadores; (4) PAUTA COMPETITIVA — qué creativos están corriendo (Meta + Google), qué mensajes, qué frecuencia; (5) PR/BACKLINKS — partnerships y medios donde aparecen los competidores; (6) AI VISIBILITY — qué dicen los LLMs sobre la categoría, dónde aparece la marca, qué competencia mencionan; (7) GAPS Y OPORTUNIDADES — 3-5 oportunidades concretas (contenido, pauta, partnerships) con effort/impact. NUNCA generalices: cita números literales, URLs, handles, screenshots de comentarios. NUNCA inventes datos. Si una fuente no devolvió data, dilo explícitamente. Idioma: español. Audiencia: equipo estratégico DNA Music.",
+  },
+
   "weekly_report": {
     name: "weekly_report",
     description: "Reporte semanal estandarizado: traffic week-over-week, top movers, backlinks delta, tareas backlog.",
@@ -130,7 +170,7 @@ const PLAYBOOKS: Record<string, Playbook> = {
 export function registerPlaybookTools(server: McpServer) {
   server.tool(
     "seo_workflow_playbook",
-    "Returns a step-by-step recipe for a named SEO analysis. Use this BEFORE running multi-tool analyses to know which tools to call in which order with which parameters. Available workflows: '360_audit' (full SEO snapshot), 'competitor_analysis', 'content_opportunity_brief', 'backlink_health', 'ai_visibility', 'migration_audit', 'weekly_report'. Pass 'list' as name to get all workflows with descriptions.",
+    "Returns a step-by-step recipe for a named analysis. Use this BEFORE running multi-tool analyses to know which tools to call in which order with which parameters. Available workflows: '360_audit' (full SEO snapshot), 'competitor_analysis', 'content_opportunity_brief', 'backlink_health', 'ai_visibility', 'migration_audit', 'weekly_report', 'market_research_brief' (Colombia-first: SERP+Maps+TikTok/IG voice+ads+news). Pass 'list' as name to get all workflows with descriptions.",
     {
       name: z.string().describe("Workflow name. Use 'list' to discover available workflows."),
     },

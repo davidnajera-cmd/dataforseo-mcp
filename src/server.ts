@@ -17,6 +17,7 @@ import { registerBrandKnowledgeTools } from "./tools-brand-knowledge.js";
 import { registerPlaybookTools } from "./tools-playbook.js";
 import { registerAdLibTools } from "./tools-adlib.js";
 import { registerApifyResearchTools } from "./tools-apify-research.js";
+import { registerMarketResearchTools } from "./tools-market-research.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
 
@@ -170,6 +171,9 @@ export function createServer(): McpServer {
 
   // Research/intelligence Apify wrappers (Maps, Web Crawler, Instagram, YouTube)
   registerApifyResearchTools(server);
+
+  // Market research (Reddit voice, news monitoring, Colombia-first)
+  registerMarketResearchTools(server);
 
   return server;
 }

@@ -82,7 +82,7 @@ export async function runActorSync<T = unknown>(
   }
 }
 
-export type ApifyActorKind = "meta" | "google" | "tiktok" | "google_maps" | "web_crawler" | "instagram" | "youtube";
+export type ApifyActorKind = "meta" | "google" | "tiktok" | "google_maps" | "web_crawler" | "instagram" | "youtube" | "reddit" | "news" | "tiktok_content" | "tiktok_comments";
 
 export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> {
   const map: Record<ApifyActorKind, { var: string; fallback: string }> = {
@@ -93,6 +93,10 @@ export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> 
     web_crawler: { var: "APIFY_ACTOR_WEB_CRAWLER", fallback: "apify/website-content-crawler" },
     instagram: { var: "APIFY_ACTOR_INSTAGRAM", fallback: "apify/instagram-scraper" },
     youtube: { var: "APIFY_ACTOR_YOUTUBE", fallback: "happitap/youtube-transcript-scraper" },
+    reddit: { var: "APIFY_ACTOR_REDDIT", fallback: "trudax/reddit-scraper-lite" },
+    news: { var: "APIFY_ACTOR_NEWS", fallback: "data_xplorer/google-news-scraper-fast" },
+    tiktok_content: { var: "APIFY_ACTOR_TIKTOK_CONTENT", fallback: "clockworks/tiktok-scraper" },
+    tiktok_comments: { var: "APIFY_ACTOR_TIKTOK_COMMENTS", fallback: "apidojo/tiktok-comments-scraper" },
   };
   const entry = map[kind];
   const configured = await getRuntimeVariable(entry.var);
