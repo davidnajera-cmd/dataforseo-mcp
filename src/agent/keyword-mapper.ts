@@ -66,7 +66,29 @@ function tokensOf(text: string): string[] {
   return normalize(text).split(/\s+/).filter((t) => t.length > 1 && !STOP_WORDS.has(t));
 }
 
+// Patterns that always indicate navegacional intent (current students looking
+// for the platform/portal/login). These should NOT be classified as commercial
+// even if the SERP looks like search-for-school, because the user is already
+// enrolled and just trying to access the system.
+const NAVIGATIONAL_PATTERNS = [
+  /\bq10\b/i,
+  /\bportal[\s-]?estudiantes?\b/i,
+  /\bplataforma\b/i,
+  /\blogin\b/i,
+  /\biniciar[\s-]?sesion\b/i,
+  /\bacceso\b/i,
+  /\bcontrasena|contraseña\b/i,
+];
+
+export function isNavegacional(query: string): boolean {
+  return NAVIGATIONAL_PATTERNS.some((p) => p.test(query));
+}
+
 function detectIntent(query: string, branded: boolean, hasSede: boolean): QueryMapping["intent"] {
+  // Navegacional override has priority over branded so that "q10 dna music" is
+  // navegacional, not branded — the user is trying to reach the portal, not
+  // discover the brand.
+  if (isNavegacional(query)) return "navigational";
   if (branded) return "branded";
   const lower = query.toLowerCase();
   if (/\b(comprar|precio|cuanto|costo|matricula|matricular|inscribir|inscripcion|financiamiento|financiar|cuotas)\b/i.test(lower)) return "transactional";
@@ -109,13 +131,22 @@ export function mapQueryToProgram(query: string): QueryMapping {
   // 3. Sede match
   const matchedSede = SEDE_LOOKUP.find((s) => q.includes(s.name)) ?? null;
 
+  // Navegacional override: queries like q10/portal/login should NOT be linked to a
+  // commercial program. The page they want is the portal, not /programas/X.
+  const navegacional = isNavegacional(query);
+
   // Resolve primary program
   let primarySlug: string | null = null;
   let matchedVia: QueryMapping["matched_via"] = "none";
   let matchedToken: string | null = null;
   let confidence = 0;
 
-  if (bestMateria) {
+  if (navegacional) {
+    // Force: no program link, no commercial classification
+    matchedVia = "intent_keyword";
+    matchedToken = "navegacional";
+    confidence = 0.85; // very confident this is portal/login traffic
+  } else if (bestMateria) {
     const programs = MATERIA_TO_PROGRAMS[bestMateria.canonical] ?? [];
     primarySlug = programs[0] ?? null;
     matchedVia = "materia";

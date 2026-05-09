@@ -8,7 +8,7 @@
 // is thin so the heuristic doesn't drown the backlog with low-value tasks.
 
 import type { ProposedTask } from "../backlog-store.js";
-import { mapQueryToProgram } from "./keyword-mapper.js";
+import { mapQueryToProgram, isNavegacional } from "./keyword-mapper.js";
 
 export type CollectorPayload = {
   domain: string;
@@ -131,7 +131,7 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       programa_relacionado: mapping?.primary_program_slug ?? null,
       materia_relacionada: mapping?.matched_materia ?? null,
       sede_relacionada: mapping?.matched_sede ?? null,
-      intencion: mapping?.intent === "branded" ? "branded" : mapping?.intent === "informational" ? "informacional" : mapping?.intent === "commercial" ? "comercial" : mapping?.intent === "transactional" ? "comercial" : null,
+      intencion: mapping?.intent === "branded" ? "branded" : mapping?.intent === "navigational" ? "navegacional" : mapping?.intent === "informational" ? "informacional" : mapping?.intent === "commercial" ? "comercial" : mapping?.intent === "transactional" ? "comercial" : null,
       action_type: "execution",
       risk_level: "low",
       requires_human_review: false,
@@ -145,21 +145,33 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     .sort((a, b) => a.delta - b.delta)
     .slice(0, 3);
   for (const loser of topLosers) {
+    const isPortal = isNavegacional(loser.query);
     tasks.push({
       signature_key: `heuristic::lost_traffic::${loser.query}`.slice(0, 80),
-      title: `Auditar caída de '${loser.query}' (${loser.delta} clicks vs 30d previos)`,
-      description: `Verificar status de la página principal que rankea para '${loser.query}': cambios de URL, redirecciones, contenido eliminado, schema roto. Comparar SERP actual vs hace 60 días. Reportar plan de recuperación.`,
+      title: isPortal
+        ? `Restablecer acceso al portal: '${loser.query}' perdió ${Math.abs(loser.delta)} clicks (estudiantes activos)`
+        : `Auditar caída de '${loser.query}' (${loser.delta} clicks vs 30d previos)`,
+      description: isPortal
+        ? `Query navegacional de estudiantes activos. Verificar que la URL del portal/login (ej. /portal-estudiantes/acceso-q10) responde 200, no tiene cambio de URL post-migración, mantiene el meta title con la palabra clave Q10/portal/login, y está en el sitemap. El objetivo NO es captación comercial — es restablecer acceso y proteger experiencia de estudiantes que ya pagaron.`
+        : `Verificar status de la página principal que rankea para '${loser.query}': cambios de URL, redirecciones, contenido eliminado, schema roto. Comparar SERP actual vs hace 60 días. Reportar plan de recuperación.`,
       domain,
-      category: "technical",
+      category: isPortal ? "migracion" : "technical",
       priority: Math.abs(loser.delta) > 200 ? "alta" : "media",
       impact_score: Math.min(95, Math.round(50 + Math.abs(loser.delta) / 5)),
       difficulty_score: 35,
       confidence_score: 80,
-      impact_expected: `Recuperar parcial o totalmente ${Math.abs(loser.delta)} clicks/mes perdidos`,
-      rationale: `Query '${loser.query}' cayó ${loser.delta} clicks comparando los últimos 30 días vs los 30 anteriores (de ${loser.clicks_prior} a ${loser.clicks_current}). Patrón sugiere problema técnico o cambio de SERP.`,
-      data_sources: { sources: ["gsc"], evidence: { query: loser.query, delta: loser.delta, clicks_current: loser.clicks_current, clicks_prior: loser.clicks_prior } },
+      impact_expected: isPortal
+        ? `Restablecer acceso a ~${Math.abs(loser.delta)} clicks/mes de estudiantes activos. Sin impacto comercial directo (no genera leads), pero protege reputación y evita tickets de soporte.`
+        : `Recuperar parcial o totalmente ${Math.abs(loser.delta)} clicks/mes perdidos`,
+      rationale: `Query '${loser.query}' cayó ${loser.delta} clicks comparando los últimos 30 días vs los 30 anteriores (de ${loser.clicks_prior} a ${loser.clicks_current}). ${isPortal ? "Query navegacional (portal/login/Q10) — son estudiantes actuales, NO captación." : "Patrón sugiere problema técnico o cambio de SERP."}`,
+      data_sources: { sources: ["gsc"], evidence: { query: loser.query, delta: loser.delta, clicks_current: loser.clicks_current, clicks_prior: loser.clicks_prior, navegacional: isPortal } },
       source_type: "heuristic",
-      assignee_suggested: "SEO",
+      assignee_suggested: isPortal ? "dev" : "SEO",
+      intencion: isPortal ? "navegacional" : null,
+      programa_relacionado: null, // Q10 NO se mapea a programas comerciales
+      action_type: "audit",
+      risk_level: "medium",
+      requires_human_review: false,
     });
   }
 
@@ -173,17 +185,17 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
     if (spamAnchors.length >= 1 && totalSpamBacklinks >= 20) {
       tasks.push({
         signature_key: `heuristic::audit_anchors::${domain}`,
-        title: `Auditar ${totalSpamBacklinks} backlinks potencialmente tóxicos antes de considerar disavow`,
-        description: `Pre-auditoría: detectados ${spamAnchors.length} anchor patterns sospechosos (${spamAnchors.slice(0, 3).map((a) => `'${a.anchor}'`).join(", ")}${spamAnchors.length > 3 ? "…" : ""}) con ~${totalSpamBacklinks} backlinks combinados. Antes de cualquier disavow, listar a nivel granular con backlinks_list cada backlink: source_url, target_url, anchor_text, spam_score individual, country/IP/ASN si disponible, first_seen, link_type, rel, página objetivo. Validar que (a) los anchors son manipulativos, (b) las páginas origen son irrelevantes/sospechosas, (c) hay correlación temporal con drops SEO. Disavow ejecutivo SOLO con revisión humana de la lista granular y documentación del caso.`,
+        title: `Investigar señal de sospecha en backlinks (anchors patrón spam, ${totalSpamBacklinks} enlaces)`,
+        description: `IMPORTANTE: esto NO es un diagnóstico de toxicidad. Es solo una señal de sospecha basada en patterns de anchor agregados — NO podemos saber si los backlinks deben desautorizarse sin evidencia granular URL por URL. Detectados ${spamAnchors.length} anchor patterns que coinciden con servicios SEO black-hat conocidos (${spamAnchors.slice(0, 3).map((a) => `'${a.anchor}'`).join(", ")}${spamAnchors.length > 3 ? "…" : ""}) con ~${totalSpamBacklinks} backlinks asociados. Antes de cualquier acción: pedir a DataForSEO la lista granular (backlinks_list endpoint) y para CADA backlink documentar source_url + target_url + anchor_text + spam_score INDIVIDUAL + país/IP/ASN del origen + first_seen + link_type + rel. Solo después de revisar humana la lista granular y correlacionar con drops SEO específicos se puede decidir si vale un disavow quirúrgico. Google es claro: disavow mal usado puede dañar más que ayudar.`,
         domain,
         category: "link-building",
         priority: "media",
-        impact_score: Math.min(70, 30 + Math.round(totalSpamBacklinks / 10)),
+        impact_score: Math.min(60, 25 + Math.round(totalSpamBacklinks / 15)),
         difficulty_score: 35,
-        confidence_score: 55, // bajo: solo tenemos datos agregados
-        impact_expected: `Si la auditoría confirma toxicidad real, abre la puerta a un disavow quirúrgico que mitigue riesgo Penguin. Sin auditoría granular, NO se ejecuta nada.`,
-        rationale: `${spamAnchors.length} anchors patternsmatch spam (Telegram, SEO_*, etc.) con ~${totalSpamBacklinks} backlinks. Spam score agregado: ${payload.backlinks?.spam_score ?? "?"}. Datos a nivel anchor solamente — falta evidencia backlink-level antes de cualquier acción ejecutiva.`,
-        data_sources: { sources: ["backlinks"], evidence: { spam_anchors: spamAnchors.slice(0, 10), total_spam_backlinks: totalSpamBacklinks, domain_spam_score: payload.backlinks?.spam_score ?? null, granularity_available: "anchor_level_only", granularity_required_for_execution: "individual_backlinks_with_source_url_and_metadata" } },
+        confidence_score: 50, // baja: es solo señal, no diagnóstico
+        impact_expected: `Sin acción directa. Si la investigación granular confirma backlinks individuales tóxicos correlacionados con un drop SEO real, podría abrir un disavow quirúrgico futuro. Sin esa investigación: NINGÚN impacto SEO esperado.`,
+        rationale: `Señal de sospecha: ${spamAnchors.length} anchors agregados coinciden con patterns spam (Telegram/SEO_*/etc.) sumando ~${totalSpamBacklinks} backlinks. Spam_score agregado del dominio: ${payload.backlinks?.spam_score ?? "?"}. NO es un diagnóstico — datos solo a nivel anchor, sin evidencia backlink-level (source_url, ASN, first_seen, etc.).`,
+        data_sources: { sources: ["backlinks"], evidence: { spam_anchors: spamAnchors.slice(0, 10), total_spam_backlinks: totalSpamBacklinks, domain_spam_score: payload.backlinks?.spam_score ?? null, granularity_available: "anchor_level_only", granularity_required_for_execution: "individual_backlinks_with_source_url_and_metadata", note: "no_es_diagnostico_es_senal_de_sospecha" } },
         source_type: "heuristic",
         assignee_suggested: "linkbuilder",
         action_type: "audit_backlinks",
@@ -303,6 +315,40 @@ export function generateHeuristicTasks(payload: CollectorPayload): ProposedTask[
       source_type: "heuristic",
       assignee_suggested: "ops",
     });
+  }
+
+  // RULE 10: GSC vs GA4 discrepancy — if GSC reports many organic clicks but
+  // GA4 organic sessions are <20% of that, the measurement is broken (tag missing,
+  // consent banner, cross-domain, redirect dropping the cookie, wrong property
+  // mapped, etc). Without trustworthy GA4 the rest of the conversion analysis
+  // is blind, so this is high priority.
+  const gscTrend = payload.traffic_trend_28d?.gsc ?? [];
+  const ga4Trend = payload.traffic_trend_28d?.ga4 ?? [];
+  if (gscTrend.length > 0 && ga4Trend.length > 0) {
+    const gscClicks28 = gscTrend.reduce((acc, d) => acc + Number(d.clicks ?? 0), 0);
+    const ga4Sessions28 = ga4Trend.reduce((acc, d) => acc + Number((d as { sessions?: number | null }).sessions ?? 0), 0);
+    const ratio = gscClicks28 > 0 ? ga4Sessions28 / gscClicks28 : 1;
+    if (gscClicks28 >= 100 && (ratio < 0.20 || gscClicks28 / Math.max(ga4Sessions28, 1) > 5)) {
+      tasks.push({
+        signature_key: `heuristic::ga4_gsc_discrepancy::${domain}`,
+        title: `Auditar discrepancia GSC vs GA4: ${gscClicks28} clicks GSC vs ${ga4Sessions28} sesiones GA4 (28d)`,
+        description: `GSC reporta ${gscClicks28} clicks orgánicos en 28 días pero GA4 solo ${ga4Sessions28} sesiones — ratio ${(ratio * 100).toFixed(1)}%. Sin GA4 confiable el agente queda parcialmente ciego para analizar conversión SEO. Auditar (1) instalación del tag GA4 en TODAS las landing pages orgánicas top, (2) GTM y trigger del tag, (3) cookie banner / consent mode bloqueando medición, (4) cross-domain entre www y dominio raíz / portal-estudiantes, (5) redirects que pierden cookie/UTM, (6) filtros de tráfico interno en GA4, (7) fechas y zona horaria, (8) si la property GA4 está midiendo el dominio correcto. Documentar hallazgos antes de hablar de conversión SEO.`,
+        domain,
+        category: "tecnico",
+        priority: "alta",
+        impact_score: 90,
+        difficulty_score: 45,
+        confidence_score: 95, // datos numéricos directos
+        impact_expected: `Restablecer medición confiable de conversión web SEO. Sin esto, todas las tareas con "impacto en conversión" tienen baja confianza.`,
+        rationale: `GSC=${gscClicks28} clicks vs GA4=${ga4Sessions28} sesiones (28d). Ratio ${(ratio * 100).toFixed(1)}%. Discrepancia >5x indica medición rota — probablemente tag missing en algunas pages, consent banner, cross-domain o cambio de property post-migración.`,
+        data_sources: { sources: ["gsc", "ga4"], evidence: { gsc_clicks_28d: gscClicks28, ga4_sessions_28d: ga4Sessions28, ratio_ga4_over_gsc: ratio, days: 28 } },
+        source_type: "heuristic",
+        assignee_suggested: "dev",
+        action_type: "audit",
+        risk_level: "medium",
+        requires_human_review: false,
+      });
+    }
   }
 
   // RULE 9: Traffic exists but no conversion events from organic landing pages

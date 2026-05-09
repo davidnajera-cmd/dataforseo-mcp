@@ -372,7 +372,14 @@ document.querySelector("#backlogRefresh")?.addEventListener("click", loadBacklog
 document.querySelector("#backlogFilterDomain")?.addEventListener("change", loadBacklog);
 document.querySelector("#backlogFilterPriority")?.addEventListener("change", loadBacklog);
 document.querySelector("#backlogFilterSource")?.addEventListener("change", loadBacklog);
+document.querySelector("#backlogFilterTrack")?.addEventListener("change", loadBacklog);
 document.querySelector("#backlogSort")?.addEventListener("change", loadBacklog);
+
+const TRACK_CATEGORIES = {
+  recovery: new Set(["migracion", "technical", "tecnico", "indexacion", "schema", "sitemap", "performance"]),
+  growth: new Set(["content", "ctr", "on-page", "social", "seo-local", "llm-visibility", "ai-optimization", "ecommerce", "link-building"]),
+  config: new Set(["tecnico", "technical"]),
+};
 
 async function loadBacklog() {
   const board = document.querySelector("#backlogBoard");
@@ -391,7 +398,19 @@ async function loadBacklog() {
     const response = await fetch(`/api/backlog?${params}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
-    renderBacklogBoard(data.rows ?? []);
+    let rows = data.rows ?? [];
+    const track = document.querySelector("#backlogFilterTrack")?.value;
+    if (track === "risky") {
+      rows = rows.filter((r) => r.requires_human_review || r.risk_level === "high");
+    } else if (track === "config") {
+      rows = rows.filter((r) => {
+        const text = (r.title + " " + r.description).toLowerCase();
+        return r.action_type === "config" || /ga4|gtm|sitemap|robots|gsc|tracking|tag|consent|medici[oó]n|measurement/.test(text);
+      });
+    } else if (track && TRACK_CATEGORIES[track]) {
+      rows = rows.filter((r) => TRACK_CATEGORIES[track].has(r.category));
+    }
+    renderBacklogBoard(rows);
   } catch (error) {
     board.textContent = `No se pudo cargar el backlog: ${error.message}`;
   }
