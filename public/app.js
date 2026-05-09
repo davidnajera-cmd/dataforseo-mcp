@@ -371,6 +371,8 @@ document.querySelector("#agentRunNow")?.addEventListener("click", runAgentNow);
 document.querySelector("#backlogRefresh")?.addEventListener("click", loadBacklog);
 document.querySelector("#backlogFilterDomain")?.addEventListener("change", loadBacklog);
 document.querySelector("#backlogFilterPriority")?.addEventListener("change", loadBacklog);
+document.querySelector("#backlogFilterSource")?.addEventListener("change", loadBacklog);
+document.querySelector("#backlogSort")?.addEventListener("change", loadBacklog);
 
 async function loadBacklog() {
   const board = document.querySelector("#backlogBoard");
@@ -379,8 +381,12 @@ async function loadBacklog() {
   const params = new URLSearchParams();
   const domain = document.querySelector("#backlogFilterDomain")?.value;
   const priority = document.querySelector("#backlogFilterPriority")?.value;
+  const source = document.querySelector("#backlogFilterSource")?.value;
+  const sort = document.querySelector("#backlogSort")?.value;
   if (domain) params.set("domain", domain);
   if (priority) params.set("priority", priority);
+  if (source) params.set("source_type", source);
+  if (sort) params.set("sort", sort);
   try {
     const response = await fetch(`/api/backlog?${params}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -425,14 +431,26 @@ function renderBacklogBoard(rows) {
 function renderTaskCard(row) {
   const ev = row.data_sources?.evidence ?? {};
   const evidenceShort = Object.entries(ev).slice(0, 2).map(([k, v]) => `${esc(k)}: ${esc(typeof v === "object" ? JSON.stringify(v).slice(0, 30) : String(v).slice(0, 30))}`).join(" · ");
+  const hasScores = row.impact_score !== null && row.impact_score !== undefined;
+  const scoresBlock = hasScores ? `
+    <div class="task-scores" title="Impact / Difficulty / Confidence">
+      <span class="score-bar score-impact" style="--w:${esc(row.impact_score)}%">I ${esc(Math.round(row.impact_score))}</span>
+      <span class="score-bar score-difficulty" style="--w:${esc(row.difficulty_score ?? 0)}%">D ${esc(Math.round(row.difficulty_score ?? 0))}</span>
+      <span class="score-bar score-confidence" style="--w:${esc(row.confidence_score ?? 0)}%">C ${esc(Math.round(row.confidence_score ?? 0))}</span>
+    </div>
+    ${row.opportunity_score !== null && row.opportunity_score !== undefined ? `<small class="opp-score">Opp ${esc(Math.round(row.opportunity_score))}</small>` : ""}
+  ` : "";
+  const sourceBadge = row.source_type ? `<span class="source-badge source-${esc(row.source_type)}">${esc(row.source_type)}</span>` : "";
   return `
     <article class="task-card priority-${esc(row.priority)}" data-id="${esc(row.id)}">
       <header>
         <span class="priority-pill priority-${esc(row.priority)}">${esc(row.priority)}</span>
         <span class="category-pill">${esc(row.category)}</span>
+        ${sourceBadge}
       </header>
       <h4>${esc(row.title)}</h4>
       <p>${esc(row.description.length > 140 ? row.description.slice(0, 140) + "…" : row.description)}</p>
+      ${scoresBlock}
       <footer>
         <span class="domain-tag">${esc(siteLabel(row.domain))}</span>
         ${evidenceShort ? `<small>${evidenceShort}</small>` : ""}

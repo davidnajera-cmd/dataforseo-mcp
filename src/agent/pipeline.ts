@@ -14,6 +14,7 @@ import {
 } from "./data-collectors.js";
 import { upsertProposedTasks, ProposedTask, startAgentRun, finishAgentRun } from "../backlog-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
+import { generateHeuristicTasks, CollectorPayload } from "./heuristic-tasks.js";
 
 type DeepSeekSummary = {
   domain: string;
@@ -105,6 +106,32 @@ export async function runAgent(): Promise<AgentRunResult> {
     }
     stats.collected_sites = Object.keys(rawPerSite);
 
+    // 1.5 Heuristic tasks (rule-based, no LLM, cheap, deterministic).
+    // Insert directly to backlog AND pass to Opus as context so it does not duplicate.
+    const heuristicTasksPerSite: Record<string, ProposedTask[]> = {};
+    let heuristicTotal: ProposedTask[] = [];
+    for (const [domain, payload] of Object.entries(rawPerSite)) {
+      try {
+        const tasks = generateHeuristicTasks(payload as CollectorPayload);
+        heuristicTasksPerSite[domain] = tasks;
+        heuristicTotal = heuristicTotal.concat(tasks);
+      } catch (error) {
+        errors.push({ stage: "heuristic", domain, error: error instanceof Error ? error.message : "unknown" });
+      }
+    }
+    let heuristicUpsert = { inserted: 0, updated: 0, skipped: 0 };
+    if (heuristicTotal.length > 0) {
+      try {
+        heuristicUpsert = await upsertProposedTasks(heuristicTotal);
+      } catch (error) {
+        errors.push({ stage: "heuristic_upsert", error: error instanceof Error ? error.message : "unknown" });
+      }
+    }
+    stats.heuristic_tasks_count = heuristicTotal.length;
+    stats.heuristic_inserted = heuristicUpsert.inserted;
+    stats.heuristic_updated = heuristicUpsert.updated;
+    stats.heuristic_skipped = heuristicUpsert.skipped;
+
     // 2. DeepSeek per site (parallel)
     const deepResults = await Promise.all(
       Object.entries(rawPerSite).map(async ([domain, payload]) => {
@@ -127,7 +154,11 @@ export async function runAgent(): Promise<AgentRunResult> {
     const maxTasks = Number(maxTasksRaw ?? 10);
     const systemPrompt = OPUS_SYSTEM_TEMPLATE(maxTasks, buildBrandContext(true));
     const summariesPayload = deepResults.map((r) => ({ domain: r.domain, signals: r.signals }));
-    const userPrompt = `RESÚMENES DE DEEPSEEK (datos ya clasificados por sitio):\n\n${JSON.stringify(summariesPayload, null, 2)}\n\nGenera el array JSON de tareas accionables. Recuerda: balancear categorías, priorizar por impacto × esfuerzo, máximo ${maxTasks}, evidencia numérica concreta.`;
+    const heuristicSummary = Object.entries(heuristicTasksPerSite).map(([domain, list]) => ({
+      domain,
+      heuristic_tasks_already_inserted: list.map((t) => ({ signature_key: t.signature_key, title: t.title, category: t.category, impact_score: t.impact_score, difficulty_score: t.difficulty_score, confidence_score: t.confidence_score })),
+    }));
+    const userPrompt = `RESÚMENES DE DEEPSEEK (datos ya clasificados por sitio):\n\n${JSON.stringify(summariesPayload, null, 2)}\n\nTAREAS HEURÍSTICAS YA INSERTADAS (no las repitas):\n${JSON.stringify(heuristicSummary, null, 2)}\n\nGenera el array JSON de tareas accionables ADICIONALES — las que el heurístico no detecta porque requieren juicio estratégico (cross-source patterns, brand strategy, contenido creativo, decisiones de priorización compleja). Máximo ${maxTasks}, scoring 0-100 obligatorio en impact/difficulty/confidence, evidencia numérica concreta.`;
 
     let proposedTasks: ProposedTask[] = [];
     try {
@@ -146,24 +177,29 @@ export async function runAgent(): Promise<AgentRunResult> {
     }
     stats.opus_proposed_tasks = proposedTasks.length;
 
-    // 4. Dedup + insert
-    const upsertResult = proposedTasks.length
+    // 4. Dedup + insert (Opus-proposed tasks — heuristic ones already inserted in step 1.5)
+    const opusUpsert = proposedTasks.length
       ? await upsertProposedTasks(proposedTasks)
       : { inserted: 0, updated: 0, skipped: 0 };
 
-    const status: "ok" | "partial" | "failed" = errors.length === 0 ? "ok" : (proposedTasks.length > 0 ? "partial" : "failed");
+    const totalProposed = proposedTasks.length + heuristicTotal.length;
+    const totalInserted = opusUpsert.inserted + heuristicUpsert.inserted;
+    const totalUpdated = opusUpsert.updated + heuristicUpsert.updated;
+    const totalSkipped = opusUpsert.skipped + heuristicUpsert.skipped;
+
+    const status: "ok" | "partial" | "failed" = errors.length === 0 ? "ok" : (totalProposed > 0 ? "partial" : "failed");
     if (runId > 0) {
       await finishAgentRun(runId, status, {
-        proposed: proposedTasks.length,
-        inserted: upsertResult.inserted,
-        updated: upsertResult.updated,
-        skipped: upsertResult.skipped,
+        proposed: totalProposed,
+        inserted: totalInserted,
+        updated: totalUpdated,
+        skipped: totalSkipped,
         cost_usd: totalCost,
         stats,
         errors: errors.length ? errors : null,
       });
     }
-    return { proposed: proposedTasks.length, ...upsertResult, cost_usd: totalCost, stats, status, errors };
+    return { proposed: totalProposed, inserted: totalInserted, updated: totalUpdated, skipped: totalSkipped, cost_usd: totalCost, stats, status, errors };
   } catch (error) {
     errors.push({ stage: "pipeline", error: error instanceof Error ? error.message : "unknown" });
     if (runId > 0) {

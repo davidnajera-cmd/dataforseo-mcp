@@ -14,7 +14,9 @@ export type BacklogStatus = "pendiente" | "en_progreso" | "ejecutada" | "descart
 export type BacklogPriority = "alta" | "media" | "baja";
 export type BacklogCategory =
   | "technical" | "on-page" | "content" | "social"
-  | "link-building" | "ai-optimization" | "schema" | "sitemap";
+  | "link-building" | "ai-optimization" | "schema" | "sitemap"
+  | "ctr" | "indexacion" | "performance" | "ecommerce" | "llm-visibility";
+export type BacklogSourceType = "agent" | "heuristic" | "manual";
 
 export type BacklogTask = {
   id: number;
@@ -24,15 +26,21 @@ export type BacklogTask = {
   domain: string;
   category: BacklogCategory;
   priority: BacklogPriority;
+  impact_score: number | null;       // 0..100
+  difficulty_score: number | null;   // 0..100
+  confidence_score: number | null;   // 0..100
+  opportunity_score: number | null;  // computed: impact * confidence / max(difficulty, 1)
   impact_expected: string | null;
   rationale: string;
   data_sources: unknown;
   status: BacklogStatus;
   proposed_by: string;
+  source_type: BacklogSourceType;
   proposed_at: string;
   updated_at: string;
   closed_at: string | null;
   assignee: string | null;
+  assignee_suggested: string | null;
   notes: string | null;
 };
 
@@ -61,8 +69,16 @@ export async function ensureBacklogSchema(): Promise<void> {
       notes text
     )
   `;
+  // Idempotent migration: add new scoring + source columns if missing.
+  await sql`alter table seo_backlog_tasks add column if not exists impact_score numeric`;
+  await sql`alter table seo_backlog_tasks add column if not exists difficulty_score numeric`;
+  await sql`alter table seo_backlog_tasks add column if not exists confidence_score numeric`;
+  await sql`alter table seo_backlog_tasks add column if not exists opportunity_score numeric`;
+  await sql`alter table seo_backlog_tasks add column if not exists source_type text not null default 'agent'`;
+  await sql`alter table seo_backlog_tasks add column if not exists assignee_suggested text`;
   await sql`create index if not exists seo_backlog_lookup on seo_backlog_tasks (domain, status, priority)`;
   await sql`create index if not exists seo_backlog_proposed on seo_backlog_tasks (proposed_at desc)`;
+  await sql`create index if not exists seo_backlog_score on seo_backlog_tasks (opportunity_score desc nulls last)`;
 
   await sql`
     create table if not exists seo_agent_runs (
@@ -96,7 +112,29 @@ export type ProposedTask = {
   impact_expected?: string | null;
   rationale: string;
   data_sources: unknown;
+  // Scoring (0..100). If omitted, opportunity_score stays null and the UI
+  // falls back to priority for sorting.
+  impact_score?: number;
+  difficulty_score?: number;
+  confidence_score?: number;
+  source_type?: BacklogSourceType;
+  assignee_suggested?: string;
 };
+
+function clampScore(v: unknown): number | null {
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, n));
+}
+
+function computeOpportunityScore(impact: number | null, difficulty: number | null, confidence: number | null): number | null {
+  if (impact === null && difficulty === null && confidence === null) return null;
+  const i = impact ?? 50;
+  const d = difficulty ?? 50;
+  const c = confidence ?? 70;
+  // Score 0..100. Prefer high impact + high confidence + low difficulty.
+  return Math.round((i * c) / Math.max(d, 1));
+}
 
 export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inserted: number; updated: number; skipped: number }> {
   const sql = getSql();
@@ -105,18 +143,26 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
   let inserted = 0, updated = 0, skipped = 0;
   for (const task of tasks) {
     const signature = makeTaskSignature(task.domain, task.category, task.signature_key);
-    // Check if task with this signature already exists and what status
+    const impact = clampScore(task.impact_score);
+    const difficulty = clampScore(task.difficulty_score);
+    const confidence = clampScore(task.confidence_score);
+    const opportunity = computeOpportunityScore(impact, difficulty, confidence);
+    const sourceType = task.source_type ?? "agent";
+
     const existing = await sql`
       select id, status from seo_backlog_tasks where task_signature = ${signature} limit 1
     ` as Array<{ id: number; status: string }>;
     if (existing.length === 0) {
       await sql`
         insert into seo_backlog_tasks
-          (task_signature, title, description, domain, category, priority, impact_expected, rationale, data_sources, status, proposed_by)
+          (task_signature, title, description, domain, category, priority, impact_expected,
+           rationale, data_sources, status, proposed_by, source_type,
+           impact_score, difficulty_score, confidence_score, opportunity_score, assignee_suggested)
         values
           (${signature}, ${task.title}, ${task.description}, ${task.domain}, ${task.category}, ${task.priority},
            ${task.impact_expected ?? null}, ${task.rationale}, ${JSON.stringify(task.data_sources)}::jsonb,
-           'pendiente', 'agent')
+           'pendiente', ${sourceType}, ${sourceType},
+           ${impact}, ${difficulty}, ${confidence}, ${opportunity}, ${task.assignee_suggested ?? null})
       `;
       inserted++;
       continue;
@@ -126,7 +172,6 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
       skipped++;
       continue;
     }
-    // Update content (priority/rationale/evidence may change as data evolves)
     await sql`
       update seo_backlog_tasks
       set title = ${task.title},
@@ -135,6 +180,12 @@ export async function upsertProposedTasks(tasks: ProposedTask[]): Promise<{ inse
           impact_expected = ${task.impact_expected ?? null},
           rationale = ${task.rationale},
           data_sources = ${JSON.stringify(task.data_sources)}::jsonb,
+          source_type = ${sourceType},
+          impact_score = ${impact},
+          difficulty_score = ${difficulty},
+          confidence_score = ${confidence},
+          opportunity_score = ${opportunity},
+          assignee_suggested = coalesce(${task.assignee_suggested ?? null}, assignee_suggested),
           updated_at = now()
       where id = ${row.id}
     `;
@@ -148,6 +199,8 @@ export type BacklogFilters = {
   status?: BacklogStatus;
   priority?: BacklogPriority;
   category?: BacklogCategory;
+  source_type?: BacklogSourceType;
+  sort?: "score" | "priority" | "recent";
   limit?: number;
 };
 
@@ -155,18 +208,24 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
   const sql = getSql();
   if (!sql) return [];
   await ensureBacklogSchema();
+  const sortClause = filters.sort === "recent"
+    ? sql`proposed_at desc`
+    : filters.sort === "priority"
+      ? sql`case priority when 'alta' then 1 when 'media' then 2 else 3 end, proposed_at desc`
+      : sql`opportunity_score desc nulls last, case priority when 'alta' then 1 when 'media' then 2 else 3 end, proposed_at desc`;
+
   return await sql`
-    select id, task_signature, title, description, domain, category, priority, impact_expected,
-      rationale, data_sources, status, proposed_by,
-      proposed_at::text, updated_at::text, closed_at::text, assignee, notes
+    select id, task_signature, title, description, domain, category, priority,
+      impact_score, difficulty_score, confidence_score, opportunity_score,
+      impact_expected, rationale, data_sources, status, proposed_by, source_type,
+      proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested, notes
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
       and (${filters.status ?? null}::text is null or status = ${filters.status ?? null})
       and (${filters.priority ?? null}::text is null or priority = ${filters.priority ?? null})
       and (${filters.category ?? null}::text is null or category = ${filters.category ?? null})
-    order by
-      case priority when 'alta' then 1 when 'media' then 2 else 3 end,
-      proposed_at desc
+      and (${filters.source_type ?? null}::text is null or source_type = ${filters.source_type ?? null})
+    order by ${sortClause}
     limit ${filters.limit ?? 200}
   ` as BacklogTask[];
 }
@@ -176,9 +235,10 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
   if (!sql) return null;
   await ensureBacklogSchema();
   const rows = await sql`
-    select id, task_signature, title, description, domain, category, priority, impact_expected,
-      rationale, data_sources, status, proposed_by,
-      proposed_at::text, updated_at::text, closed_at::text, assignee, notes
+    select id, task_signature, title, description, domain, category, priority,
+      impact_score, difficulty_score, confidence_score, opportunity_score,
+      impact_expected, rationale, data_sources, status, proposed_by, source_type,
+      proposed_at::text, updated_at::text, closed_at::text, assignee, assignee_suggested, notes
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];
   return rows[0] ?? null;

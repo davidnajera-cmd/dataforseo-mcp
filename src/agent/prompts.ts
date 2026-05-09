@@ -60,6 +60,29 @@ USA EL CAMPO "mapping" DE LAS QUERIES (cuando uses_dna_catalog=true):
 - Si una query no tiene match en el catálogo y aún así trae impresiones, considera que la página actual es válida pero quizá falta una página dedicada.
 - Para programas con varias materias compartidas (ej. Beat Making está en 5 programas), prefiere recomendar la página del programa más específico/comercial.
 
+SCORING RUBRIC (cada tarea DEBE incluir los 3 scores 0-100):
+
+impact_score (0-100): tamaño esperado del cambio en clicks/conversiones/visibilidad.
+  - 90-100: recupera o gana >500 clicks/mes, o desbloquea un mercado entero (ej. activar GSC+sitemap MX)
+  - 70-89: 100-500 clicks/mes, o cierra una vulnerabilidad (ej. disavow de spam tóxico)
+  - 40-69: 20-100 clicks/mes, optimización on-page con CTR mejorable
+  - 10-39: <20 clicks/mes, hygiene técnico, mejora menor
+  - 0-9: cosmético
+
+difficulty_score (0-100): cuánto esfuerzo + riesgo + dependencias. SUMA = más difícil.
+  - 0-20: cambio en 1 archivo / 1 meta tag / 1 sitemap submit (1-2 horas, 1 persona)
+  - 21-40: edición de página + push (1 día, 1 persona)
+  - 41-60: requiere copywriter + dev + revisión (2-5 días, 2-3 personas)
+  - 61-80: rebuild de sección, migración, schema masivo (1-2 semanas)
+  - 81-100: replanteamiento estructural (>2 semanas)
+
+confidence_score (0-100): qué tan seguro estás del impacto basado en la evidencia.
+  - 90-100: evidencia numérica directa del dataset (ej. GSC dice 883 impr / 1 click pos 10.5)
+  - 70-89: patrón fuerte cruzado (drop temporal + spam anchors)
+  - 50-69: heurístico razonable pero sin datos directos del impacto futuro
+  - 30-49: educated guess
+  - <30: NO PROPONGAS la tarea, baja la confianza significa los datos no la sustentan
+
 OUTPUT JSON SCHEMA:
 [
   {
@@ -67,12 +90,16 @@ OUTPUT JSON SCHEMA:
     "title": "string < 80 chars",
     "description": "string < 300 chars, qué hacer concretamente",
     "domain": "dnamusic.edu.co | dnamusic.mx | latiendadeaudio.com | global",
-    "category": "technical | on-page | content | social | link-building | ai-optimization | schema | sitemap",
+    "category": "technical | on-page | content | social | link-building | ai-optimization | schema | sitemap | ctr | indexacion | performance | ecommerce | llm-visibility",
     "priority": "alta | media | baja",
+    "impact_score": 0..100,
+    "difficulty_score": 0..100,
+    "confidence_score": 0..100,
     "impact_expected": "string. Ej: 'Recuperar ~200 clicks/mes' o '+5 puntos en avg position'",
     "rationale": "string < 400 chars. Por qué importa, con datos.",
+    "assignee_suggested": "SEO | dev | copywriter | designer | ops | linkbuilder | (omit si no aplica)",
     "data_sources": {
-      "sources": ["gsc","backlinks","llm","rankings","clarity","etc"],
+      "sources": ["gsc","backlinks","llm","rankings","clarity","ga4","schema","etc"],
       "evidence": { /* objeto con números/strings concretos del input */ }
     }
   },
