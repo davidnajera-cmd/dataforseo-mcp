@@ -34,6 +34,24 @@ export type BacklogRiskLevel = "low" | "medium" | "high";
 export type BacklogAudience = "estudiantes_actuales" | "leads_nuevos" | "mixto" | "publico_general" | "ecommerce_buyers";
 export type BacklogFunnelStage = "descubrimiento" | "consideracion" | "decision" | "soporte_acceso" | "retencion";
 export type BacklogConversionExpected = "matricula" | "lead" | "compra" | "no_aplica" | "navegacional";
+export type BacklogEffortSize = "S" | "M" | "L";
+export type BacklogRootCause =
+  | "noindex"
+  | "redirect_chain"
+  | "404"
+  | "canonical_mismatch"
+  | "thin_content"
+  | "missing_url"
+  | "soft_404"
+  | "blocked_robots"
+  | null;
+export type BacklogKpiSpec = {
+  metric: string;
+  value: number | string | null;
+  source?: string;
+  captured_at?: string;
+  deadline?: string;
+};
 
 export type BacklogTask = {
   id: number;
@@ -81,6 +99,12 @@ export type BacklogTask = {
   notes: string | null;
   slack_list_item_id: string | null;
   slack_synced_at: string | null;
+  acceptance_criteria: string | null;
+  kpi_baseline: BacklogKpiSpec | null;
+  kpi_target: BacklogKpiSpec | null;
+  effort_size: BacklogEffortSize | null;
+  root_cause: BacklogRootCause;
+  cluster_id: string | null;
 };
 
 export async function ensureBacklogSchema(): Promise<void> {
@@ -138,6 +162,15 @@ export async function ensureBacklogSchema(): Promise<void> {
   await sql`alter table seo_backlog_tasks add column if not exists slack_list_item_id text`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_synced_at timestamptz`;
   await sql`alter table seo_backlog_tasks add column if not exists slack_last_pushed_status text`;
+  // V2 agent: structured acceptance + KPI + effort + root cause + cluster.
+  await sql`alter table seo_backlog_tasks add column if not exists acceptance_criteria text`;
+  await sql`alter table seo_backlog_tasks add column if not exists kpi_baseline jsonb`;
+  await sql`alter table seo_backlog_tasks add column if not exists kpi_target jsonb`;
+  await sql`alter table seo_backlog_tasks add column if not exists effort_size text`;
+  await sql`alter table seo_backlog_tasks add column if not exists root_cause text`;
+  await sql`alter table seo_backlog_tasks add column if not exists cluster_id text`;
+  await sql`create index if not exists seo_backlog_cluster on seo_backlog_tasks (cluster_id) where cluster_id is not null`;
+  await sql`create index if not exists seo_backlog_root_cause on seo_backlog_tasks (root_cause) where root_cause is not null`;
   await sql`create index if not exists seo_backlog_slack on seo_backlog_tasks (slack_list_item_id) where slack_list_item_id is not null`;
   await sql`create index if not exists seo_backlog_lookup on seo_backlog_tasks (domain, status, priority)`;
   await sql`create index if not exists seo_backlog_proposed on seo_backlog_tasks (proposed_at desc)`;
@@ -202,6 +235,12 @@ export type ProposedTask = {
   team_area?: string | null;
   blocked_by_signature_keys?: string[] | null;  // signature keys to resolve to ids
   blocked_reason?: string | null;
+  acceptance_criteria?: string | null;
+  kpi_baseline?: BacklogKpiSpec | null;
+  kpi_target?: BacklogKpiSpec | null;
+  effort_size?: BacklogEffortSize | null;
+  root_cause?: BacklogRootCause;
+  cluster_id?: string | null;
 };
 
 // Cheap word-overlap similarity used to detect semantic duplicates between
@@ -352,7 +391,13 @@ export async function upsertProposedTasks(tasks: ProposedTask[], options: { maxN
             due_date = ${task.due_date ?? null}::date,
             team_area = ${task.team_area ?? null},
             blocked_by = ${blockedByIds ? JSON.stringify(blockedByIds) : null}::jsonb,
-            blocked_reason = ${task.blocked_reason ?? null}
+            blocked_reason = ${task.blocked_reason ?? null},
+            acceptance_criteria = ${task.acceptance_criteria ?? null},
+            kpi_baseline = ${task.kpi_baseline ? JSON.stringify(task.kpi_baseline) : null}::jsonb,
+            kpi_target = ${task.kpi_target ? JSON.stringify(task.kpi_target) : null}::jsonb,
+            effort_size = ${task.effort_size ?? null},
+            root_cause = ${task.root_cause ?? null},
+            cluster_id = ${task.cluster_id ?? null}
         where task_signature = ${signature}
       `;
       inserted++;
@@ -396,6 +441,12 @@ export async function upsertProposedTasks(tasks: ProposedTask[], options: { maxN
           team_area = coalesce(${task.team_area ?? null}, team_area),
           blocked_by = coalesce(${blockedByIds ? JSON.stringify(blockedByIds) : null}::jsonb, blocked_by),
           blocked_reason = coalesce(${task.blocked_reason ?? null}, blocked_reason),
+          acceptance_criteria = coalesce(${task.acceptance_criteria ?? null}, acceptance_criteria),
+          kpi_baseline = coalesce(${task.kpi_baseline ? JSON.stringify(task.kpi_baseline) : null}::jsonb, kpi_baseline),
+          kpi_target = coalesce(${task.kpi_target ? JSON.stringify(task.kpi_target) : null}::jsonb, kpi_target),
+          effort_size = coalesce(${task.effort_size ?? null}, effort_size),
+          root_cause = coalesce(${task.root_cause ?? null}, root_cause),
+          cluster_id = coalesce(${task.cluster_id ?? null}, cluster_id),
           updated_at = now()
       where id = ${row.id}
     `;
@@ -433,7 +484,8 @@ export async function listBacklog(filters: BacklogFilters = {}): Promise<Backlog
       action_type, risk_level, requires_human_review,
       audience, funnel_stage, conversion_expected, business_goal,
       phase, owner, due_date::text, team_area, blocked_by, blocked_reason, stale_at::text,
-      notes, slack_list_item_id, slack_synced_at::text
+      notes, slack_list_item_id, slack_synced_at::text,
+      acceptance_criteria, kpi_baseline, kpi_target, effort_size, root_cause, cluster_id
     from seo_backlog_tasks
     where (${filters.domain ?? null}::text is null or domain = ${filters.domain ?? null})
       and (${filters.status ?? null}::text is null or status = ${filters.status ?? null})
@@ -458,7 +510,8 @@ export async function getBacklogTask(id: number): Promise<BacklogTask | null> {
       action_type, risk_level, requires_human_review,
       audience, funnel_stage, conversion_expected, business_goal,
       phase, owner, due_date::text, team_area, blocked_by, blocked_reason, stale_at::text,
-      notes, slack_list_item_id, slack_synced_at::text
+      notes, slack_list_item_id, slack_synced_at::text,
+      acceptance_criteria, kpi_baseline, kpi_target, effort_size, root_cause, cluster_id
     from seo_backlog_tasks where id = ${id} limit 1
   ` as BacklogTask[];
   return rows[0] ?? null;

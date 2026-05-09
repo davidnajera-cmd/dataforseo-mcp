@@ -18,6 +18,8 @@ import { getRuntimeVariable } from "../runtime-config.js";
 import { generateHeuristicTasks, CollectorPayload } from "./heuristic-tasks.js";
 import { pushTasksToSlack } from "../slack-sync.js";
 import { findQ10Violations } from "./q10-classifier.js";
+import { loadRepoSnapshot, type RepoSnapshot } from "./repo-snapshot.js";
+import { validateTaskSlugs, applySlugValidationToTasks } from "./slug-validator.js";
 
 type DeepSeekSummary = {
   domain: string;
@@ -63,6 +65,20 @@ export async function runAgent(): Promise<AgentRunResult> {
   try {
     const sites = await loadSiteContexts();
     if (sites.length === 0) throw new Error("No site contexts found (DNA_DOMAIN_* missing)");
+
+    // 0. Load repo snapshot (best-effort). If missing, agent runs in degraded
+    // mode without slug validation — the runtime variables for GitHub may not
+    // be configured yet.
+    let repoSnapshot: RepoSnapshot | null = null;
+    try {
+      repoSnapshot = await loadRepoSnapshot();
+      stats.repo_snapshot = repoSnapshot
+        ? { commit_sha: repoSnapshot.commit_sha, routes: repoSnapshot.routes.length, redirects: repoSnapshot.redirects.length, sitemap_routes: repoSnapshot.sitemap_routes.length }
+        : { status: "not_configured" };
+    } catch (error) {
+      errors.push({ stage: "repo_snapshot", error: error instanceof Error ? error.message : "unknown" });
+      stats.repo_snapshot = { status: "failed" };
+    }
 
     // 1. Collect raw data per site (in parallel within site, sequential across to avoid rate limit)
     const rawPerSite: Record<string, unknown> = {};
@@ -134,6 +150,27 @@ export async function runAgent(): Promise<AgentRunResult> {
     stats.pending_at_run_start = pendingCount;
     stats.cap_max_new_inserts = maxNewInserts;
     stats.cap_reason = pendingCount > 200 ? "backlog_>200_auto_throttle" : "default_cap";
+    // Validate heuristic-task slugs against the repo inventory before upsert.
+    // Heuristics rarely invent paths (they read from data) but a missing route
+    // is a useful signal that flags a task for human review.
+    if (heuristicTotal.length > 0 && repoSnapshot) {
+      const validation = validateTaskSlugs(heuristicTotal, repoSnapshot);
+      stats.slug_validation_heuristic = {
+        checked: validation.total_paths_checked,
+        unknown: validation.total_paths_unknown,
+        flagged: validation.tasks_flagged,
+      };
+      if (validation.tasks_flagged > 0) {
+        const annotated = applySlugValidationToTasks(heuristicTotal, validation);
+        // Replace the in-memory list AND the per-site map so what we hand to
+        // Opus reflects the corrected metadata.
+        heuristicTotal = annotated;
+        for (const [domain, list] of Object.entries(heuristicTasksPerSite)) {
+          heuristicTasksPerSite[domain] = list.map((t) => annotated.find((a) => a.signature_key === t.signature_key) ?? t);
+        }
+      }
+    }
+
     let heuristicUpsert = { inserted: 0, updated: 0, skipped: 0, capped: 0 };
     if (heuristicTotal.length > 0) {
       try {
@@ -167,7 +204,8 @@ export async function runAgent(): Promise<AgentRunResult> {
     // 3. Opus orchestration
     const maxTasksRaw = await getRuntimeVariable("AGENT_MAX_TASKS_PER_RUN");
     const maxTasks = Number(maxTasksRaw ?? 10);
-    const systemPrompt = OPUS_SYSTEM_TEMPLATE(maxTasks, buildBrandContext(true));
+    const repoContext = buildRepoContextString(repoSnapshot);
+    const systemPrompt = OPUS_SYSTEM_TEMPLATE(maxTasks, buildBrandContext(true), repoContext);
     const summariesPayload = deepResults.map((r) => ({ domain: r.domain, signals: r.signals }));
     const heuristicSummary = Object.entries(heuristicTasksPerSite).map(([domain, list]) => ({
       domain,
@@ -212,6 +250,23 @@ export async function runAgent(): Promise<AgentRunResult> {
       });
       stats.q10_rejected_opus_tasks = q10Stats.rejected;
       stats.q10_cleaned_opus_tasks = q10Stats.cleaned;
+
+      // Slug validation on Opus output. Opus is the one that hallucinates
+      // slugs (heuristics are deterministic), so this is where it matters
+      // most. Tasks with unknown paths get flagged human-review + medium risk
+      // so they don't auto-execute downstream.
+      if (proposedTasks.length > 0 && repoSnapshot) {
+        const validation = validateTaskSlugs(proposedTasks, repoSnapshot);
+        stats.slug_validation_opus = {
+          checked: validation.total_paths_checked,
+          unknown: validation.total_paths_unknown,
+          flagged: validation.tasks_flagged,
+          issues_sample: validation.issues.slice(0, 5),
+        };
+        if (validation.tasks_flagged > 0) {
+          proposedTasks = applySlugValidationToTasks(proposedTasks, validation);
+        }
+      }
     } catch (error) {
       errors.push({ stage: "opus", error: error instanceof Error ? error.message : "unknown" });
     }
@@ -283,6 +338,36 @@ function isValidTask(t: unknown): boolean {
     && typeof r.category === "string"
     && typeof r.priority === "string"
     && typeof r.rationale === "string";
+}
+
+// Build the repoContext string we inject into the Opus prompt. Caps the
+// inventory at sane sizes so we don't blow the context window: routes are
+// listed (canonical paths only, no dynamic noise), redirects shown as a sample
+// of the most relevant ones, sitemap routes verbatim, and data-file slug sets
+// summarized.
+function buildRepoContextString(snapshot: RepoSnapshot | null): string | undefined {
+  if (!snapshot) return undefined;
+  const lines: string[] = [];
+  lines.push(`Repo: ${snapshot.owner}/${snapshot.name} @ ${snapshot.branch} (commit ${snapshot.commit_sha.slice(0, 8)}, snapshot ${snapshot.fetched_at})`);
+  const routesPreview = snapshot.routes.slice(0, 200);
+  lines.push(`\nRutas reales (${snapshot.routes.length} total, primeras ${routesPreview.length}):`);
+  lines.push(routesPreview.map((r) => `  ${r}`).join("\n"));
+  if (snapshot.redirects.length > 0) {
+    const redirectPreview = snapshot.redirects.slice(0, 60);
+    lines.push(`\nRedirects en repo (${snapshot.redirects.length} total, muestra ${redirectPreview.length}):`);
+    lines.push(redirectPreview.map((r) => `  ${r.from} → ${r.to ?? "(404)"} [${r.status}]`).join("\n"));
+  }
+  if (snapshot.sitemap_routes.length > 0) {
+    lines.push(`\nRutas declaradas en app/sitemap.ts (${snapshot.sitemap_routes.length}):`);
+    lines.push(snapshot.sitemap_routes.slice(0, 80).map((r) => `  ${r}`).join("\n"));
+  }
+  if (Object.keys(snapshot.data_files).length > 0) {
+    lines.push(`\nSlugs de catálogo (src/data/*):`);
+    for (const [file, slugs] of Object.entries(snapshot.data_files)) {
+      lines.push(`  ${file}: ${slugs.slice(0, 30).join(", ")}${slugs.length > 30 ? `, ... (+${slugs.length - 30})` : ""}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 async function deepseekTotalCost(_results: DeepSeekSummary[]): Promise<number> {

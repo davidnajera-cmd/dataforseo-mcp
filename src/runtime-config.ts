@@ -47,6 +47,10 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "SLACK_LIST_ID", group: "Slack Sync", label: "List ID", description: "ID de la lista de Slack (formato Fxxxx). Default F0A0U27CYSX (Sprint de Marketing).", sensitive: false, requiredFor: "Slack sync" },
   { name: "SLACK_BACKLOG_OPTION_ID", group: "Slack Sync", label: "Backlog group option ID", description: "ID de la opcion 'Backlog SEO Agent' del campo Estado Sprint. Default OptL5NJTUJB.", sensitive: false, requiredFor: "Slack sync" },
   { name: "DASHBOARD_URL", group: "Dashboard", label: "Dashboard URL base", description: "URL base del dashboard SEO (sin trailing slash). Usada para incluir deep-links a tareas en items de Slack. Ej: https://dataforseo-mcp-three.vercel.app", sensitive: false, requiredFor: "Slack deep-links al backlog" },
+  { name: "REPO_GITHUB_OWNER", group: "Repo Snapshot", label: "GitHub owner", description: "Owner del repo Next.js (ej: dnamusic2026). Necesario para grounding del agente.", sensitive: false, requiredFor: "Slug validation + grounding del agente" },
+  { name: "REPO_GITHUB_NAME", group: "Repo Snapshot", label: "GitHub repo name", description: "Nombre del repo Next.js (ej: frontend_web_page).", sensitive: false, requiredFor: "Slug validation + grounding del agente" },
+  { name: "REPO_GITHUB_BRANCH", group: "Repo Snapshot", label: "Branch", description: "Branch a leer (default: main).", sensitive: false, requiredFor: "Slug validation + grounding del agente" },
+  { name: "REPO_GITHUB_TOKEN", group: "Repo Snapshot", label: "GitHub PAT (read-only)", description: "PAT con scope Contents:Read para el repo del sitio. Fine-grained recomendado, scope minimo.", sensitive: true, requiredFor: "Slug validation + grounding del agente" },
 ];
 
 type RuntimeVariableRow = {
