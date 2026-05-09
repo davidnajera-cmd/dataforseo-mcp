@@ -140,19 +140,22 @@ export async function pushClosedTasksToSlack(): Promise<SlackClosedSyncSummary> 
 
   for (const row of rows) {
     try {
-      // Both ejecutada and descartada → checkbox=true + Estado=Completadas in Slack.
-      // For descartada we also prepend the title with a marker so the team can tell.
       const isDiscarded = row.status === "descartada";
-      const updates: Parameters<typeof updateBacklogItem>[1] = {
-        completed: true,
-        estado_option: SLACK_ESTADO_OPTIONS.COMPLETADAS,
-      };
-      if (isDiscarded && !row.title.startsWith("[DESCARTADA] ")) {
-        updates.title = `[DESCARTADA] ${row.title}`;
+      if (isDiscarded) {
+        // Descartadas don't belong in Slack at all — delete the row and clear
+        // the link so the team only sees actionable or completed work.
+        await deleteBacklogItem(row.slack_list_item_id);
+        await sql`update seo_backlog_tasks set slack_list_item_id = null, slack_last_pushed_status = ${row.status}, slack_synced_at = now() where id = ${row.id}`;
+        discardedCount++;
+      } else {
+        // Ejecutada → mark Slack item as completed so the team has a record.
+        await updateBacklogItem(row.slack_list_item_id, {
+          completed: true,
+          estado_option: SLACK_ESTADO_OPTIONS.COMPLETADAS,
+        });
+        await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
+        executedCount++;
       }
-      await updateBacklogItem(row.slack_list_item_id, updates);
-      await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
-      if (isDiscarded) discardedCount++; else executedCount++;
     } catch (error) {
       failed++;
       errors.push({ task_id: row.id, error: error instanceof Error ? error.message : String(error) });
@@ -240,12 +243,15 @@ export async function cleanupSlackBacklog(): Promise<SlackCleanupSummary> {
   await ensureBacklogSchema();
 
   const rows = await sql`
-    select id, slack_list_item_id, priority, phase
+    select id, slack_list_item_id, priority, phase, status
     from seo_backlog_tasks
     where slack_list_item_id is not null
-      and status in ('pendiente','en_progreso')
-      and not (priority = ${SLACK_KEEP_PRIORITY} and phase = ${SLACK_KEEP_PHASE})
-  ` as Array<{ id: number; slack_list_item_id: string; priority: BacklogTask["priority"]; phase: string | null }>;
+      and (
+        status = 'descartada'
+        or (status in ('pendiente','en_progreso')
+            and not (priority = ${SLACK_KEEP_PRIORITY} and phase = ${SLACK_KEEP_PHASE}))
+      )
+  ` as Array<{ id: number; slack_list_item_id: string; priority: BacklogTask["priority"]; phase: string | null; status: BacklogStatus }>;
 
   let removed = 0;
   let failed = 0;
