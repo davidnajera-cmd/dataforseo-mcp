@@ -272,6 +272,27 @@ All SerpAPI tools return real-time search results from various engines.
 
 ---
 
+## ⚠ Reality check: requesting Google re-indexing
+
+There is **NO direct programmatic way** to request re-indexing of regular URLs (blog posts, landing pages, programs) on Google. Confirmed comprehensively in May 2026:
+
+- **Indexing API** is HARD-restricted to `JobPosting` + `BroadcastEvent` (live streams). For regular URLs, calls return 200 OK but Google silently no-ops (verified live: status check after submit returns 404).
+- **URL Inspection API** is read-only.
+- **Search Console API** has no request-indexing method (only search analytics, sitemaps CRUD, sites CRUD, urlInspection.index.inspect).
+- **Sitemap ping endpoint** (`google.com/ping?sitemap=`) was deprecated June 2023 and now returns 404.
+- **IndexNow** (Bing/Yandex protocol) — Google has explicitly NOT adopted as of 2026.
+- **GSC UI "Request Indexing" button** is not exposed as an API; reverse-engineering violates ToS and gets OAuth accounts banned.
+
+**The legitimate path** for asking Google to recrawl regular URLs:
+1. `gsc_sitemaps_submit` — force sitemap re-fetch (Google reads `<lastmod>` to prioritize)
+2. Make sure `<lastmod>` dates are accurate in your sitemap
+3. `gsc_url_bulk_inspection` to verify coverage state post-deploy (rate-limited 200ms/URL, ~2000/day)
+4. Wait. Re-crawl typical timing: 1-7 days for priority URLs, 1-4 weeks for slow URLs.
+
+If after 2+ weeks a URL is stuck in "Crawled - currently not indexed", the fix is NOT more indexing requests — it's a content quality issue (thin content, duplicates, low authority). Address with content + internal linking.
+
+Use the playbook `seo_workflow_playbook(name='request_recrawl')` for the orchestrated recipe.
+
 ## Google Search Console Tools (9 tools)
 
 ### `site_url` parameter — read this before any GSC call
