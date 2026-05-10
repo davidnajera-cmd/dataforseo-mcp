@@ -118,17 +118,19 @@ function proposeDestination(legacy: string, currentRoutes: string[], redirects: 
 // ============================================================================
 
 async function fetchWaybackPaths(domain: string, opts: { from?: string; to?: string; limit: number; deadline_ms: number }): Promise<{ paths: string[]; hit_limit: boolean }> {
+  // Use matchType=domain to scope to all subdomains in one query. Don't use
+  // collapse=urlkey because it makes CDX run a full-result-set dedup which
+  // routinely times out for active domains. Dedup client-side instead.
   const params = new URLSearchParams({
-    url: `*.${domain}/*`,
+    url: domain,
+    matchType: "domain",
     output: "json",
     limit: String(opts.limit),
-    collapse: "urlkey",   // dedup by URL key — gives unique paths, not snapshot count
     filter: "statuscode:200",
+    fl: "original",  // ask for only the 'original' column to reduce transfer size
   });
   if (opts.from) params.set("from", opts.from);
   if (opts.to) params.set("to", opts.to);
-  // Wayback CDX accepts a 'matchType=domain' to scope to all subdomains, but
-  // we already use the wildcard prefix; that's the more universal pattern.
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.deadline_ms));
@@ -159,17 +161,19 @@ async function fetchWaybackPaths(domain: string, opts: { from?: string; to?: str
 async function fetchBacklinkTargets(domain: string, opts: { limit: number; deadline_ms: number }): Promise<{ targets: Map<string, number>; total_fetched: number }> {
   const map = new Map<string, number>();
   try {
+    // DataForSEO returns items with `page` (URL) and `page_summary.backlinks` (count).
+    // The optional order_by descending by backlinks makes high-equity pages come first.
     const result = await dataforseoPost("/backlinks/domain_pages/live", {
       target: domain,
       include_subdomains: true,
       limit: opts.limit,
-      order_by: ["backlinks,desc"],
-    }) as { tasks?: Array<{ result?: Array<{ items?: Array<{ url?: string; backlinks?: number }> }> }> };
+    }) as { tasks?: Array<{ result?: Array<{ items?: Array<{ page?: string; page_summary?: { backlinks?: number } }> }> }> };
     const items = result.tasks?.[0]?.result?.[0]?.items ?? [];
     for (const it of items) {
-      const path = it.url ? normalizePath(it.url, domain) : null;
+      const url = it.page;
+      const path = url ? normalizePath(url, domain) : null;
       if (!path) continue;
-      const count = typeof it.backlinks === "number" ? it.backlinks : 0;
+      const count = typeof it.page_summary?.backlinks === "number" ? it.page_summary.backlinks : 0;
       map.set(path, (map.get(path) ?? 0) + count);
     }
     return { targets: map, total_fetched: items.length };
