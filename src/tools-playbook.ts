@@ -150,6 +150,20 @@ const PLAYBOOKS: Record<string, Playbook> = {
     synthesis_guidance: "Estructura del brief en 7 secciones: (1) DEMANDA — volumen, intent mix, trayectoria 12m, top 10 keywords con score; (2) OFERTA — 5-8 competidores con domain/maps/SERP overlap, posicionamiento de cada uno; (3) VOZ DEL CLIENTE — citas literales de TikTok/IG comments + Reddit, agrupadas por: dudas, objeciones, comparaciones, motivadores; (4) PAUTA COMPETITIVA — qué creativos están corriendo (Meta + Google), qué mensajes, qué frecuencia; (5) PR/BACKLINKS — partnerships y medios donde aparecen los competidores; (6) AI VISIBILITY — qué dicen los LLMs sobre la categoría, dónde aparece la marca, qué competencia mencionan; (7) GAPS Y OPORTUNIDADES — 3-5 oportunidades concretas (contenido, pauta, partnerships) con effort/impact. NUNCA generalices: cita números literales, URLs, handles, screenshots de comentarios. NUNCA inventes datos. Si una fuente no devolvió data, dilo explícitamente. Idioma: español. Audiencia: equipo estratégico DNA Music.",
   },
 
+  "request_recrawl": {
+    name: "request_recrawl",
+    description: "El path LEGÍTIMO para pedirle a Google que recrawlee URLs regulares (no JobPosting, no live streams). NO existe API directa — gsc_url_request_indexing es trampa para contenido regular (devuelve 200 pero Google no-opea silenciosamente). Esta receta combina sitemap re-fetch + verificación de coverage. Úsala después de un deploy masivo, migración, o cuando varias URLs fueron actualizadas.",
+    expected_minutes: 2,
+    cost_estimate_usd: 0.0,
+    steps: [
+      { call: "gsc_sitemaps_submit", args: { site_url: "https://dnamusic.edu.co/", feedpath: "https://dnamusic.edu.co/sitemap.xml" }, why: "Fuerza a Google a re-fetchear el sitemap. Si el sitemap tiene <lastmod> actualizados, Google prioriza esas URLs en su queue de crawl." },
+      { call: "gsc_sitemaps_get", args: { site_url: "https://dnamusic.edu.co/", feedpath: "https://dnamusic.edu.co/sitemap.xml" }, why: "Confirma lastDownloaded/lastSubmitted recientes y status='Success'. Si el sitemap tiene errores (sitemap_status != 'Success' o errors > 0), arreglar antes de seguir." },
+      { call: "gsc_url_bulk_inspection", args: { site_url: "https://dnamusic.edu.co/", urls: ["<las URLs cambiadas>"], language_code: "es" }, why: "Snapshot inicial del coverage state ANTES del recrawl. Sirve de baseline. Rate-limited 200ms/URL (max ~2000/día por property)." },
+      { call: "history_traffic", args: { domain: "dnamusic.edu.co", days: 7 }, why: "Snapshot de tráfico de los 7 días previos para comparar después." },
+    ],
+    synthesis_guidance: "Reporta: (1) sitemap re-fetched OK (cita lastDownloaded), (2) coverage state ANTES por URL (Indexed / Submitted / Excluded / Crawled-not-indexed). Después de 7-14 días el usuario debe correr este playbook de nuevo y comparar coverage_state. Tiempo realista de recrawl post-sitemap: 1-7 días para URLs prioritarias, 1-4 semanas para URLs lentas. Si después de 2 semanas una URL crítica sigue 'Crawled - currently not indexed', el problema NO se arregla con más sitemap pings — es un problema de CALIDAD de la página (thin content, duplicados, low authority) y requiere fix de contenido + internal linking, no más requests de indexación.",
+  },
+
   "weekly_report": {
     name: "weekly_report",
     description: "Reporte semanal estandarizado: traffic week-over-week, top movers, backlinks delta, tareas backlog.",
@@ -170,7 +184,7 @@ const PLAYBOOKS: Record<string, Playbook> = {
 export function registerPlaybookTools(server: McpServer) {
   server.tool(
     "seo_workflow_playbook",
-    "Returns a step-by-step recipe for a named analysis. Use this BEFORE running multi-tool analyses to know which tools to call in which order with which parameters. Available workflows: '360_audit' (full SEO snapshot), 'competitor_analysis', 'content_opportunity_brief', 'backlink_health', 'ai_visibility', 'migration_audit', 'weekly_report', 'market_research_brief' (Colombia-first: SERP+Maps+TikTok/IG voice+ads+news). Pass 'list' as name to get all workflows with descriptions.",
+    "Returns a step-by-step recipe for a named analysis. Use this BEFORE running multi-tool analyses to know which tools to call in which order with which parameters. Available workflows: '360_audit' (full SEO snapshot), 'competitor_analysis', 'content_opportunity_brief', 'backlink_health', 'ai_visibility', 'migration_audit', 'weekly_report', 'market_research_brief' (Colombia-first: SERP+Maps+TikTok/IG voice+ads+news), 'request_recrawl' (legit path to ask Google to recrawl regular URLs since no direct API exists). Pass 'list' as name to get all workflows with descriptions.",
     {
       name: z.string().describe("Workflow name. Use 'list' to discover available workflows."),
     },
