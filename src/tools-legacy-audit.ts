@@ -133,74 +133,123 @@ function proposeDestination(legacy: string, currentRoutes: string[], redirects: 
 // FETCHERS WITH TIME-BUDGET AWARENESS
 // ============================================================================
 
-async function fetchWaybackPaths(domain: string, opts: { from?: string; to?: string; limit: number; deadline_ms: number }): Promise<{ paths: string[]; hit_limit: boolean }> {
-  // Use matchType=domain to scope to all subdomains in one query. Don't use
-  // collapse=urlkey because it makes CDX run a full-result-set dedup which
-  // routinely times out for active domains. Dedup client-side instead.
+async function fetchWaybackPaths(domain: string, opts: { from?: string; to?: string; limit: number; deadline_ms: number }): Promise<{ paths: string[]; hit_limit: boolean; attempts: number }> {
+  // Use matchType=domain to scope to all subdomains. No collapse=urlkey
+  // (makes CDX run a full-result-set dedup that routinely times out).
+  // No filter or fl — those occasionally trigger 503 on overloaded CDX.
+  // Apply both filters client-side after fetch.
   const params = new URLSearchParams({
     url: domain,
     matchType: "domain",
     output: "json",
     limit: String(opts.limit),
-    filter: "statuscode:200",
-    fl: "original",  // ask for only the 'original' column to reduce transfer size
   });
   if (opts.from) params.set("from", opts.from);
   if (opts.to) params.set("to", opts.to);
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), Math.max(1000, opts.deadline_ms));
-  try {
-    const res = await fetch(`${CDX_URL}?${params.toString()}`, {
-      headers: { "User-Agent": "dataforseo-mcp/1.0 (legacy audit)" },
-      signal: controller.signal,
-    });
-    if (!res.ok) throw new Error(`Wayback CDX ${res.status}`);
-    const text = await res.text();
-    const rows = text.trim() ? JSON.parse(text) as string[][] : [];
-    const [header, ...data] = rows;
-    if (!header) return { paths: [], hit_limit: false };
-    const urlIdx = header.indexOf("original");
-    if (urlIdx < 0) return { paths: [], hit_limit: false };
-    const seen = new Set<string>();
-    for (const row of data) {
-      const original = row[urlIdx];
-      const p = normalizePath(original, domain);
-      if (p) seen.add(p);
+  // Wayback CDX is notoriously flaky — implement a small retry with backoff.
+  const maxAttempts = 3;
+  let lastError = "";
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    const remaining = opts.deadline_ms - (attempt - 1) * 2000;
+    if (remaining < 2000) {
+      lastError = `budget_exhausted_after_${attempt - 1}_attempts`;
+      break;
     }
-    return { paths: Array.from(seen), hit_limit: data.length >= opts.limit };
-  } finally {
-    clearTimeout(timer);
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.max(1000, remaining));
+    try {
+      const res = await fetch(`${CDX_URL}?${params.toString()}`, {
+        headers: { "User-Agent": "dataforseo-mcp/1.0 (legacy audit)" },
+        signal: controller.signal,
+      });
+      if (!res.ok) {
+        lastError = `Wayback CDX ${res.status}`;
+        // Retry only on 5xx (server-side issue)
+        if (res.status >= 500 && attempt < maxAttempts) {
+          await new Promise((r) => setTimeout(r, 1500 * attempt));
+          continue;
+        }
+        throw new Error(lastError);
+      }
+      const text = await res.text();
+      const rows = text.trim() ? JSON.parse(text) as string[][] : [];
+      const [header, ...data] = rows;
+      if (!header) return { paths: [], hit_limit: false, attempts: attempt };
+      const urlIdx = header.indexOf("original");
+      const statusIdx = header.indexOf("statuscode");
+      if (urlIdx < 0) return { paths: [], hit_limit: false, attempts: attempt };
+      const seen = new Set<string>();
+      for (const row of data) {
+        // Filter for 200-only client-side (CDX server-side filter sometimes 503s)
+        if (statusIdx >= 0 && row[statusIdx] !== "200") continue;
+        const original = row[urlIdx];
+        const p = normalizePath(original, domain);
+        if (p) seen.add(p);
+      }
+      return { paths: Array.from(seen), hit_limit: data.length >= opts.limit, attempts: attempt };
+    } catch (err) {
+      lastError = err instanceof Error ? err.message : String(err);
+      if (attempt < maxAttempts) {
+        await new Promise((r) => setTimeout(r, 1500 * attempt));
+        continue;
+      }
+    } finally {
+      clearTimeout(timer);
+    }
   }
+  throw new Error(lastError || "wayback_failed_all_retries");
 }
 
-async function fetchBacklinkTargets(domain: string, opts: { limit: number; deadline_ms: number }): Promise<{ targets: Map<string, number>; total_fetched: number }> {
-  // Use /backlinks/backlinks/live which lists INDIVIDUAL backlinks. Each item
-  // has url_to = the target URL (may include legacy URLs that no longer exist
-  // on the live site). Aggregating by url_to gives { target_path → bl_count }.
-  // Don't use /backlinks/domain_pages — that only lists CURRENTLY-EXISTING
-  // pages with backlinks, which by definition are NOT in the gap.
-  const map = new Map<string, number>();
-  try {
-    const result = await dataforseoPost("/backlinks/backlinks/live", {
+// Returns:
+//   bl_total[path] — total backlinks (broken + live) pointing at the path
+//   bl_broken[path] — broken backlinks specifically (target returned 4xx/5xx)
+// The broken set is the real "URLs leaking equity" signal — they are by
+// definition NOT covered by an existing redirect. The total set is also useful
+// because the audit's existing-redirect filter handles dedup against current
+// routes.
+async function fetchBacklinkTargets(domain: string, opts: { limit: number; deadline_ms: number }): Promise<{ totals: Map<string, number>; broken: Map<string, number>; total_fetched: number; broken_fetched: number }> {
+  const totals = new Map<string, number>();
+  const broken = new Map<string, number>();
+
+  // Two parallel fetches: all backlinks (with url_to) + broken backlinks (with url_to)
+  const [allResult, brokenResult] = await Promise.allSettled([
+    dataforseoPost("/backlinks/backlinks/live", {
       target: domain,
       include_subdomains: true,
       limit: opts.limit,
-      mode: "as_is",        // return every backlink, not deduplicated by source
-      order_by: ["rank,desc"],  // highest-equity backlinks first within our cap
-    }) as { tasks?: Array<{ result?: Array<{ items?: Array<{ url_to?: string }> }> }> };
-    const items = result.tasks?.[0]?.result?.[0]?.items ?? [];
+      mode: "as_is",
+      order_by: ["rank,desc"],
+    }) as Promise<{ tasks?: Array<{ result?: Array<{ items?: Array<{ url_to?: string }> }> }> }>,
+    dataforseoPost("/backlinks/broken_backlinks/live", {
+      target: domain,
+      include_subdomains: true,
+      limit: opts.limit,
+    }) as Promise<{ tasks?: Array<{ result?: Array<{ items?: Array<{ url_to?: string }> }> }> }>,
+  ]);
+
+  let totalFetched = 0;
+  let brokenFetched = 0;
+
+  if (allResult.status === "fulfilled") {
+    const items = allResult.value.tasks?.[0]?.result?.[0]?.items ?? [];
+    totalFetched = items.length;
     for (const it of items) {
-      const url = it.url_to;
-      const path = url ? normalizePath(url, domain) : null;
+      const path = it.url_to ? normalizePath(it.url_to, domain) : null;
       if (!path) continue;
-      // Each backlink contributes 1 to the count for its target path.
-      map.set(path, (map.get(path) ?? 0) + 1);
+      totals.set(path, (totals.get(path) ?? 0) + 1);
     }
-    return { targets: map, total_fetched: items.length };
-  } catch {
-    return { targets: map, total_fetched: 0 };
   }
+  if (brokenResult.status === "fulfilled") {
+    const items = brokenResult.value.tasks?.[0]?.result?.[0]?.items ?? [];
+    brokenFetched = items.length;
+    for (const it of items) {
+      const path = it.url_to ? normalizePath(it.url_to, domain) : null;
+      if (!path) continue;
+      broken.set(path, (broken.get(path) ?? 0) + 1);
+    }
+  }
+  return { totals, broken, total_fetched: totalFetched, broken_fetched: brokenFetched };
 }
 
 // ============================================================================
@@ -266,16 +315,22 @@ export function registerLegacyAuditTools(server: McpServer) {
       stats.wayback_hit_limit = waybackHitLimit;
       stats.elapsed_ms_after_wayback = Date.now() - start;
 
-      // 3. Backlinks — only if budget remains
-      let backlinkTargets = new Map<string, number>();
+      // 3. Backlinks — only if budget remains. Fetches BOTH all-backlinks
+      // and broken-backlinks in parallel for max signal.
+      let backlinkTotals = new Map<string, number>();
+      let backlinkBroken = new Map<string, number>();
       if (Date.now() < deadline - 5000) {
         try {
           const bl = await fetchBacklinkTargets(cleanTarget, {
             limit: max_backlink_pages ?? 200,
             deadline_ms: deadline - Date.now(),
           });
-          backlinkTargets = bl.targets;
-          stats.backlinks_pages_fetched = bl.total_fetched;
+          backlinkTotals = bl.totals;
+          backlinkBroken = bl.broken;
+          stats.backlinks_total_fetched = bl.total_fetched;
+          stats.backlinks_broken_fetched = bl.broken_fetched;
+          stats.backlinks_unique_targets = bl.totals.size;
+          stats.backlinks_unique_broken_targets = bl.broken.size;
         } catch (err) {
           errors.push(`backlinks: ${err instanceof Error ? err.message : "unknown"}`);
         }
@@ -284,8 +339,14 @@ export function registerLegacyAuditTools(server: McpServer) {
       }
       stats.elapsed_ms_after_backlinks = Date.now() - start;
 
-      // 4. Build universe + coverage
-      const universe = new Set<string>([...waybackPaths, ...backlinkTargets.keys()]);
+      // 4. Build universe + coverage. Broken backlinks are guaranteed gaps
+      // (Google says these URLs 4xx today) so we include them regardless of
+      // other signals.
+      const universe = new Set<string>([
+        ...waybackPaths,
+        ...backlinkTotals.keys(),
+        ...backlinkBroken.keys(),
+      ]);
 
       const coveredRoutes = new Set(snap.routes.map((r) => r.toLowerCase().replace(/\/$/, "")));
       // Add route bases (so /programas covers /programas/[id] dynamic)
@@ -309,18 +370,22 @@ export function registerLegacyAuditTools(server: McpServer) {
       // 5. Compute gap + propose destinations
       const minBl = min_bl_count ?? 0;
       const minConf = min_confidence ?? 0;
-      const gap: Array<{ path: string; source: string; bl_count: number; propuesta_destino: string | null; confidence: number; method: string }> = [];
+      const gap: Array<{ path: string; source: string; bl_count: number; broken_bl_count: number; propuesta_destino: string | null; confidence: number; method: string }> = [];
 
-      const inBacklinks = backlinkTargets;
       const inWayback = new Set(waybackPaths);
       const routesForMatching = Array.from(new Set([...snap.routes, ...snap.sitemap_routes]));
 
       for (const path of universe) {
         if (isCovered(path)) continue;
-        const blCount = inBacklinks.get(path) ?? 0;
-        if (blCount < minBl) continue;
-        const source = inBacklinks.has(path) && inWayback.has(path) ? "both"
-          : inBacklinks.has(path) ? "backlinks"
+        const blCount = backlinkTotals.get(path) ?? 0;
+        const brokenCount = backlinkBroken.get(path) ?? 0;
+        // Filter by min_bl_count against the union (counts both signal types)
+        if (Math.max(blCount, brokenCount) < minBl) continue;
+        // Source priority: broken backlinks = strongest signal (Google confirmed
+        // 4xx today), then "both" sources, then individual signals.
+        const source = brokenCount > 0 ? "broken_backlinks"
+          : (blCount > 0 && inWayback.has(path)) ? "both"
+          : blCount > 0 ? "backlinks"
           : "wayback";
         const proposal = proposeDestination(path, routesForMatching, snap.redirects);
         if (proposal.confidence < minConf) continue;
@@ -328,16 +393,18 @@ export function registerLegacyAuditTools(server: McpServer) {
           path,
           source,
           bl_count: blCount,
+          broken_bl_count: brokenCount,
           propuesta_destino: proposal.dest,
           confidence: Number(proposal.confidence.toFixed(2)),
           method: proposal.method,
         });
       }
 
-      // Sort: by source priority (both > backlinks > wayback), then bl_count desc, then confidence desc
-      const sourceRank = { both: 0, backlinks: 1, wayback: 2 } as const;
+      // Sort: broken_backlinks > both > backlinks > wayback, then broken count, then bl_count, then confidence
+      const sourceRank = { broken_backlinks: 0, both: 1, backlinks: 2, wayback: 3 } as const;
       gap.sort((a, b) =>
         (sourceRank[a.source as keyof typeof sourceRank] ?? 9) - (sourceRank[b.source as keyof typeof sourceRank] ?? 9)
+        || b.broken_bl_count - a.broken_bl_count
         || b.bl_count - a.bl_count
         || b.confidence - a.confidence
       );
@@ -354,6 +421,7 @@ export function registerLegacyAuditTools(server: McpServer) {
         stats,
         gap_count: gap.length,
         gap_by_source: {
+          broken_backlinks: gap.filter((g) => g.source === "broken_backlinks").length,
           both: gap.filter((g) => g.source === "both").length,
           backlinks: gap.filter((g) => g.source === "backlinks").length,
           wayback: gap.filter((g) => g.source === "wayback").length,
