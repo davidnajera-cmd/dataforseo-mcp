@@ -111,7 +111,7 @@ export default async function handler(
         tool_name: toolName,
         args: argsObj,
         result,
-        cost_usd: typeof body.cost_usd === "number" ? body.cost_usd : null,
+        cost_usd: typeof body.cost_usd === "number" ? body.cost_usd : undefined,
         brief_id: baselineId,
         delta_vs_prior: delta,
         prior_observation_id: prior?.id ?? null,
