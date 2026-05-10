@@ -282,46 +282,56 @@ export function registerGscTools(server: McpServer) {
 
   server.tool(
     "gsc_url_bulk_inspection",
-    "Inspect multiple URLs at once via the URL Inspection API. Sequential with 200ms delay between calls (rate limit ~2000/day per property). Returns per-URL coverage, indexing state, canonical, last crawl time, and rich results state, plus an aggregate summary.",
+    "Inspect multiple URLs at once via the URL Inspection API. Parallel execution (concurrency=5, staying safely under Google's 10 req/sec project limit; daily cap is ~2000/day per property). Returns per-URL coverage, indexing state, canonical, last crawl time, and rich results state, plus an aggregate summary. Throughput: ~5 URLs/sec, so 30 URLs ≈ 6-8 seconds. Recommended max per call: 50 URLs (≤15s) to stay well under any client timeout. For larger batches, split into chunks across multiple calls.",
     {
-      urls: z.array(z.string()).min(1).describe("List of URLs to inspect"),
+      urls: z.array(z.string()).min(1).max(200).describe("List of URLs to inspect. Hard cap 200 per call."),
       site_url: z.string().describe(SITE_URL_DESCRIPTION),
       language_code: z.string().optional().describe("Language code, default 'en-US'"),
+      concurrency: z.number().optional().describe("How many URLs to inspect in parallel. Default 5. Max 8 (stays under Google's 10 req/sec project rate limit)."),
     },
-    async ({ urls, site_url, language_code }) => {
-      try {
-        const results: Array<Record<string, unknown>> = [];
-        for (let i = 0; i < urls.length; i++) {
-          const url = urls[i];
-          try {
-            const raw = await gscPost("/urlInspection/index:inspect", {
-              inspectionUrl: url,
-              siteUrl: site_url,
-              languageCode: language_code ?? "en-US",
-            }, "searchconsole") as { inspectionResult?: Record<string, any> };
-            const insp = raw.inspectionResult ?? {};
-            const idx = insp.indexStatusResult ?? {};
-            const rich = insp.richResultsResult ?? {};
-            results.push({
-              url,
-              ok: true,
-              coverageState: idx.coverageState ?? null,
-              robotsTxtState: idx.robotsTxtState ?? null,
-              indexingState: idx.indexingState ?? null,
-              lastCrawlTime: idx.lastCrawlTime ?? null,
-              crawledAs: idx.crawledAs ?? null,
-              googleCanonical: idx.googleCanonical ?? null,
-              userCanonical: idx.userCanonical ?? null,
-              richResultsState: rich.verdict ?? null,
-            });
-          } catch (err: any) {
-            results.push({ url, ok: false, error: err?.message ?? String(err) });
-          }
-          if (i < urls.length - 1) await new Promise((resolve) => setTimeout(resolve, 200));
+    async ({ urls, site_url, language_code, concurrency }) => {
+      const conc = Math.max(1, Math.min(concurrency ?? 5, 8));
+      const results: Array<Record<string, unknown>> = new Array(urls.length);
+      const inspectOne = async (url: string, idx: number) => {
+        try {
+          const raw = await gscPost("/urlInspection/index:inspect", {
+            inspectionUrl: url,
+            siteUrl: site_url,
+            languageCode: language_code ?? "en-US",
+          }, "searchconsole") as { inspectionResult?: Record<string, any> };
+          const insp = raw.inspectionResult ?? {};
+          const idxRes = insp.indexStatusResult ?? {};
+          const rich = insp.richResultsResult ?? {};
+          results[idx] = {
+            url,
+            ok: true,
+            coverageState: idxRes.coverageState ?? null,
+            robotsTxtState: idxRes.robotsTxtState ?? null,
+            indexingState: idxRes.indexingState ?? null,
+            lastCrawlTime: idxRes.lastCrawlTime ?? null,
+            crawledAs: idxRes.crawledAs ?? null,
+            googleCanonical: idxRes.googleCanonical ?? null,
+            userCanonical: idxRes.userCanonical ?? null,
+            richResultsState: rich.verdict ?? null,
+          };
+        } catch (err: any) {
+          results[idx] = { url, ok: false, error: err?.message ?? String(err) };
         }
+      };
+      try {
+        // Worker pool: 'conc' workers, each pulls the next URL from a shared queue.
+        let cursor = 0;
+        const workers = Array.from({ length: conc }, async () => {
+          while (true) {
+            const i = cursor++;
+            if (i >= urls.length) return;
+            await inspectOne(urls[i], i);
+          }
+        });
+        await Promise.all(workers);
         const indexed = results.filter((r) => r.ok && (r.coverageState as string)?.toLowerCase().includes("indexed")).length;
         const errors = results.filter((r) => !r.ok).length;
-        const summary = { total: urls.length, indexed, notIndexed: results.length - indexed - errors, errors, results };
+        const summary = { total: urls.length, indexed, notIndexed: results.length - indexed - errors, errors, concurrency: conc, results };
         return { content: [{ type: "text" as const, text: formatResult(summary) }] };
       } catch (err: any) {
         return { content: [{ type: "text" as const, text: formatResult({ error: err?.message ?? String(err) }) }] };
