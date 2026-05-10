@@ -203,7 +203,7 @@ export function registerGscTools(server: McpServer) {
 
   server.tool(
     "gsc_url_request_indexing",
-    "Request Google to index or re-index a specific URL. Uses the Google Indexing API (type: URL_UPDATED). Requires the Indexing API enabled in Google Cloud and the service account added to GSC as an owner.",
+    "Request Google to index or re-index a specific URL via the Indexing API (type: URL_UPDATED). ⚠ IMPORTANT scope limitation: per Google's documentation, the Indexing API only officially supports two URL types — pages with JobPosting structured data and pages with VideoObject + BroadcastEvent (live streams). For other content (blog posts, landing pages, programs), the API call may return 200 OK but Google silently no-ops the request. For regular content URLs, prefer (a) submitting an updated sitemap.xml + waiting for natural re-crawl, or (b) using GSC's URL Inspection 'Request Indexing' button manually in the web UI. Use this tool when the target URL has eligible structured data, or as a programmatic ping for sitemap-discovery acceleration on URLs you've also added to a sitemap.",
     {
       url: z.string().describe("The canonical URL to request indexing for (e.g., 'https://example.com/page')"),
     },
@@ -233,7 +233,7 @@ export function registerGscTools(server: McpServer) {
 
   server.tool(
     "gsc_url_indexing_status",
-    "Get the indexing notification status for a specific URL from the Google Indexing API.",
+    "Get the indexing notification status for a specific URL from the Google Indexing API. Returns 404 if the URL was never submitted (or was submitted but Google silently no-oped it because it's not an eligible JobPosting/VideoObject URL). Use to verify whether a previous gsc_url_request_indexing call actually registered.",
     {
       url: z.string().describe("The URL to check indexing notification status for"),
     },
@@ -246,7 +246,7 @@ export function registerGscTools(server: McpServer) {
 
   server.tool(
     "gsc_bulk_request_indexing",
-    "Request indexing for multiple URLs at once. Sends URL_UPDATED notifications for each URL in the list. Useful for submitting new or updated pages in bulk.",
+    "Request indexing for multiple URLs at once via the Indexing API. ⚠ Same Google-side scope limit as gsc_url_request_indexing: officially supported only for JobPosting + VideoObject/BroadcastEvent URLs. For regular content the API silently no-ops. For bulk re-crawl of regular pages, the right tool is sitemap submission + ping. Useful for batch JobPosting updates or as a sitemap-discovery accelerator.",
     {
       urls: z.array(z.string()).describe("List of URLs to request indexing for (max 200 recommended per batch)"),
     },
