@@ -36,9 +36,19 @@ function normalizePath(input: string, domain: string): string | null {
     if (p.length > 1 && p.endsWith("/")) p = p.slice(0, -1);
     // Lowercase
     p = p.toLowerCase();
-    // Skip obviously non-page paths
-    if (/\.(jpg|jpeg|png|gif|svg|webp|ico|css|js|woff|woff2|ttf|map|xml|json|pdf|mp4|mp3|zip)$/i.test(p)) return null;
-    if (p.startsWith("/wp-content/") || p.startsWith("/wp-includes/") || p.startsWith("/wp-json/")) return null;
+    // Skip non-page assets and WordPress internals
+    if (/\.(jpg|jpeg|png|gif|svg|webp|ico|css|js|woff|woff2|ttf|map|xml|json|pdf|mp4|mp3|zip|kml)$/i.test(p)) return null;
+    if (p.startsWith("/wp-content/") || p.startsWith("/wp-includes/") || p.startsWith("/wp-json/") || p.startsWith("/wp-admin/")) return null;
+    // Skip RSS/feed paths (every WP page has /feed/ — pure noise for redirect audit)
+    if (p.endsWith("/feed") || p.endsWith("/comments/feed") || p.includes("/feed/")) return null;
+    // Skip WP soft-trash slugs and orphan numbered slugs
+    if (p.includes("__trashed") || /-\d+\/?$/.test(p) || /^\/\d+-?\d*$/.test(p)) return null;
+    // Skip WP date archives (/2015/12/10, /2016/06, /2021)
+    if (/^\/\d{4}(\/\d{1,2}){0,2}\/?$/.test(p)) return null;
+    // Skip WP pagination (/page/2, /blog/page/5)
+    if (/\/page\/\d+\/?$/.test(p)) return null;
+    // Skip WP author/category/tag archives (often noise; team can request explicitly if needed)
+    if (/^\/(author|category|tag)\//.test(p)) return null;
     return p;
   } catch {
     return null;
@@ -89,17 +99,23 @@ function proposeDestination(legacy: string, currentRoutes: string[], redirects: 
   }
   if (best && best.sim >= 0.5) return { dest: best.route, confidence: Math.min(0.9, best.sim), method: "token_overlap" };
 
-  // 4. Fallback to closest Levenshtein on the LAST path segment
+  // 4. Fallback to closest Levenshtein on the LAST path segment.
+  // Require segment length >=5 to avoid false positives like /2015 → /sedes
+  // and require the match to be a substantial fraction of the segment length.
   const lastSeg = (p: string) => p.split("/").filter(Boolean).pop() ?? p;
   const legSeg = lastSeg(legacy);
-  let levBest: { route: string; dist: number } | null = null;
-  for (const route of staticRoutes) {
-    const rSeg = lastSeg(route);
-    const dist = levenshtein(legSeg, rSeg);
-    if (!levBest || dist < levBest.dist) levBest = { route, dist };
-  }
-  if (levBest && levBest.dist <= Math.max(3, Math.floor(legSeg.length * 0.4))) {
-    return { dest: levBest.route, confidence: 0.5, method: "fuzzy_segment" };
+  if (legSeg.length >= 5 && !/^\d+$/.test(legSeg)) {
+    let levBest: { route: string; dist: number } | null = null;
+    for (const route of staticRoutes) {
+      const rSeg = lastSeg(route);
+      if (rSeg.length < 4) continue;  // skip too-short route segments
+      const dist = levenshtein(legSeg, rSeg);
+      if (!levBest || dist < levBest.dist) levBest = { route, dist };
+    }
+    // Stricter threshold: max 25% edit distance (was 40%)
+    if (levBest && levBest.dist <= Math.max(2, Math.floor(legSeg.length * 0.25))) {
+      return { dest: levBest.route, confidence: 0.5, method: "fuzzy_segment" };
+    }
   }
 
   // 5. Topical bucket suggestion based on path prefix
@@ -159,22 +175,27 @@ async function fetchWaybackPaths(domain: string, opts: { from?: string; to?: str
 }
 
 async function fetchBacklinkTargets(domain: string, opts: { limit: number; deadline_ms: number }): Promise<{ targets: Map<string, number>; total_fetched: number }> {
+  // Use /backlinks/backlinks/live which lists INDIVIDUAL backlinks. Each item
+  // has url_to = the target URL (may include legacy URLs that no longer exist
+  // on the live site). Aggregating by url_to gives { target_path → bl_count }.
+  // Don't use /backlinks/domain_pages — that only lists CURRENTLY-EXISTING
+  // pages with backlinks, which by definition are NOT in the gap.
   const map = new Map<string, number>();
   try {
-    // DataForSEO returns items with `page` (URL) and `page_summary.backlinks` (count).
-    // The optional order_by descending by backlinks makes high-equity pages come first.
-    const result = await dataforseoPost("/backlinks/domain_pages/live", {
+    const result = await dataforseoPost("/backlinks/backlinks/live", {
       target: domain,
       include_subdomains: true,
       limit: opts.limit,
-    }) as { tasks?: Array<{ result?: Array<{ items?: Array<{ page?: string; page_summary?: { backlinks?: number } }> }> }> };
+      mode: "as_is",        // return every backlink, not deduplicated by source
+      order_by: ["rank,desc"],  // highest-equity backlinks first within our cap
+    }) as { tasks?: Array<{ result?: Array<{ items?: Array<{ url_to?: string }> }> }> };
     const items = result.tasks?.[0]?.result?.[0]?.items ?? [];
     for (const it of items) {
-      const url = it.page;
+      const url = it.url_to;
       const path = url ? normalizePath(url, domain) : null;
       if (!path) continue;
-      const count = typeof it.page_summary?.backlinks === "number" ? it.page_summary.backlinks : 0;
-      map.set(path, (map.get(path) ?? 0) + count);
+      // Each backlink contributes 1 to the count for its target path.
+      map.set(path, (map.get(path) ?? 0) + 1);
     }
     return { targets: map, total_fetched: items.length };
   } catch {
