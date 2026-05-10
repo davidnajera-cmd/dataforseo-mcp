@@ -5,6 +5,51 @@
 - **Endpoint**: `https://dataforseo-mcp-three.vercel.app/mcp`
 - **Protocol**: MCP (Model Context Protocol) over Streamable HTTP
 - **Mode**: Stateless (no session required)
+- **Authentication**:
+  - Default `/mcp` (no `?bundle=`): open, no auth — for Claude.ai backwards compat
+  - `/mcp?bundle=<name>`: requires API key via `x-api-key` header or `Authorization: Bearer <key>`
+- **Bundles** (curated tool subsets so clients with tool-count limits like ChatGPT can connect to a focused workflow):
+  - `?bundle=research` — 48 tools: market research, customer voice (TikTok/IG/Reddit), AI visibility, ad library
+  - `?bundle=seo` — 112 tools: GSC, Labs, backlinks, schema, http utils, on-page, performance, history
+  - `?bundle=pauta` — 21 tools: ad library + competitive ads intel
+  - `?bundle=agent` — 26 tools: backlog operations, brand catalog, history
+  - `?bundle=full` — 242 tools: everything (likely too many for ChatGPT but works for power clients)
+
+### Connecting from ChatGPT (Custom Connector)
+
+ChatGPT Pro / Team / Enterprise supports MCP servers via Custom Connectors. To register one bundle:
+
+1. ChatGPT → **Settings → Connectors → Add Custom Connector**.
+2. Configure:
+   - **Name**: `DNA Music — <bundle name>` (e.g. "DNA Music — Research")
+   - **Type**: MCP / Custom HTTP
+   - **URL**: `https://dataforseo-mcp-three.vercel.app/mcp?bundle=research` (replace bundle as needed)
+   - **Auth**: API Key in header
+   - **Header name**: `x-api-key`
+   - **Header value**: `dnamcp_<your-token>` (request from admin via `/api/api-keys?action=create`)
+3. Add one connector per bundle you want available. They share the same key unless you scope a key to specific bundles.
+
+### Managing API keys (admin only)
+
+Endpoint: `POST/GET/POST /api/api-keys` with `x-admin-token` header.
+
+```bash
+# Create
+curl -X POST .../api/api-keys?action=create \
+  -H "x-admin-token: ..." -H "Content-Type: application/json" \
+  -d '{"name":"My ChatGPT","bundle_scope":["research","pauta"]}'
+# (omit bundle_scope for unrestricted access)
+
+# List
+curl .../api/api-keys -H "x-admin-token: ..."
+
+# Revoke
+curl -X POST .../api/api-keys?action=revoke \
+  -H "x-admin-token: ..." -H "Content-Type: application/json" \
+  -d '{"id":1}'
+```
+
+The raw key is shown ONCE at creation. Only its sha256 hash is persisted. Last-used time and request count are tracked for visibility.
 
 ## ⚠ Reference timezone — America/Bogota
 
