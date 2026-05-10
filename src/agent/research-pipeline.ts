@@ -316,6 +316,8 @@ Tipos posibles:
 - brand_audit (cómo está NUESTRA marca vs mercado)
 - topic_research (oportunidad de contenido para un tema)
 
+Zona horaria referencia: **America/Bogota** (UTC-5, sin DST). Cualquier referencia a "hoy", "esta semana", "ayer" en la pregunta se interpreta en hora Colombia.
+
 DNA Music conocimientos básicos (siempre referirse como "DNA Music", nunca "DNA" solo):
 - 11 programas en Colombia: dj-profesional, productor-audio, dj-productor, ingenieria-audio, sonido-vivo, music-business, etc.
 - 5 sedes CO: Bogotá, Medellín, Cali, Barranquilla, Pereira.
@@ -380,6 +382,7 @@ Produce un brief estratégico de 7 secciones en JSON. Reglas duras:
 - NUNCA generalices ("podría", "tal vez"). Si lo dices, respaldarlo con número.
 - SEO + pauta deben conectarse cuando aplique (ej: "competidor X pauta para keyword Y donde DNA Music no rankea orgánicamente").
 - IMPORTANTE: refiérete a la marca SIEMPRE como "DNA Music", nunca como "DNA" solo.
+- Zona horaria de referencia: America/Bogota (UTC-5, sin DST). "Hoy", "esta semana", "ayer" se anclan a hora Colombia. Si una observación tiene timestamp UTC, conviertela a hora Colombia para presentarla.
 - Para deltas: cuando exista, surface el cambio ("<KW> bajó de pos 5 a pos 8 en 7 días").
 
 OUTPUT JSON estricto:

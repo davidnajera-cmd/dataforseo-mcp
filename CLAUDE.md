@@ -6,6 +6,10 @@
 - **Protocol**: MCP (Model Context Protocol) over Streamable HTTP
 - **Mode**: Stateless (no session required)
 
+## ⚠ Reference timezone — America/Bogota
+
+This project is Colombian. All time-relative interpretations ("today", "this week", "yesterday", "hace 7 días") anchor to **America/Bogota (UTC-5, no DST)**. When generating output for the user, render dates and ranges in Colombia local time. Aligns with the team in Bogotá and all 5 sedes (CO).
+
 ## ⚠ Freshness contract
 
 **Read this before answering any time-sensitive question.** SEO data changes by the hour: rankings move, indexation flips, traffic shifts, schema breaks. Acting on stale information here can recommend exactly the wrong fix.
