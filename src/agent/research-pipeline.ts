@@ -15,6 +15,7 @@
 // prior matching observation for delta computation.
 
 import { opusChat } from "./opus-client.js";
+import { buildBrandContext } from "./prompts.js";
 import { post as dataforseoPost, get as dataforseoGet } from "../dataforseo-client.js";
 import { gscPost } from "../gsc-client.js";
 import { runActorSync, getConfiguredActor } from "../apify-client.js";
@@ -334,7 +335,12 @@ Devuelve EXACTAMENTE este JSON:
 
 Sin prosa fuera del JSON.`;
 
-const PLAN_SYSTEM = (registry: string) => `Eres un planificador de investigación de mercado. Recibes una pregunta clasificada y debes proponer una secuencia de llamadas a herramientas que respondan profundamente la pregunta. Solo puedes usar las herramientas del catálogo.
+const PLAN_SYSTEM = (registry: string, brandContext: string) => `Eres un planificador de investigación de mercado para DNA Music. Recibes una pregunta clasificada y debes proponer una secuencia de llamadas a herramientas que respondan profundamente la pregunta. Solo puedes usar las herramientas del catálogo.
+
+CONTEXTO DE LAS MARCAS (CRÍTICO — basa tus decisiones en esto, no en suposiciones):
+${brandContext}
+
+
 
 CATÁLOGO DE HERRAMIENTAS (con costo aproximado por llamada):
 ${registry}
@@ -440,7 +446,7 @@ export async function planResearch(input: { question: string; parent_brief_id?: 
   // 2. Plan
   const briefId = await createBrief({ question: input.question, classification, parent_brief_id: input.parent_brief_id, requested_by: input.requested_by });
   const planUserPrompt = `Pregunta: ${input.question}\n\nClasificación: ${JSON.stringify(classification, null, 2)}\n\nGenera el plan JSON.`;
-  const planResult = await opusChat(PLAN_SYSTEM(describeRegistry()), planUserPrompt, { max_tokens: 4000 });
+  const planResult = await opusChat(PLAN_SYSTEM(describeRegistry(), buildBrandContext(true)), planUserPrompt, { max_tokens: 4000 });
   const plan = safeJson<ResearchPlan>(planResult.text);
   if (!plan || !Array.isArray(plan.steps)) throw new Error("Planner did not return valid plan JSON");
   // Filter out steps that reference unknown tools
