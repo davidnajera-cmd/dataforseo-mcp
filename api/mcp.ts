@@ -4,6 +4,12 @@ import { validateApiKey } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+// Some tools (seo_legacy_redirect_audit, bulk URL inspection, Apify scrapers,
+// AI optimization LLM calls) routinely run 30-120s. Default Vercel function
+// timeout is 60s — bump to 300s so the MCP can finish long-running tool calls
+// without truncation. Per-tool internal time budgets still apply.
+export const config = { maxDuration: 300 };
+
 // Set this to true once you want to enforce API keys on the public /mcp
 // endpoint. Until then, the endpoint is open (matching the historic
 // behaviour Claude.ai connected to). Bundles are still respected via
