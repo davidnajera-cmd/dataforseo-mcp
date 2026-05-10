@@ -215,9 +215,10 @@ export function registerLegacyAuditTools(server: McpServer) {
       if (!snapshot) {
         return { content: [{ type: "text" as const, text: formatResult({ error: "repo_snapshot_not_configured", hint: "Set REPO_GITHUB_* runtime variables before running this audit. Without a routes+redirects inventory, the gap can't be computed." }) }] };
       }
-      stats.repo_commit = snapshot.commit_sha.slice(0, 8);
-      stats.repo_routes_count = snapshot.routes.length;
-      stats.repo_redirects_count = snapshot.redirects.length;
+      const snap: RepoSnapshot = snapshot;  // narrow once for the closures below
+      stats.repo_commit = snap.commit_sha.slice(0, 8);
+      stats.repo_routes_count = snap.routes.length;
+      stats.repo_redirects_count = snap.redirects.length;
 
       // 2. Wayback paths
       const fromDefault = new Date(Date.now() - 4 * 365 * 86400000).toISOString().slice(0, 10).replace(/-/g, "");
@@ -261,18 +262,18 @@ export function registerLegacyAuditTools(server: McpServer) {
       // 4. Build universe + coverage
       const universe = new Set<string>([...waybackPaths, ...backlinkTargets.keys()]);
 
-      const coveredRoutes = new Set(snapshot.routes.map((r) => r.toLowerCase().replace(/\/$/, "")));
+      const coveredRoutes = new Set(snap.routes.map((r) => r.toLowerCase().replace(/\/$/, "")));
       // Add route bases (so /programas covers /programas/[id] dynamic)
-      for (const r of snapshot.routes) {
+      for (const r of snap.routes) {
         const base = r.replace(/\/\[[^\]]+\].*$/, "").toLowerCase();
         if (base) coveredRoutes.add(base);
       }
-      const coveredRedirects = new Set(snapshot.redirects.map((r) => r.from.toLowerCase().replace(/\/$/, "")));
+      const coveredRedirects = new Set(snap.redirects.map((r) => r.from.toLowerCase().replace(/\/$/, "")));
 
       function isCovered(path: string): boolean {
         if (coveredRoutes.has(path) || coveredRedirects.has(path)) return true;
         // Dynamic-route match: /programas/dj-profesional matches /programas/[id]
-        for (const r of snapshot.routes) {
+        for (const r of snap.routes) {
           if (!r.includes("[")) continue;
           const re = new RegExp("^" + r.replace(/\[[^\]]+\]/g, "[a-z0-9\\-]+").toLowerCase() + "$");
           if (re.test(path)) return true;
@@ -287,7 +288,7 @@ export function registerLegacyAuditTools(server: McpServer) {
 
       const inBacklinks = backlinkTargets;
       const inWayback = new Set(waybackPaths);
-      const routesForMatching = Array.from(new Set([...snapshot.routes, ...snapshot.sitemap_routes]));
+      const routesForMatching = Array.from(new Set([...snap.routes, ...snap.sitemap_routes]));
 
       for (const path of universe) {
         if (isCovered(path)) continue;
@@ -296,7 +297,7 @@ export function registerLegacyAuditTools(server: McpServer) {
         const source = inBacklinks.has(path) && inWayback.has(path) ? "both"
           : inBacklinks.has(path) ? "backlinks"
           : "wayback";
-        const proposal = proposeDestination(path, routesForMatching, snapshot.redirects);
+        const proposal = proposeDestination(path, routesForMatching, snap.redirects);
         if (proposal.confidence < minConf) continue;
         gap.push({
           path,
