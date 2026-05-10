@@ -10,7 +10,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { post as dataforseoPost } from "./dataforseo-client.js";
-import { loadRepoSnapshot, type RepoRedirectRule } from "./agent/repo-snapshot.js";
+import { loadRepoSnapshot, type RepoRedirectRule, type RepoSnapshot } from "./agent/repo-snapshot.js";
 
 const CDX_URL = "https://web.archive.org/cdx/search/cdx";
 
@@ -206,12 +206,11 @@ export function registerLegacyAuditTools(server: McpServer) {
       const stats: Record<string, unknown> = {};
 
       // 1. Repo snapshot — fast (cached 24h)
-      let snapshot;
+      let snapshot: RepoSnapshot | null = null;
       try {
         snapshot = await loadRepoSnapshot();
       } catch (err) {
         errors.push(`repo_snapshot: ${err instanceof Error ? err.message : "unknown"}`);
-        snapshot = null;
       }
       if (!snapshot) {
         return { content: [{ type: "text" as const, text: formatResult({ error: "repo_snapshot_not_configured", hint: "Set REPO_GITHUB_* runtime variables before running this audit. Without a routes+redirects inventory, the gap can't be computed." }) }] };
