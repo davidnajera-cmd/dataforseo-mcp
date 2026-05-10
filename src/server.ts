@@ -21,7 +21,11 @@ import { registerMarketResearchTools } from "./tools-market-research.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
 
-This MCP exposes 227 tools for the DNA Music ecosystem (3 sites: dnamusic.edu.co, dnamusic.mx, latiendadeaudio.com). Tools are organized by source and purpose. Read this once to know which tools to combine for common analyses.
+This MCP exposes 227 tools for the **DNA Music** ecosystem (3 sites: dnamusic.edu.co, dnamusic.mx, latiendadeaudio.com). Tools are organized by source and purpose. Read this once to know which tools to combine for common analyses.
+
+## ⚠ Brand naming rule (HARD)
+
+The brand is **"DNA Music"** — always written as the full name, never as "DNA" alone. This applies to every output you produce: responses, briefs, summaries, slack messages, code comments shown to the user, anything human-readable. "DNA" alone is ambiguous (biological molecule, generic acronym) and dilutes brand recognition. Code identifiers (variable names, env var prefixes like \`DNA_DOMAIN_CO\`) are exempt — the rule is about prose.
 
 ## ⚠ Freshness contract — read this before answering anything time-sensitive
 
