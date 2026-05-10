@@ -18,6 +18,7 @@ import { registerPlaybookTools } from "./tools-playbook.js";
 import { registerAdLibTools } from "./tools-adlib.js";
 import { registerApifyResearchTools } from "./tools-apify-research.js";
 import { registerMarketResearchTools } from "./tools-market-research.js";
+import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
 
@@ -116,11 +117,31 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - brand_* : DNA Music academic catalog (Colombia only)
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
-export function createServer(): McpServer {
+export function createServer(options: { bundle?: BundleName } = {}): McpServer {
+  const bundle: BundleName = options.bundle ?? "full";
   const server = new McpServer({
-    name: "SEO MCP Server",
-    version: "1.4.1",
+    name: bundle === "full" ? "SEO MCP Server" : `SEO MCP Server (${bundle} bundle)`,
+    version: "1.5.0",
   }, { instructions: SERVER_INSTRUCTIONS });
+
+  // Wrap server.tool to filter by bundle. Tools whose name doesn't match the
+  // bundle are silently dropped — registration becomes a no-op. This lets us
+  // reuse the existing register* functions unchanged. The MCP SDK's `tool` is
+  // heavily overloaded with Zod generics, so we use `any` here to bypass the
+  // overload resolution complexity.
+  if (bundle !== "full") {
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const serverAny = server as any;
+    const originalTool = serverAny.tool.bind(server);
+    serverAny.tool = (...args: any[]) => {
+      const name = args[0];
+      if (typeof name === "string" && !isToolInBundle(name, bundle)) {
+        return undefined;
+      }
+      return originalTool(...args);
+    };
+    /* eslint-enable @typescript-eslint/no-explicit-any */
+  }
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
   registerTools(server);
