@@ -18,6 +18,7 @@ import { registerPlaybookTools } from "./tools-playbook.js";
 import { registerAdLibTools } from "./tools-adlib.js";
 import { registerApifyResearchTools } from "./tools-apify-research.js";
 import { registerMarketResearchTools } from "./tools-market-research.js";
+import { registerLegacyAuditTools } from "./tools-legacy-audit.js";
 import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
@@ -199,6 +200,9 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
 
   // Market research (Reddit voice, news monitoring, Colombia-first)
   registerMarketResearchTools(server);
+
+  // Atomic legacy redirect audit (Wayback + Backlinks + repo snapshot in one tool)
+  registerLegacyAuditTools(server);
 
   return server;
 }

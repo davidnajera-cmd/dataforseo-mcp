@@ -79,6 +79,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^brand_/,
     /^web_content_crawler$/,
     /^seo_workflow_playbook$/,
+    /^seo_legacy_redirect_audit$/,
   ],
 
   // Competitive ads intelligence — for Maestro Pauta + research overlap
@@ -105,6 +106,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^brand_/,
     /^history_/,
     /^seo_workflow_playbook$/,
+    /^seo_legacy_redirect_audit$/,
     /^snapshot_/,
     /^keyword_universe_/,
   ],
