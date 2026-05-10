@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { startResearch, approveAndExecute } from "../src/agent/research-pipeline.js";
-import { getBrief, listBriefs, listEntities } from "../src/research-store.js";
+import { getBrief, listBriefs, listEntities, ensureResearchSchema, persistObservation, findPriorObservation, computeDelta, lookbackDaysForTool, canonicalArgsHash } from "../src/research-store.js";
+import { neon } from "@neondatabase/serverless";
 import { assertVariablesAdminToken, clearRuntimeVariableCache } from "../src/runtime-config.js";
 import { clearGoogleAccessTokenCache } from "../src/gsc-client.js";
 
@@ -68,6 +69,54 @@ export default async function handler(
       const approvedBy = String(body.approved_by ?? "admin");
       const result = await approveAndExecute(id, approvedBy);
       send(res, 200, result);
+      return;
+    }
+
+    if (req.method === "POST" && action === "baseline_persist") {
+      // Persists a tool result as a baseline observation. Used by the
+      // validation harness so each validated tool call also seeds the DB.
+      // Creates a single "__validation_baseline__" brief on first call and
+      // reuses it.
+      assertVariablesAdminToken(header(req, "x-admin-token"));
+      const body = await readJson(req);
+      const toolName = String(body.tool_name ?? "");
+      const argsObj = (body.args as Record<string, unknown>) ?? {};
+      const result = body.result;
+      if (!toolName || result === undefined) {
+        send(res, 400, { error: "missing_required_fields", required: ["tool_name", "args", "result"] });
+        return;
+      }
+      await ensureResearchSchema();
+      const sql = neon(process.env.DATABASE_URL!);
+      // Get-or-create the baseline brief
+      const existingRows = await sql`
+        select id from seo_research_briefs where question = '__validation_baseline__' limit 1
+      ` as Array<{ id: number }>;
+      let baselineId: number;
+      if (existingRows.length > 0) {
+        baselineId = existingRows[0].id;
+      } else {
+        const inserted = await sql`
+          insert into seo_research_briefs (question, status, requested_by)
+          values ('__validation_baseline__', 'completed', 'tool_validator')
+          returning id
+        ` as Array<{ id: number }>;
+        baselineId = inserted[0].id;
+      }
+      const lookbackDays = lookbackDaysForTool(toolName);
+      const argsHash = canonicalArgsHash(argsObj);
+      const prior = await findPriorObservation(toolName, argsHash, lookbackDays);
+      const delta = prior ? computeDelta(prior, result) : null;
+      const obsId = await persistObservation({
+        tool_name: toolName,
+        args: argsObj,
+        result,
+        cost_usd: typeof body.cost_usd === "number" ? body.cost_usd : null,
+        brief_id: baselineId,
+        delta_vs_prior: delta,
+        prior_observation_id: prior?.id ?? null,
+      });
+      send(res, 200, { observation_id: obsId, baseline_brief_id: baselineId, delta_computed: !!delta });
       return;
     }
 
