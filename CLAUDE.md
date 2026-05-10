@@ -306,7 +306,7 @@ For dnamusic.edu.co specifically, both formats are verified (URL-prefix `https:/
 
 ## Market Research Tools (4 tools, Colombia-first)
 
-Customer voice + news monitoring + TikTok organic content. Defaults `country=co`, `language=es`. **Primary signal for DNA's gen-Z Colombian audience: TikTok comments + Instagram comments**, NOT Reddit (Reddit usage is low in LATAM).
+Customer voice + news monitoring + TikTok organic content. Defaults `country=co`, `language=es`. **Primary signal for DNA Music's gen-Z Colombian audience: TikTok comments + Instagram comments**, NOT Reddit (Reddit usage is low in LATAM).
 
 | Tool | Description | Default actor |
 |------|-------------|---------------|
@@ -333,7 +333,7 @@ If a need emerges to monitor these, use `apify_run_actor` directly with explicit
 
 ## Apify Research Tools (4 tools)
 
-Beyond ad libraries: opinionated wrappers for the 4 recurring DNA SEO/marketing workflows. All Apify-backed, all configurable via runtime variables.
+Beyond ad libraries: opinionated wrappers for the 4 recurring DNA Music SEO/marketing workflows. All Apify-backed, all configurable via runtime variables.
 
 | Tool | Description | Default actor |
 |------|-------------|---------------|
@@ -376,7 +376,7 @@ For everything else, use `apify_run_actor` with one of these. Look up the input 
 - `scraperlink/google-search-results-serp-scraper` ($0.05/1K results — cheapest)
 - `tri_angle/bing-search-scraper`
 
-**NOT recommended for DNA** (out of scope but technically available): LinkedIn profile/jobs scrapers, Indeed, Realtor, Zillow, Booking, Zomato, Skip Trace, Lead Finder, Contact Details Scraper. If a use case appears, run via `apify_run_actor` directly — but most are sales/recruitment tools that don't compound SEO insight.
+**NOT recommended for DNA Music** (out of scope but technically available): LinkedIn profile/jobs scrapers, Indeed, Realtor, Zillow, Booking, Zomato, Skip Trace, Lead Finder, Contact Details Scraper. If a use case appears, run via `apify_run_actor` directly — but most are sales/recruitment tools that don't compound SEO insight.
 
 ---
 

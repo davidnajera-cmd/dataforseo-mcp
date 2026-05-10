@@ -104,7 +104,7 @@ export function registerMarketResearchTools(server: McpServer) {
   // ============================================================
   server.tool(
     "social_tiktok_content",
-    "Scrape organic TikTok videos by keyword, hashtag, or profile (NOT ads — for ads use adlib_tiktok_search). Returns video metadata: caption, music/sound, hashtags, plays/likes/shares/comments counts, video URL, author. CORE for Colombia customer voice: DNA's audience persona (gen Z interested in DJ/music production) lives on TikTok — this is where you see WHAT content they consume, WHICH sounds and trends are emerging, WHO the local creators are. Pair with social_tiktok_comments to get actual sentiment. PAY-PER-RESULT. Actor configurable via APIFY_ACTOR_TIKTOK_CONTENT, defaults to clockworks/tiktok-scraper (174K users, 4.7).",
+    "Scrape organic TikTok videos by keyword, hashtag, or profile (NOT ads — for ads use adlib_tiktok_search). Returns video metadata: caption, music/sound, hashtags, plays/likes/shares/comments counts, video URL, author. CORE for Colombia customer voice: DNA Music's audience persona (gen Z interested in DJ/music production) lives on TikTok — this is where you see WHAT content they consume, WHICH sounds and trends are emerging, WHO the local creators are. Pair with social_tiktok_comments to get actual sentiment. PAY-PER-RESULT. Actor configurable via APIFY_ACTOR_TIKTOK_CONTENT, defaults to clockworks/tiktok-scraper (174K users, 4.7).",
     {
       hashtags: z.array(z.string()).optional().describe("Hashtags to search (without '#'). E.g. ['djschool', 'produccionmusical', 'djbogota']."),
       profiles: z.array(z.string()).optional().describe("TikTok handles (without '@') to pull recent videos from. E.g. ['dnamusicofficial', 'saeinstitute']."),

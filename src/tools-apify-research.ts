@@ -4,7 +4,7 @@
 // recovery and competitive crawls via Website Content Crawler, social signal
 // (relevant for AI optimization / LLM citations) via Instagram and YouTube.
 //
-// Architecture: opinionated wrappers for the 4 recurring DNA workflows. The
+// Architecture: opinionated wrappers for the 4 recurring DNA Music workflows. The
 // actor IDs are configurable via runtime variables so we can swap to better
 // scrapers without touching this file. For any other actor (the long tail of
 // 28K+ in the Apify Store), use apify_run_actor as the escape hatch.
@@ -58,7 +58,7 @@ export function registerApifyResearchTools(server: McpServer) {
   // ============================================================
   server.tool(
     "web_content_crawler",
-    "Crawl any website and extract clean Markdown text content from each page. Built for AI/LLM ingestion: HTML cleaned, navigation stripped, output ready for RAG or analysis. USE CASES for DNA: (1) recover legacy blog post content from Wayback URLs to rebuild SEO-009 (15 lost posts) — point at the Wayback URL directly. (2) crawl competitor blogs (SAE, Audio Designer, Pioneer DJ School) to detect content gaps. (3) audit your own /experiencia/blog topology before reorganizing. Returns one item per page: url, title, markdown, word_count, links. PAY-PER-RESULT — depth + max_items control cost. Actor configurable via APIFY_ACTOR_WEB_CRAWLER, defaults to apify/website-content-crawler.",
+    "Crawl any website and extract clean Markdown text content from each page. Built for AI/LLM ingestion: HTML cleaned, navigation stripped, output ready for RAG or analysis. USE CASES for DNA Music: (1) recover legacy blog post content from Wayback URLs to rebuild SEO-009 (15 lost posts) — point at the Wayback URL directly. (2) crawl competitor blogs (SAE, Audio Designer, Pioneer DJ School) to detect content gaps. (3) audit your own /experiencia/blog topology before reorganizing. Returns one item per page: url, title, markdown, word_count, links. PAY-PER-RESULT — depth + max_items control cost. Actor configurable via APIFY_ACTOR_WEB_CRAWLER, defaults to apify/website-content-crawler.",
     {
       start_urls: z.array(z.string()).describe("URLs to start crawling from. For a single page set max_items=1 + max_depth=0."),
       max_items: z.number().optional().describe("Hard cap on pages crawled. Default 25. Higher = more $. For Wayback recovery use 1; for site audit use 50–100."),

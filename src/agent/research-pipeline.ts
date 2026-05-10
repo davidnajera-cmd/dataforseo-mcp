@@ -316,11 +316,11 @@ Tipos posibles:
 - brand_audit (cómo está NUESTRA marca vs mercado)
 - topic_research (oportunidad de contenido para un tema)
 
-DNA conocimientos básicos:
+DNA Music conocimientos básicos (siempre referirse como "DNA Music", nunca "DNA" solo):
 - 11 programas en Colombia: dj-profesional, productor-audio, dj-productor, ingenieria-audio, sonido-vivo, music-business, etc.
 - 5 sedes CO: Bogotá, Medellín, Cali, Barranquilla, Pereira.
 - Audiencia primaria: gen Z (16-25) interesada en DJ/producción musical.
-- ETDH (Educación para el Trabajo y Desarrollo Humano) — marco regulatorio de DNA.
+- ETDH (Educación para el Trabajo y Desarrollo Humano) — marco regulatorio de DNA Music.
 - Competencia conocida: SAE Institute Colombia, Audio Designer, Pioneer DJ School.
 
 Devuelve EXACTAMENTE este JSON:
@@ -378,7 +378,8 @@ Produce un brief estratégico de 7 secciones en JSON. Reglas duras:
 - CADA cita textual de cliente (TikTok/IG/Reddit comments) debe ir en comillas con autor si está disponible.
 - Si una sección no tiene data por gap, dilo explícito: "No hay data suficiente porque <razón>".
 - NUNCA generalices ("podría", "tal vez"). Si lo dices, respaldarlo con número.
-- SEO + pauta deben conectarse cuando aplique (ej: "competidor X pauta para keyword Y donde DNA no rankea orgánicamente").
+- SEO + pauta deben conectarse cuando aplique (ej: "competidor X pauta para keyword Y donde DNA Music no rankea orgánicamente").
+- IMPORTANTE: refiérete a la marca SIEMPRE como "DNA Music", nunca como "DNA" solo.
 - Para deltas: cuando exista, surface el cambio ("<KW> bajó de pos 5 a pos 8 en 7 días").
 
 OUTPUT JSON estricto:

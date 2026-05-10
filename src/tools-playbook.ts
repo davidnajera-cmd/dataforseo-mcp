@@ -40,12 +40,12 @@ const PLAYBOOKS: Record<string, Playbook> = {
     expected_minutes: 2,
     cost_estimate_usd: 0.30,
     steps: [
-      { call: "labs_google_competitors_domain", args: { target: "dnamusic.edu.co", location_code: 2170, language_code: "es", limit: 10 }, why: "Top 10 dominios que comparten más keywords con DNA." },
+      { call: "labs_google_competitors_domain", args: { target: "dnamusic.edu.co", location_code: 2170, language_code: "es", limit: 10 }, why: "Top 10 dominios que comparten más keywords con DNA Music." },
       { call: "labs_google_domain_intersection", args: { targets: { "1": "dnamusic.edu.co", "2": "<competitor>" }, location_code: 2170, language_code: "es", limit: 100 }, why: "Keywords donde ambos rankean. Repetir por cada competidor identificado." },
       { call: "labs_google_serp_competitors", args: { keywords: ["academia de musica bogota","produccion musical curso"], location_code: 2170, language_code: "es" }, why: "Quién aparece en SERP para keywords core." },
       { call: "labs_google_relevant_pages", args: { target: "<competitor>", location_code: 2170, language_code: "es", limit: 20 }, why: "Páginas top del competidor — pueden inspirar contenido propio." },
     ],
-    synthesis_guidance: "Identifica 3-5 competidores reales (no agregadores tipo elempleo.com). Para cada uno: (a) cuántas keywords compartidas, (b) dónde ellos ganan vs DNA, (c) qué páginas tienen y nosotros no. Cierra con 3 oportunidades de contenido o reposicionamiento.",
+    synthesis_guidance: "Identifica 3-5 competidores reales (no agregadores tipo elempleo.com). Para cada uno: (a) cuántas keywords compartidas, (b) dónde ellos ganan vs DNA Music, (c) qué páginas tienen y nosotros no. Cierra con 3 oportunidades de contenido o reposicionamiento.",
   },
 
   "content_opportunity_brief": {
@@ -142,7 +142,7 @@ const PLAYBOOKS: Record<string, Playbook> = {
       // 7. Noticias y categoría
       { call: "market_news_monitor", args: { queries: ["<category in es>", "<our brand>", "<top competitor>"], country: "co", language: "es", time_range: "1m" }, why: "Cobertura mediática últimos 30 días — regulación, tendencias, menciones." },
       // 8. AI visibility (¿qué dicen los LLMs sobre la categoría?)
-      { call: "ai_optimization_chatgpt_live", args: { prompt: "¿Cuáles son las mejores opciones en Colombia para <topic>?", model_name: "gpt-4.1-mini" }, why: "Qué responde ChatGPT — DNA aparece o no, qué competencia menciona." },
+      { call: "ai_optimization_chatgpt_live", args: { prompt: "¿Cuáles son las mejores opciones en Colombia para <topic>?", model_name: "gpt-4.1-mini" }, why: "Qué responde ChatGPT — DNA Music aparece o no, qué competencia menciona." },
       { call: "ai_optimization_perplexity_live", args: { prompt: "Best <category> in Colombia 2026" }, why: "Perplexity en inglés — relevante para perfil expat/bilingual." },
       // 9. Reddit (secundario — uso bajo en CO pero útil para nichos en inglés)
       { call: "market_reddit_intelligence", args: { search_terms: ["<topic in es>", "<topic in en>"], time_range: "year", max_items: 20, include_comments: true }, why: "Voz cliente complementaria. Para Colombia: r/Colombia, r/Bogota, r/Medellin; para nicho técnico: r/musicproduction, r/DJs (en inglés, hay voces colombianas)." },
