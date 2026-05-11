@@ -146,15 +146,15 @@ export function registerAdLibTools(server: McpServer) {
     async ({ advertiser_name, keyword, country, max_items, actor_input_overrides }) => {
       const actorId = await getConfiguredActor("tiktok");
       // Default actor (burbn/tiktok-top-ads-spy) pulls from TikTok Creative
-      // Center which has 80+ country coverage including LATAM. Schema:
-      //   required: page (pagination, default 1)
+      // Center, 80+ country coverage including LATAM (CO, MX, AR, BR, US, etc).
+      // Schema (strict — extra unknown fields cause 400):
+      //   required: page (default 1)
       //   country_code: '' (any) or ISO-2 from 82-entry enum
-      //   keyword: free-text search
+      //   keyword: free-text
       //   period: '7' | '30' | '180' days
       //   order_by: ctr | impression | like | cvr | play_6s_rate | play_2s_rate
       //   maxResults / limit
-      // The actor doesn't have a dedicated 'advertiser_name' field — pass
-      // advertiser as keyword.
+      // No 'advertiser_name' field — pass advertiser as keyword.
       const query = keyword ?? advertiser_name ?? "";
       const input: Record<string, unknown> = {
         page: 1,
@@ -164,10 +164,6 @@ export function registerAdLibTools(server: McpServer) {
         maxResults: max_items ?? 25,
         limit: max_items ?? 25,
         ...(query ? { keyword: query } : {}),
-        // forward-compat for alternate actors that use the older schema
-        region: country ?? "all",
-        query,
-        queryType: advertiser_name ? "1" : "2",
         ...(actor_input_overrides ?? {}),
       };
       const items = await runActorSync(actorId, input, { max_items: max_items ?? 25 });
