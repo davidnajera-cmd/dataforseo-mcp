@@ -105,13 +105,24 @@ export function registerAdLibTools(server: McpServer) {
     },
     async ({ advertiser_id, domain, region, ad_format, date_range_start, date_range_end, max_items, actor_input_overrides }) => {
       const actorId = await getConfiguredActor("google");
+      // Default actor (solidcode/ads-transparency-scraper) takes a free-text
+      // searchQuery + region. It doesn't accept advertiser_id directly, so we
+      // fall back to using the domain (or advertiser_id as a string) as the
+      // search query.
+      const searchQuery = domain ?? advertiser_id ?? "";
+      if (!searchQuery) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: "missing_input", hint: "Provide domain (preferred) or advertiser_id. solidcode/ads-transparency-scraper searches by free-text query, so a domain like 'sae.edu' works better than an advertiser ID." }) }] };
+      }
       const input: Record<string, unknown> = {
-        ...(advertiser_id ? { advertiserId: advertiser_id, advertiser_id } : {}),
-        ...(domain ? { domain, advertiserDomain: domain } : {}),
+        searchQuery,
         region: region ?? "anywhere",
-        format: ad_format ?? "all",
-        ...(date_range_start ? { startDate: date_range_start } : {}),
-        ...(date_range_end ? { endDate: date_range_end } : {}),
+        maxResults: max_items ?? 25,
+        ...(ad_format && ad_format !== "all" ? { platform: ad_format } : {}),
+        ...(date_range_start ? { dateFrom: date_range_start } : {}),
+        ...(date_range_end ? { dateTo: date_range_end } : {}),
+        // forward-compat aliases for alternate actors
+        advertiserId: advertiser_id,
+        advertiserDomain: domain,
         ...(actor_input_overrides ?? {}),
       };
       const items = await runActorSync(actorId, input, { max_items: max_items ?? 25 });
@@ -134,9 +145,25 @@ export function registerAdLibTools(server: McpServer) {
     },
     async ({ advertiser_name, keyword, country, max_items, actor_input_overrides }) => {
       const actorId = await getConfiguredActor("tiktok");
+      // Default actor (data_xplorer/tiktok-ads-library-pay-per-event) requires
+      // `region` and uses `query` + `queryType` (keyword | advertiser) for the
+      // search. Note: the TikTok Commercial Content Library is officially
+      // EU/EEA/UK + Brazil only — most LATAM data won't be available via this
+      // route. The actor will return empty/partial results for unsupported
+      // regions but won't error.
+      const query = advertiser_name ?? keyword ?? "";
+      if (!query) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: "missing_input", hint: "Provide keyword or advertiser_name." }) }] };
+      }
       const input: Record<string, unknown> = {
-        ...(advertiser_name ? { advertiserName: advertiser_name, advertiser: advertiser_name } : {}),
-        ...(keyword ? { keyword, query: keyword } : {}),
+        region: country ?? "ALL",
+        query,
+        queryType: advertiser_name ? "advertiser" : "keyword",
+        maxAds: max_items ?? 25,
+        fetchDetails: false,
+        // forward-compat for alternate actors
+        keyword,
+        advertiserName: advertiser_name,
         country: country ?? "ALL",
         ...(actor_input_overrides ?? {}),
       };
