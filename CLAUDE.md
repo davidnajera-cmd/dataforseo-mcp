@@ -450,6 +450,33 @@ For everything else, use `apify_run_actor` with one of these. Look up the input 
 
 ---
 
+## ⚠ Apify billing reality (May 2026)
+
+The FREE Apify tier has a **$0 monthly hard usage limit** — it's effectively read-only for actor metadata. Running actors that charge anything (which is most of them by mid-2026) requires Apify **Starter ($49/mo) or higher** with billing enabled.
+
+Specifically:
+
+| Tool family | FREE plan | Starter+ plan |
+|---|---|---|
+| `adlib_*` (Meta / Google / TikTok) | ❌ 400/402 from Apify — all ad-library actors are PAY_PER_EVENT | ✅ works |
+| `local_google_maps_scraper` | ✅ within $5/mo allowance (older actors free-pricing) | ✅ |
+| `web_content_crawler` | ✅ | ✅ |
+| `social_instagram_scraper` | ⚠ may charge; check monthly_usage | ✅ |
+| `social_youtube_transcript` | ✅ usually free | ✅ |
+| `social_tiktok_content/comments` | ⚠ pay-per-result | ✅ |
+| `market_reddit_intelligence` | ⚠ pay-per-result | ✅ |
+| `market_news_monitor` | ⚠ pay-per-event | ✅ |
+
+When an actor rejects a run, the MCP returns a clear error message like:
+```
+Apify 400 on actor X — Apify plan does not allow this run.
+Most ad-library actors are pay-per-event and require Apify Starter ($49/mo)
+or higher with billing enabled. Upgrade at console.apify.com/billing, or
+override APIFY_ACTOR_* runtime variable to a free actor.
+```
+
+If a default actor 404s (Apify Store evolves), override the `APIFY_ACTOR_*` runtime variable to point at a current actor and re-run — no code change needed.
+
 ## Ads Library Tools (4 tools, Apify-backed)
 
 Cross-platform competitive ads research. The official APIs (Meta, Google, TikTok) are gated to EU-only research access — these tools bypass that by calling Apify scrapers, so they work for LATAM. **Pay-per-result via Apify** — keep `max_items` tight unless doing intentional bulk pulls.
