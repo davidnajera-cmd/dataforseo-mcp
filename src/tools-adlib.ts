@@ -38,12 +38,48 @@ export function registerAdLibTools(server: McpServer) {
     },
     async ({ search_terms, page_ids, country, ad_type, ad_active_status, max_items, actor_input_overrides }) => {
       const actorId = await getConfiguredActor("meta");
+      // The default actor (apify/facebook-ads-scraper) requires `startUrls`,
+      // not free-text params. Translate our friendly inputs into proper Meta
+      // Ad Library search URLs with embedded filters. If neither search_terms
+      // nor page_ids is provided, return an error early.
+      if (!search_terms && (!page_ids || page_ids.length === 0)) {
+        return { content: [{ type: "text" as const, text: formatResult({ error: "missing_input", hint: "Provide search_terms (keyword) or page_ids (Facebook page IDs)." }) }] };
+      }
+      const startUrls: Array<{ url: string }> = [];
+      const baseCountry = (country ?? "ALL").toUpperCase();
+      const baseStatus = ad_active_status ?? "active";
+      const baseAdType = ad_type ?? "all";
+      if (search_terms) {
+        const u = new URL("https://www.facebook.com/ads/library/");
+        u.searchParams.set("active_status", baseStatus);
+        u.searchParams.set("ad_type", baseAdType);
+        u.searchParams.set("country", baseCountry);
+        u.searchParams.set("q", search_terms);
+        u.searchParams.set("search_type", "keyword_unordered");
+        startUrls.push({ url: u.toString() });
+      }
+      if (page_ids) {
+        for (const pid of page_ids) {
+          const u = new URL("https://www.facebook.com/ads/library/");
+          u.searchParams.set("active_status", baseStatus);
+          u.searchParams.set("ad_type", baseAdType);
+          u.searchParams.set("country", baseCountry);
+          u.searchParams.set("search_type", "page");
+          u.searchParams.set("view_all_page_id", pid);
+          startUrls.push({ url: u.toString() });
+        }
+      }
       const input: Record<string, unknown> = {
-        ...(search_terms ? { searchTerms: search_terms, query: search_terms } : {}),
-        ...(page_ids && page_ids.length > 0 ? { pageIds: page_ids } : {}),
-        country: country ?? "ALL",
-        adType: ad_type ?? "all",
-        adActiveStatus: ad_active_status ?? "active",
+        startUrls,
+        resultsLimit: max_items ?? 25,
+        activeStatus: baseStatus,
+        isDetailsPerAd: false,
+        includeAboutPage: false,
+        // Legacy/alternative actors may use these instead — included for
+        // forward-compat with overridden actor IDs:
+        searchTerms: search_terms,
+        country: baseCountry,
+        adType: baseAdType,
         ...(actor_input_overrides ?? {}),
       };
       const items = await runActorSync(actorId, input, { max_items: max_items ?? 25 });
