@@ -67,7 +67,22 @@ export async function runActorSync<T = unknown>(
     });
     if (!res.ok) {
       const body = await res.text().catch(() => "");
-      throw new ApifyError(`Apify ${res.status} ${res.statusText} on actor ${actorId}`, res.status, body.slice(0, 1500));
+      // Translate the most common upstream errors into actionable hints so
+      // callers (and the LLM) know what to do.
+      let hint = "";
+      const lowerBody = body.toLowerCase();
+      if (res.status === 402 || lowerBody.includes("payment") || lowerBody.includes("subscription") || lowerBody.includes("hard usage limit")) {
+        hint = " — Apify plan does not allow this run. Most ad-library actors are pay-per-event and require Apify Starter ($49/mo) or higher with billing enabled. Upgrade at console.apify.com/billing, or override APIFY_ACTOR_* runtime variable to a free actor.";
+      } else if (res.status === 401 || res.status === 403) {
+        hint = " — Apify token is invalid or revoked. Regenerate at console.apify.com/account/integrations and update APIFY_API_TOKEN runtime variable.";
+      } else if (res.status === 404) {
+        hint = ` — Actor '${actorId}' not found on Apify Store. It may have been renamed or removed. Override the APIFY_ACTOR_* runtime variable for this kind, or use apify_run_actor with a current actor ID.`;
+      } else if (res.status === 429) {
+        hint = " — Apify rate-limited the request. Wait 30-60s and retry, or reduce concurrency.";
+      } else if (res.status === 400) {
+        hint = " — Actor rejected the input. The actor's input schema may have changed; check its page on apify.com/store and adjust `actor_input_overrides`.";
+      }
+      throw new ApifyError(`Apify ${res.status} on actor ${actorId}${hint}`, res.status, body.slice(0, 1500));
     }
     const items = await res.json();
     return Array.isArray(items) ? (items as T[]) : [items as T];
@@ -86,9 +101,13 @@ export type ApifyActorKind = "meta" | "google" | "tiktok" | "google_maps" | "web
 
 export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> {
   const map: Record<ApifyActorKind, { var: string; fallback: string }> = {
-    meta: { var: "APIFY_ACTOR_META_ADLIB", fallback: "curious_coder/facebook-ads-library-scraper" },
-    google: { var: "APIFY_ACTOR_GOOGLE_ADLIB", fallback: "apify/google-ads-transparency-center-scraper" },
-    tiktok: { var: "APIFY_ACTOR_TIKTOK_ADLIB", fallback: "apify/tiktok-commercial-content-api-scraper" },
+    // All ad-library actors on the Apify Store are PAY_PER_EVENT.
+    // The FREE Apify tier ($0 hard limit) cannot run these — Apify returns
+    // 400/402. To use adlib_*, upgrade Apify to at least Starter ($49/mo)
+    // and add billing.
+    meta: { var: "APIFY_ACTOR_META_ADLIB", fallback: "apify/facebook-ads-scraper" },
+    google: { var: "APIFY_ACTOR_GOOGLE_ADLIB", fallback: "solidcode/ads-transparency-scraper" },
+    tiktok: { var: "APIFY_ACTOR_TIKTOK_ADLIB", fallback: "data_xplorer/tiktok-ads-library-pay-per-event" },
     google_maps: { var: "APIFY_ACTOR_GOOGLE_MAPS", fallback: "compass/crawler-google-places" },
     web_crawler: { var: "APIFY_ACTOR_WEB_CRAWLER", fallback: "apify/website-content-crawler" },
     instagram: { var: "APIFY_ACTOR_INSTAGRAM", fallback: "apify/instagram-scraper" },
