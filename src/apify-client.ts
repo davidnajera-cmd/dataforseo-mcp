@@ -107,7 +107,7 @@ export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> 
     // and add billing.
     meta: { var: "APIFY_ACTOR_META_ADLIB", fallback: "apify/facebook-ads-scraper" },
     google: { var: "APIFY_ACTOR_GOOGLE_ADLIB", fallback: "solidcode/ads-transparency-scraper" },
-    tiktok: { var: "APIFY_ACTOR_TIKTOK_ADLIB", fallback: "data_xplorer/tiktok-ads-library-pay-per-event" },
+    tiktok: { var: "APIFY_ACTOR_TIKTOK_ADLIB", fallback: "burbn/tiktok-top-ads-spy" },
     google_maps: { var: "APIFY_ACTOR_GOOGLE_MAPS", fallback: "compass/crawler-google-places" },
     web_crawler: { var: "APIFY_ACTOR_WEB_CRAWLER", fallback: "apify/website-content-crawler" },
     instagram: { var: "APIFY_ACTOR_INSTAGRAM", fallback: "apify/instagram-scraper" },
