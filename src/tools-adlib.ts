@@ -135,7 +135,7 @@ export function registerAdLibTools(server: McpServer) {
   // ============================================================
   server.tool(
     "adlib_tiktok_search",
-    "🌍 EU/EEA/UK + Turkey ONLY. Search the TikTok Commercial Content Library via an Apify scraper. The library is geographically restricted at the source — TikTok only exposes ad transparency data for European regulatory jurisdictions, NOT Latin America, US, or APAC. Passing country='CO' or 'MX' will fall back to 'all' and return EU data only. Useful for: tracking what European competitors (e.g. EU expansion plans of LATAM brands), monitoring brand presence in EU markets, regulatory research. PAY-PER-RESULT. For LATAM TikTok competitive intel you currently have NO scrapable source — TikTok's API simply doesn't expose those ads.",
+    "Search TikTok 'Top Ads' (sourced from TikTok Creative Center, NOT the EU-only Commercial Content Library). Covers 80+ countries including Colombia (CO), Mexico (MX), Argentina (AR), Brazil (BR), US, and more. Returns trending paid TikTok creatives with CTR, impressions, likes, conversion rates, video URLs, advertiser info, industry classification. Filter by country, keyword, industry, ad language, or sort by performance. PAY-PER-RESULT. This is the right tool for LATAM competitive ads research on TikTok.",
     {
       advertiser_name: z.string().optional().describe("Advertiser brand name as it appears on TikTok."),
       keyword: z.string().optional().describe("Keyword in the ad description or caption."),
@@ -145,38 +145,36 @@ export function registerAdLibTools(server: McpServer) {
     },
     async ({ advertiser_name, keyword, country, max_items, actor_input_overrides }) => {
       const actorId = await getConfiguredActor("tiktok");
-      // Default actor (data_xplorer/tiktok-ads-library-pay-per-event) is EU/EEA/UK + Turkey ONLY.
-      // The actor's region enum: all, FR, AT, BE, BG, HR, CY, CZ, DK, EE, FI, DE, GR, HU, IS, IE,
-      // IT, LV, LI, LT, LU, MT, NL, NO, PL, PT, RO, SK, SI, ES, SE, CH, TR, GB.
-      // Latin American codes (CO, MX, AR, BR) are NOT supported — TikTok Ad Library has no
-      // LATAM data via this protocol. The wrapper defaults to 'all' when the user passes
-      // an unsupported region so the call succeeds (returning whatever EU data matches).
-      // queryType enum: '1' (advertiser search), '2' (keyword search), 'url' (direct).
-      const query = advertiser_name ?? keyword ?? "";
-      if (!query) {
-        return { content: [{ type: "text" as const, text: formatResult({ error: "missing_input", hint: "Provide keyword or advertiser_name." }) }] };
-      }
-      const TIKTOK_REGIONS = new Set(["all","FR","AT","BE","BG","HR","CY","CZ","DK","EE","FI","DE","GR","HU","IS","IE","IT","LV","LI","LT","LU","MT","NL","NO","PL","PT","RO","SK","SI","ES","SE","CH","TR","GB"]);
-      const incomingRegion = (country ?? "all").toUpperCase() === "ALL" ? "all" : (country ?? "all");
-      const region = TIKTOK_REGIONS.has(incomingRegion) ? incomingRegion : "all";
+      // Default actor (burbn/tiktok-top-ads-spy) pulls from TikTok Creative
+      // Center which has 80+ country coverage including LATAM. Schema:
+      //   required: page (pagination, default 1)
+      //   country_code: '' (any) or ISO-2 from 82-entry enum
+      //   keyword: free-text search
+      //   period: '7' | '30' | '180' days
+      //   order_by: ctr | impression | like | cvr | play_6s_rate | play_2s_rate
+      //   maxResults / limit
+      // The actor doesn't have a dedicated 'advertiser_name' field — pass
+      // advertiser as keyword.
+      const query = keyword ?? advertiser_name ?? "";
       const input: Record<string, unknown> = {
-        region,
+        page: 1,
+        country_code: country ? country.toUpperCase() : "",
+        period: "30",
+        order_by: "ctr",
+        maxResults: max_items ?? 25,
+        limit: max_items ?? 25,
+        ...(query ? { keyword: query } : {}),
+        // forward-compat for alternate actors that use the older schema
+        region: country ?? "all",
         query,
-        queryType: advertiser_name ? "1" : "2",  // 1 = advertiser, 2 = keyword
-        maxAds: max_items ?? 25,
-        fetchDetails: false,
-        // forward-compat for alternate actors
-        keyword,
-        advertiserName: advertiser_name,
-        country: region,
+        queryType: advertiser_name ? "1" : "2",
         ...(actor_input_overrides ?? {}),
       };
       const items = await runActorSync(actorId, input, { max_items: max_items ?? 25 });
       return { content: [{ type: "text" as const, text: formatResult({
         actor: actorId,
         items_count: items.length,
-        region_used: region,
-        note: country && !TIKTOK_REGIONS.has(incomingRegion) ? `Region '${country}' not supported by TikTok Commercial Content Library; fell back to 'all'. TikTok officially exposes EU/EEA/UK + Turkey only.` : undefined,
+        country_used: country ?? "any",
         items,
       }) }] };
     }

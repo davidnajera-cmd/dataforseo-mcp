@@ -487,7 +487,7 @@ Setup: configure `APIFY_API_TOKEN` (https://console.apify.com/account/integratio
 |------|-------------|----------------|
 | `adlib_meta_search` | Meta (FB+IG) ad library — full creatives by search/page/country | `search_terms?`, `page_ids?`, `country?`, `ad_type?`, `ad_active_status?`, `max_items?` |
 | `adlib_google_search` | Google Ads Transparency Center creatives by advertiser | `advertiser_id?`, `domain?`, `region?`, `ad_format?`, `date_range_start?`, `date_range_end?`, `max_items?` |
-| `adlib_tiktok_search` | TikTok Commercial Content Library | `advertiser_name?`, `keyword?`, `country?`, `max_items?` |
+| `adlib_tiktok_search` | TikTok Top Ads (Creative Center, 80+ countries incl. LATAM) | `keyword?`, `advertiser_name?`, `country?`, `max_items?` |
 | `apify_run_actor` | Escape hatch: run any Apify actor by ID with arbitrary input | `actor_id`, `actor_input`, `max_items?`, `timeout_ms?` |
 
 **Recommended workflow for ads research:**
