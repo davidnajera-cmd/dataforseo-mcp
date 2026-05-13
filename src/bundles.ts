@@ -61,6 +61,9 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
   // Technical SEO + on-page + indexation + content audits
   seo: [
     /^gsc_/,
+    /^gbp_/,
+    /^site_verification_/,
+    /^gtm_/,
     /^labs_google_/,
     /^backlinks_/,
     /^schema_/,
