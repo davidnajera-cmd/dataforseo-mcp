@@ -4,6 +4,7 @@ import { registerGscTools } from "./tools-gsc.js";
 import { registerSerpApiTools } from "./tools-serpapi.js";
 import { registerClarityTools } from "./tools-clarity.js";
 import { registerGa4Tools } from "./tools-ga4.js";
+import { registerGooglePlatformTools } from "./tools-google-platform.js";
 import { registerPageSpeedTools } from "./tools-pagespeed.js";
 import { registerSeoWorkflowTools } from "./tools-seo-workflows.js";
 import { registerBingTools } from "./tools-bing.js";
@@ -152,6 +153,9 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
 
   // Google Analytics 4 Admin/Data API tools
   registerGa4Tools(server);
+
+  // Google Business Profile, Site Verification, and Tag Manager
+  registerGooglePlatformTools(server);
 
   // PageSpeed Insights + Core Web Vitals tools
   registerPageSpeedTools(server);
