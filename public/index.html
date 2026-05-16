@@ -13,25 +13,38 @@
         <div class="brand">
           <div class="brand-mark">DNA</div>
           <div>
-            <strong>SEO Control</strong>
+            <strong>Growth Control</strong>
             <span>DNA Music</span>
           </div>
         </div>
-        <nav class="nav">
-          <button class="nav-item is-active" data-view="overview">Overview SEO</button>
-          <button class="nav-item" data-view="backlog">Backlog SEO</button>
-          <button class="nav-item" data-view="monthly">Dashboard Mensual</button>
-          <button class="nav-item" data-view="weekly">Dashboard Semanal</button>
-          <button class="nav-item" data-view="content">Contenido</button>
-          <button class="nav-item" data-view="keywords">Keywords</button>
-          <button class="nav-item" data-view="social">Redes Sociales</button>
-          <button class="nav-item" data-view="ai">Visibilidad AI</button>
-          <button class="nav-item" data-view="backlinks">Backlinks</button>
-          <button class="nav-item" data-view="leads">Leads / Conversiones</button>
-          <button class="nav-item" data-view="technical">Salud Tecnica</button>
-          <button class="nav-item" data-view="comparison">CO vs MX vs LTA</button>
-          <button class="nav-item" data-view="business">Insights Negocio</button>
-          <button class="nav-item" data-view="variables">Variables</button>
+        <div class="module-switcher" role="tablist" aria-label="Modulos principales">
+          <button class="module-tab is-active" data-module="seo" role="tab" aria-selected="true">SEO</button>
+          <button class="module-tab" data-module="social" role="tab" aria-selected="false">Redes Sociales</button>
+        </div>
+        <nav class="nav" data-nav-module="seo">
+          <span class="nav-group-label">SEO</span>
+          <button class="nav-item is-active" data-module="seo" data-view="overview">Overview SEO</button>
+          <button class="nav-item" data-module="seo" data-view="backlog">Backlog SEO</button>
+          <button class="nav-item" data-module="seo" data-view="monthly">Dashboard Mensual</button>
+          <button class="nav-item" data-module="seo" data-view="weekly">Dashboard Semanal</button>
+          <button class="nav-item" data-module="seo" data-view="content">Contenido</button>
+          <button class="nav-item" data-module="seo" data-view="keywords">Keywords</button>
+          <button class="nav-item" data-module="seo" data-view="ai">Visibilidad AI</button>
+          <button class="nav-item" data-module="seo" data-view="backlinks">Backlinks</button>
+          <button class="nav-item" data-module="seo" data-view="leads">Leads / Conversiones</button>
+          <button class="nav-item" data-module="seo" data-view="technical">Salud Tecnica</button>
+          <button class="nav-item" data-module="seo" data-view="comparison">CO vs MX vs LTA</button>
+          <button class="nav-item" data-module="seo" data-view="business">Insights Negocio</button>
+          <button class="nav-item" data-module="seo" data-view="variables">Variables</button>
+        </nav>
+        <nav class="nav hidden" data-nav-module="social">
+          <span class="nav-group-label">Social</span>
+          <button class="nav-item" data-module="social" data-view="social_overview">Overview Social</button>
+          <button class="nav-item" data-module="social" data-view="social_accounts">Cuentas conectadas</button>
+          <button class="nav-item" data-module="social" data-view="social_publishing">Publicacion</button>
+          <button class="nav-item" data-module="social" data-view="social_instagram">Instagram</button>
+          <button class="nav-item" data-module="social" data-view="social_tiktok">TikTok</button>
+          <button class="nav-item" data-module="social" data-view="variables">Variables</button>
         </nav>
         <div class="sidebar-footer">
           <span>Fuentes</span>
@@ -43,7 +56,7 @@
         <header class="topbar">
           <button id="sidebarToggle" class="icon-button" aria-label="Toggle sidebar">☰</button>
           <div class="topbar-title">
-            <span>Analytics Platform</span>
+            <span id="moduleEyebrow">SEO Module</span>
             <strong id="pageTitle">Overview SEO</strong>
           </div>
           <form id="filters" class="filters">
@@ -205,7 +218,7 @@
             <div id="opportunities" class="action-list"></div>
           </div>
 
-          <div class="panel wide" data-section="social">
+          <div class="panel wide" data-section="social_overview social_instagram social_tiktok">
             <div class="panel-head">
               <div>
                 <span>Social</span>
@@ -215,7 +228,7 @@
             <div id="socialSummary" class="social-summary-grid"></div>
           </div>
 
-          <div class="panel wide" data-section="social">
+          <div class="panel wide" data-section="social_overview social_accounts social_instagram social_tiktok">
             <div class="panel-head">
               <div>
                 <span>Conexiones</span>
@@ -225,7 +238,7 @@
             <div id="socialAccounts" class="table-list"></div>
           </div>
 
-          <div class="panel wide" data-section="social">
+          <div class="panel wide" data-section="social_overview social_publishing social_instagram social_tiktok">
             <div class="panel-head">
               <div>
                 <span>Calendario</span>
@@ -233,6 +246,36 @@
               </div>
             </div>
             <div id="socialPosts" class="social-posts-list"></div>
+          </div>
+
+          <div class="panel" data-section="social_overview social_publishing">
+            <div class="panel-head">
+              <div>
+                <span>Operacion</span>
+                <h2>Capacidad editorial</h2>
+              </div>
+            </div>
+            <div id="socialPublishingHealth" class="stack"></div>
+          </div>
+
+          <div class="panel" data-section="social_overview social_instagram">
+            <div class="panel-head">
+              <div>
+                <span>Instagram</span>
+                <h2>Estado de canal</h2>
+              </div>
+            </div>
+            <div id="instagramSpotlight" class="stack"></div>
+          </div>
+
+          <div class="panel" data-section="social_overview social_tiktok">
+            <div class="panel-head">
+              <div>
+                <span>TikTok</span>
+                <h2>Estado de canal</h2>
+              </div>
+            </div>
+            <div id="tiktokSpotlight" class="stack"></div>
           </div>
 
           <div class="panel wide" data-section="backlog">
