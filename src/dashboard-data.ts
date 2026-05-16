@@ -222,7 +222,6 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
     }),
     loadHistorySummary(configs),
   ]);
-
   const hasGsc = gsc.live && gsc.clicks !== null;
   const hasTrend = gsc.trends.length > 0;
   const hasKeywords = dataforseo.live && (dataforseo.top3 !== null || dataforseo.top10 !== null);

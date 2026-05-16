@@ -20,6 +20,7 @@ import { registerAdLibTools } from "./tools-adlib.js";
 import { registerApifyResearchTools } from "./tools-apify-research.js";
 import { registerMarketResearchTools } from "./tools-market-research.js";
 import { registerLegacyAuditTools } from "./tools-legacy-audit.js";
+import { registerZernioTools } from "./tools-zernio.js";
 import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
@@ -117,6 +118,7 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - history_*, keyword_universe_*, snapshot_* : historical persistence and snapshots
 - backlog_*, agent_runs_* : SEO Agent backlog (DeepSeek + Opus tasks)
 - brand_* : DNA Music academic catalog (Colombia only)
+- zernio_* : social media profiles, connected accounts, OAuth connect flows, and post publishing via Zernio
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
 export function createServer(options: { bundle?: BundleName } = {}): McpServer {
@@ -207,6 +209,9 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
 
   // Atomic legacy redirect audit (Wayback + Backlinks + repo snapshot in one tool)
   registerLegacyAuditTools(server);
+
+  // Social media publishing + account management via Zernio
+  registerZernioTools(server);
 
   return server;
 }

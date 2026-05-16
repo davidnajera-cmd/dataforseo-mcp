@@ -1,6 +1,7 @@
 const state = {
   view: "overview",
   data: null,
+  socialData: null,
 };
 
 const views = {
@@ -10,6 +11,7 @@ const views = {
   weekly: "Dashboard Semanal",
   content: "Contenido",
   keywords: "Keywords",
+  social: "Redes Sociales",
   ai: "Visibilidad AI",
   backlinks: "Backlinks",
   leads: "Leads / Conversiones",
@@ -55,7 +57,10 @@ document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.viewShortcut));
 });
 
-filters.addEventListener("change", () => loadDashboard());
+filters.addEventListener("change", () => {
+  if (state.view === "social") loadSocialDashboard();
+  else loadDashboard();
+});
 document.querySelector("#refreshVariables")?.addEventListener("click", () => loadVariables());
 document.querySelector("#adminToken")?.addEventListener("change", (event) => {
   localStorage.setItem("seoVariablesAdminToken", event.target.value);
@@ -71,6 +76,8 @@ function setView(view) {
   } else if (view === "monthly") {
     filters.elements.timeframe.value = "monthly";
     loadDashboard();
+  } else if (view === "social") {
+    loadSocialDashboard();
   } else {
     updateSectionVisibility();
     if (view === "variables") loadVariables();
@@ -88,6 +95,21 @@ async function loadDashboard() {
     render(state.data);
   } catch (error) {
     document.querySelector("#summary").textContent = `No se pudo cargar el tablero: ${error.message}`;
+  } finally {
+    setLoading(false);
+  }
+}
+
+async function loadSocialDashboard() {
+  const params = new URLSearchParams(new FormData(filters));
+  setLoading(true);
+  try {
+    const response = await fetch(`/api/social-dashboard?${params}`);
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    state.socialData = await response.json();
+    renderSocialDashboard(state.socialData);
+  } catch (error) {
+    document.querySelector("#summary").textContent = `No se pudo cargar el submódulo social: ${error.message}`;
   } finally {
     setLoading(false);
   }
@@ -114,6 +136,18 @@ function render(data) {
   renderAiVisibility(data.ai_visibility);
   renderBacklinks(data.backlinks);
   renderHistory(data.history_summary);
+  updateSectionVisibility();
+}
+
+function renderSocialDashboard(data) {
+  document.querySelector("#verdict").textContent = data.overview.verdict;
+  document.querySelector("#summary").textContent = data.overview.summary;
+  document.querySelector("#freshness").textContent = formatFreshness(data.generatedAt);
+  renderSources(data.sources);
+  renderMetrics(data.overview.metrics);
+  renderSocialSummary(data.social);
+  renderSocialAccounts(data.social.accounts, data.social.note);
+  renderSocialPosts(data.social.posts, data.social.note);
   updateSectionVisibility();
 }
 
@@ -353,6 +387,64 @@ function renderOpportunities(items) {
       </div>
       <span class="badge ${item.priority === "Alta" ? "warn" : ""}">${item.priority}</span>
     </div>
+  `).join("");
+}
+
+function renderSocialSummary(social) {
+  const target = document.querySelector("#socialSummary");
+  if (!target) return;
+  const byPlatform = social?.by_platform ?? [];
+  if (!byPlatform.length) {
+    target.innerHTML = `<div class="empty-state">${esc(social?.note ?? "Sin datos sociales todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = byPlatform.map((item) => `
+    <article class="social-stat-card">
+      <span>${esc(capitalize(item.platform))}</span>
+      <strong>${formatNumber(item.accounts)}</strong>
+      <small>${formatNumber(item.published)} publicados · ${formatNumber(item.scheduled)} programados</small>
+    </article>
+  `).join("");
+}
+
+function renderSocialAccounts(accounts, note) {
+  const target = document.querySelector("#socialAccounts");
+  if (!target) return;
+  if (!accounts.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin cuentas conectadas todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = accounts.map((account) => `
+    <div class="social-account-row">
+      <strong>${esc(capitalize(account.platform))}</strong>
+      <span>${esc(account.handle || "Sin handle")}</span>
+      <span>${esc(account.profileName || "Sin profile")}</span>
+      <span>${displayValue(account.followers)}</span>
+      <span class="badge ${account.status === "connected" || account.status === "active" ? "" : "warn"}">${esc(account.status)}</span>
+    </div>
+  `).join("");
+}
+
+function renderSocialPosts(posts, note) {
+  const target = document.querySelector("#socialPosts");
+  if (!target) return;
+  if (!posts.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin posts recientes todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = posts.map((post) => `
+    <article class="social-post-card">
+      <div class="social-post-head">
+        <strong>${esc(post.title || "Post")}</strong>
+        <span class="badge ${post.status === "published" ? "" : post.status === "scheduled" ? "info" : "warn"}">${esc(post.status)}</span>
+      </div>
+      <p>${esc(post.excerpt || "Sin texto disponible.")}</p>
+      <div class="social-post-meta">
+        <span>${esc((post.platforms || []).map(capitalize).join(" · ") || "Sin plataforma")}</span>
+        <span>${esc(post.profileName || "Sin profile")}</span>
+        <span>${esc(post.scheduledFor || post.publishedAt || "Sin fecha")}</span>
+      </div>
+    </article>
   `).join("");
 }
 
@@ -802,6 +894,10 @@ function formatNumber(value) {
 function displayValue(value, suffix = "") {
   if (value === null || value === undefined) return "Sin datos";
   return `${value}${suffix}`;
+}
+
+function capitalize(value) {
+  return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
 // Deep-link: ?view=backlog&task=N opens that task's modal at load.

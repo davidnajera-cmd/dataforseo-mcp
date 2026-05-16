@@ -14,6 +14,11 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "DATAFORSEO_LOGIN", group: "DataForSEO", label: "Login", description: "Usuario de DataForSEO API.", sensitive: true, requiredFor: "Keywords, backlinks, SERP, competencia" },
   { name: "DATAFORSEO_PASSWORD", group: "DataForSEO", label: "Password", description: "Password/API password de DataForSEO.", sensitive: true, requiredFor: "Keywords, backlinks, SERP, competencia" },
   { name: "SERPAPI_API_KEY", group: "SerpAPI", label: "API key", description: "Llave de SerpAPI para motores adicionales.", sensitive: true, requiredFor: "SERP externos" },
+  { name: "ZERNIO_API_KEY", group: "Zernio", label: "API key", description: "API key de Zernio para perfiles, cuentas conectadas y publicación en redes sociales.", sensitive: true, requiredFor: "zernio_* social tools" },
+  { name: "ZERNIO_DEFAULT_PROFILE_ID", group: "Zernio", label: "Default profile ID", description: "Profile ID por defecto para conectar cuentas o encolar publicaciones cuando no se pasa profile_id en la tool.", sensitive: false, requiredFor: "zernio_connect_get_url, zernio_posts_create (queue)" },
+  { name: "ZERNIO_PROFILE_ID_CO", group: "Zernio", label: "Profile Colombia", description: "Profile ID de Zernio para dnamusic.edu.co.", sensitive: false, requiredFor: "Dashboard social Colombia" },
+  { name: "ZERNIO_PROFILE_ID_MX", group: "Zernio", label: "Profile Mexico", description: "Profile ID de Zernio para dnamusic.mx.", sensitive: false, requiredFor: "Dashboard social Mexico" },
+  { name: "ZERNIO_PROFILE_ID_LTA", group: "Zernio", label: "Profile La Tienda de Audio", description: "Profile ID de Zernio para latiendadeaudio.com.", sensitive: false, requiredFor: "Dashboard social La Tienda de Audio" },
   { name: "GOOGLE_CLIENT_ID", group: "Google", label: "Client ID", description: "OAuth client ID para Google APIs (GSC, GA4, Business Profile, Site Verification, GTM).", sensitive: true, requiredFor: "Google APIs OAuth" },
   { name: "GOOGLE_CLIENT_SECRET", group: "Google", label: "Client secret", description: "OAuth client secret.", sensitive: true, requiredFor: "GSC, URL Inspection, GA4" },
   { name: "GOOGLE_REFRESH_TOKEN", group: "Google", label: "Refresh token", description: "Refresh token con scopes de Google APIs (GSC, GA4, Business Profile, Site Verification, GTM segun necesidad).", sensitive: true, requiredFor: "Google APIs OAuth" },
@@ -99,13 +104,13 @@ export async function getRuntimeVariable(name: string): Promise<string | undefin
     ` as RuntimeVariableRow[];
     const row = rows[0];
     if (row) {
-      const value = decryptValue(row.value_encrypted);
+      const value = normalizeRuntimeValue(decryptValue(row.value_encrypted));
       valueCache.set(name, { value, expiresAt: Date.now() + VALUE_CACHE_TTL_MS });
       return value;
     }
   }
 
-  const value = process.env[name];
+  const value = normalizeRuntimeValue(process.env[name]);
   valueCache.set(name, { value, expiresAt: Date.now() + VALUE_CACHE_TTL_MS });
   return value;
 }
@@ -121,13 +126,13 @@ export async function listRuntimeVariables() {
 
   return RUNTIME_VARIABLE_SPECS.map((spec) => {
     const row = rowMap.get(spec.name);
-    const envValue = process.env[spec.name];
+    const envValue = normalizeRuntimeValue(process.env[spec.name]);
     return {
       ...spec,
       configured: Boolean(row || envValue),
       source: row ? "database" : envValue ? "vercel" : "missing",
       updatedAt: row?.updated_at ?? null,
-      preview: row ? maskValue(decryptValue(row.value_encrypted), spec.sensitive) : envValue ? maskValue(envValue, spec.sensitive) : "",
+      preview: row ? maskValue(normalizeRuntimeValue(decryptValue(row.value_encrypted)), spec.sensitive) : envValue ? maskValue(envValue, spec.sensitive) : "",
     };
   });
 }
@@ -224,4 +229,10 @@ function maskValue(value: string | undefined, sensitive: boolean) {
   if (!sensitive) return value;
   if (value.length <= 8) return "********";
   return `${value.slice(0, 3)}...${value.slice(-3)}`;
+}
+
+function normalizeRuntimeValue(value: string | undefined) {
+  if (typeof value !== "string") return undefined;
+  const normalized = value.trim();
+  return normalized ? normalized : undefined;
 }
