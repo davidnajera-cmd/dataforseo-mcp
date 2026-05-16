@@ -21,6 +21,7 @@ import { registerApifyResearchTools } from "./tools-apify-research.js";
 import { registerMarketResearchTools } from "./tools-market-research.js";
 import { registerLegacyAuditTools } from "./tools-legacy-audit.js";
 import { registerZernioTools } from "./tools-zernio.js";
+import { registerSocialIntelligenceTools } from "./tools-social-intelligence.js";
 import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
@@ -216,6 +217,9 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
 
   // Social media publishing + account management via Zernio
   registerZernioTools(server);
+
+  // Social intelligence: comments, reputation, top posts, channel briefs, transcript analysis
+  registerSocialIntelligenceTools(server);
 
   return server;
 }
