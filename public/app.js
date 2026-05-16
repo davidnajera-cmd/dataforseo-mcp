@@ -7,7 +7,7 @@ const state = {
 
 const modules = {
   seo: {
-    eyebrow: "SEO Module",
+    eyebrow: "Modulo SEO",
     defaultView: "overview",
     views: {
       overview: "Overview SEO",
@@ -26,7 +26,7 @@ const modules = {
     },
   },
   social: {
-    eyebrow: "Social Media Module",
+    eyebrow: "Modulo Redes Sociales",
     defaultView: "social_overview",
     views: {
       social_overview: "Overview Social",
@@ -60,6 +60,7 @@ function esc(value) {
 }
 
 const shell = document.querySelector(".shell");
+shell.dataset.module = state.module;
 const filters = document.querySelector("#filters");
 const navItems = [...document.querySelectorAll(".nav-item")];
 const moduleTabs = [...document.querySelectorAll(".module-tab")];
@@ -95,6 +96,7 @@ document.querySelector("#adminToken")?.addEventListener("change", (event) => {
 
 function setModule(module) {
   state.module = module;
+  shell.dataset.module = module;
   moduleTabs.forEach((button) => {
     const active = button.dataset.module === module;
     button.classList.toggle("is-active", active);
@@ -246,17 +248,17 @@ function renderTrend(points) {
     <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Tendencia SEO">
       <defs>
         <linearGradient id="area" x1="0" x2="0" y1="0" y2="1">
-          <stop offset="0%" stop-color="#2454ff" stop-opacity="0.20" />
-          <stop offset="100%" stop-color="#2454ff" stop-opacity="0" />
+          <stop offset="0%" stop-color="#6f56c7" stop-opacity="0.22" />
+          <stop offset="100%" stop-color="#6f56c7" stop-opacity="0" />
         </linearGradient>
       </defs>
       <path d="${line((p) => yOrganic(p.organic))} L ${x(points.length - 1)} ${height - bottomPad} L ${pad} ${height - bottomPad} Z" fill="url(#area)" />
-      <path d="${line((p) => yOrganic(p.organic))}" fill="none" stroke="#2454ff" stroke-width="4" stroke-linecap="round" />
-      ${points.some((point) => typeof point.leads === "number") ? `<path d="${line((p) => yLeads(p.leads || 0))}" fill="none" stroke="#00a88f" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 8" />` : ""}
+      <path d="${line((p) => yOrganic(p.organic))}" fill="none" stroke="#5b3aa6" stroke-width="4" stroke-linecap="round" />
+      ${points.some((point) => typeof point.leads === "number") ? `<path d="${line((p) => yLeads(p.leads || 0))}" fill="none" stroke="#138a72" stroke-width="3" stroke-linecap="round" stroke-dasharray="5 8" />` : ""}
       ${points.map((point, index) => `
         <g>
-          <circle cx="${x(index)}" cy="${yOrganic(point.organic)}" r="5" fill="#2454ff" />
-          ${shouldShowTick(index) ? `<text x="${x(index)}" y="${height - 12}" text-anchor="middle" font-size="12" fill="#69717c">${formatTrendLabel(point.label)}</text>` : ""}
+          <circle cx="${x(index)}" cy="${yOrganic(point.organic)}" r="5" fill="#5b3aa6" />
+          ${shouldShowTick(index) ? `<text x="${x(index)}" y="${height - 12}" text-anchor="middle" font-size="12" fill="#7f796f">${formatTrendLabel(point.label)}</text>` : ""}
         </g>
       `).join("")}
     </svg>
