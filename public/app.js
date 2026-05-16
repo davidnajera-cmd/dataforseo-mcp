@@ -402,7 +402,7 @@ function renderSocialSummary(social) {
     <article class="social-stat-card">
       <span>${esc(capitalize(item.platform))}</span>
       <strong>${formatNumber(item.accounts)}</strong>
-      <small>${formatNumber(item.published)} publicados · ${formatNumber(item.scheduled)} programados</small>
+      <small>${formatNumber(item.publishReady)} listas para publicar · ${formatNumber(item.published)} publicados · ${formatNumber(item.scheduled)} programados</small>
     </article>
   `).join("");
 }
@@ -415,13 +415,28 @@ function renderSocialAccounts(accounts, note) {
     return;
   }
   target.innerHTML = accounts.map((account) => `
-    <div class="social-account-row">
-      <strong>${esc(capitalize(account.platform))}</strong>
-      <span>${esc(account.handle || "Sin handle")}</span>
-      <span>${esc(account.profileName || "Sin profile")}</span>
-      <span>${displayValue(account.followers)}</span>
-      <span class="badge ${account.status === "connected" || account.status === "active" ? "" : "warn"}">${esc(account.status)}</span>
-    </div>
+    <article class="social-account-card">
+      <div class="social-account-top">
+        <div>
+          <strong>${esc(account.displayName || account.handle || capitalize(account.platform))}</strong>
+          <div class="social-account-subtitle">${esc(capitalize(account.platform))} · ${esc(account.handle || "Sin handle")}</div>
+        </div>
+        <div class="social-account-badges">
+          <span class="badge ${account.publishReady ? "" : "warn"}">${account.publishReady ? "publish-ready" : "revisar"}</span>
+          <span class="badge ${account.status === "connected" || account.status === "active" ? "" : "warn"}">${esc(account.status)}</span>
+        </div>
+      </div>
+      <div class="social-account-grid">
+        <span><strong>Followers</strong>${displayValue(account.followers)}</span>
+        <span><strong>Perfil</strong>${esc(account.profileName || "Sin profile")}</span>
+        <span><strong>Tipo</strong>${esc(account.accountType || "No informado")}</span>
+        <span><strong>Permisos</strong>${displayValue(account.permissionsCount)}</span>
+        <span><strong>Analytics</strong>${account.analyticsReady ? "Sync activo" : "Pendiente"}</span>
+        <span><strong>Token</strong>${esc(formatShortDate(account.tokenExpiresAt) || "Sin fecha")}</span>
+        <span><strong>Privacidad</strong>${esc((account.privacyLevels || []).join(" · ") || "Por defecto")}</span>
+        <span><strong>URL</strong>${account.profileUrl ? `<a href="${esc(account.profileUrl)}" target="_blank" rel="noreferrer">${esc(account.handle || "Abrir")}</a>` : "No disponible"}</span>
+      </div>
+    </article>
   `).join("");
 }
 
@@ -446,6 +461,13 @@ function renderSocialPosts(posts, note) {
       </div>
     </article>
   `).join("");
+}
+
+function formatShortDate(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
 }
 
 function updateSectionVisibility() {

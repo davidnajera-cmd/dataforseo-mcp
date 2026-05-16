@@ -118,7 +118,7 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - history_*, keyword_universe_*, snapshot_* : historical persistence and snapshots
 - backlog_*, agent_runs_* : SEO Agent backlog (DeepSeek + Opus tasks)
 - brand_* : DNA Music academic catalog (Colombia only)
-- zernio_* : social media profiles, connected accounts, OAuth connect flows, and post publishing via Zernio
+- zernio_* : social media profiles, connected accounts, OAuth connect flows, generic publishing, and platform-specific Instagram/TikTok posting tools via Zernio
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
 export function createServer(options: { bundle?: BundleName } = {}): McpServer {

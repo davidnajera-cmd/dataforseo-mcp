@@ -24,9 +24,12 @@ const zernioPlatform = z.enum([
 ]);
 
 const postStatus = z.enum(["draft", "scheduled", "published", "failed"]);
+const mediaType = z.enum(["image", "video", "carousel", "document"]);
+const instagramMediaType = z.enum(["image", "video"]);
+const tiktokPrivacyLevel = z.enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]);
 
 const mediaItemSchema = z.object({
-  type: z.enum(["image", "video", "carousel", "document"]).describe("Media type recognized by Zernio."),
+  type: mediaType.describe("Media type recognized by Zernio."),
   url: z.string().describe("Public URL for the media asset."),
   altText: z.string().optional().describe("Optional alt text when the target platform supports it."),
 });
@@ -38,6 +41,33 @@ const platformTargetSchema = z.object({
   customContent: z.string().optional().describe("Platform-specific content override."),
   platformSpecificData: z.record(z.string(), z.unknown()).optional().describe("Raw Zernio per-platform payload for advanced options."),
 });
+
+const instagramTagSchema = z.object({
+  username: z.string().describe("Instagram username to tag."),
+  x: z.number().min(0).max(1).describe("Horizontal position from 0 to 1."),
+  y: z.number().min(0).max(1).describe("Vertical position from 0 to 1."),
+  media_index: z.number().int().min(0).optional().describe("For carousels, which media item should carry the tag."),
+});
+
+const instagramSchedulingShape = {
+  account_id: z.string().optional().describe("Instagram connected account ID. If omitted and only one IG account exists in the target profile, it is auto-selected."),
+  profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+  publish_now: z.boolean().optional().describe("Publish immediately."),
+  is_draft: z.boolean().optional().describe("Save as draft instead of scheduling/publishing."),
+  scheduled_for: z.string().optional().describe("ISO datetime for scheduled publishing."),
+  timezone: z.string().optional().describe("Timezone for scheduled publishing. Default UTC."),
+};
+
+const tiktokSchedulingShape = {
+  account_id: z.string().optional().describe("TikTok connected account ID. If omitted and only one TikTok account exists in the target profile, it is auto-selected."),
+  profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+  publish_now: z.boolean().optional().describe("Publish immediately."),
+  is_draft: z.boolean().optional().describe("Save as draft instead of scheduling/publishing."),
+  scheduled_for: z.string().optional().describe("ISO datetime for scheduled publishing."),
+  timezone: z.string().optional().describe("Timezone for scheduled publishing. Default UTC."),
+};
+
+type ZernioAccount = Record<string, unknown>;
 
 export function registerZernioTools(server: McpServer) {
   server.tool(
@@ -198,4 +228,426 @@ export function registerZernioTools(server: McpServer) {
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
   );
+
+  server.tool(
+    "zernio_instagram_accounts_list",
+    "Summarize connected Instagram accounts with publishing readiness, account type, permissions, and token expiry.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("instagram", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_instagram_post_feed",
+    "Create an Instagram feed post in Zernio. Best for one image or one video in the main feed.",
+    {
+      ...instagramSchedulingShape,
+      caption: z.string().optional().describe("Main Instagram caption."),
+      media_url: z.string().describe("Direct public URL to the image or video."),
+      media_type: instagramMediaType.optional().describe("Defaults to image."),
+      first_comment: z.string().optional().describe("Optional first comment."),
+      collaborators: z.array(z.string()).optional().describe("Instagram collaborators usernames."),
+      user_tags: z.array(instagramTagSchema).optional().describe("Tagged users with normalized x/y positions."),
+    },
+    async ({ account_id, profile_id, caption, media_url, media_type, first_comment, collaborators, user_tags, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("instagram", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content: caption,
+        mediaItems: [{ type: media_type ?? "image", url: media_url }],
+        platforms: [{
+          platform: "instagram",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({
+            contentType: "feed",
+            firstComment: first_comment,
+            collaborators,
+            userTags: user_tags?.map(({ media_index, ...rest }) => compactObject({ ...rest, mediaIndex: media_index })),
+          }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_instagram_post_reel",
+    "Create an Instagram Reel in Zernio with publish options such as share_to_feed.",
+    {
+      ...instagramSchedulingShape,
+      caption: z.string().optional().describe("Reel caption."),
+      video_url: z.string().describe("Direct public URL to the reel video."),
+      share_to_feed: z.boolean().optional().describe("Share the reel into the main feed. Defaults true."),
+      first_comment: z.string().optional().describe("Optional first comment."),
+      audio_name: z.string().optional().describe("Optional audio / track label for internal coordination."),
+      thumb_offset_ms: z.number().int().min(0).optional().describe("Frame offset in milliseconds for the cover."),
+      cover_image_url: z.string().optional().describe("Optional explicit cover image URL."),
+      trial_graduation_strategy: z.enum(["MANUAL", "SS_PERFORMANCE"]).optional().describe("Optional strategy for trial / staged publishing flows."),
+    },
+    async ({ account_id, profile_id, caption, video_url, share_to_feed, first_comment, audio_name, thumb_offset_ms, cover_image_url, trial_graduation_strategy, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("instagram", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content: caption,
+        mediaItems: [{ type: "video", url: video_url }],
+        platforms: [{
+          platform: "instagram",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({
+            contentType: "reels",
+            shareToFeed: share_to_feed ?? true,
+            firstComment: first_comment,
+            audioName: audio_name,
+            videoCoverTimestampMs: thumb_offset_ms,
+            videoCoverImageUrl: cover_image_url,
+            trialGraduationStrategy: trial_graduation_strategy,
+          }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_instagram_post_story",
+    "Create an Instagram Story in Zernio with image or video media.",
+    {
+      ...instagramSchedulingShape,
+      caption: z.string().optional().describe("Optional story caption / overlay text reference."),
+      media_url: z.string().describe("Direct public URL to the story media."),
+      media_type: instagramMediaType.optional().describe("Defaults to image."),
+    },
+    async ({ account_id, profile_id, caption, media_url, media_type, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("instagram", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content: caption,
+        mediaItems: [{ type: media_type ?? "image", url: media_url }],
+        platforms: [{
+          platform: "instagram",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: { contentType: "story" },
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_instagram_post_carousel",
+    "Create an Instagram carousel with two or more media items.",
+    {
+      ...instagramSchedulingShape,
+      caption: z.string().optional().describe("Carousel caption."),
+      media_items: z.array(z.object({
+        url: z.string().describe("Direct public URL to an image or video."),
+        media_type: instagramMediaType.optional().describe("Defaults to image."),
+      })).min(2).describe("Two or more carousel items."),
+      first_comment: z.string().optional().describe("Optional first comment."),
+      collaborators: z.array(z.string()).optional().describe("Instagram collaborators usernames."),
+      user_tags: z.array(instagramTagSchema).optional().describe("Tagged users with normalized x/y positions."),
+    },
+    async ({ account_id, profile_id, caption, media_items, first_comment, collaborators, user_tags, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("instagram", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content: caption,
+        mediaItems: media_items.map((item) => ({ type: item.media_type ?? "image", url: item.url })),
+        platforms: [{
+          platform: "instagram",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({
+            contentType: "carousel",
+            firstComment: first_comment,
+            collaborators,
+            userTags: user_tags?.map(({ media_index, ...rest }) => compactObject({ ...rest, mediaIndex: media_index })),
+          }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_tiktok_accounts_list",
+    "Summarize connected TikTok accounts with publishing readiness, permissions, privacy options, and token expiry.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("tiktok", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_tiktok_privacy_options",
+    "List TikTok privacy levels advertised by the connected account metadata. Falls back to the known Zernio-safe values when the API does not expose them.",
+    {
+      account_id: z.string().optional().describe("Specific TikTok account ID."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ account_id, profile_id }) => {
+      const target = await resolvePlatformTarget("tiktok", account_id, profile_id);
+      const account = target.account;
+      const metadata = asRecord(account.metadata);
+      const levels = stringArray(
+        metadata.availablePrivacyLevels
+        ?? metadata.privacyLevels
+        ?? metadata.creatorPrivacyLevels
+        ?? metadata.postPrivacyOptions
+      );
+      const result = {
+        account_id: target.accountId,
+        profile_id: target.profileId,
+        handle: stringValue(account.username ?? account.handle ?? account.displayName),
+        privacy_levels: levels.length ? levels : tiktokPrivacyLevel.options,
+        note: levels.length
+          ? "Valores tomados de la metadata actual de la cuenta."
+          : "La API no expuso privacy_levels en la metadata; se devuelve el set conocido de Zernio/TikTok.",
+      };
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_tiktok_post_video",
+    "Create a TikTok video post with privacy, consent flags, cover options, and publish timing.",
+    {
+      ...tiktokSchedulingShape,
+      caption: z.string().optional().describe("TikTok caption / description."),
+      video_url: z.string().describe("Direct public URL to the video file."),
+      privacy_level: tiktokPrivacyLevel.optional().describe("Defaults to PUBLIC_TO_EVERYONE."),
+      allow_comments: z.boolean().optional().describe("Allow comments. Defaults true."),
+      allow_duet: z.boolean().optional().describe("Allow duets. Defaults true."),
+      allow_stitch: z.boolean().optional().describe("Allow stitch. Defaults true."),
+      content_preview_confirmed: z.boolean().optional().describe("Required confirmation for TikTok publishing. Defaults true."),
+      express_consent_given: z.boolean().optional().describe("Required consent flag for TikTok publishing. Defaults true."),
+      video_cover_timestamp_ms: z.number().int().min(0).optional().describe("Select the cover frame by timestamp."),
+      video_cover_image_url: z.string().optional().describe("Optional explicit cover image URL."),
+    },
+    async ({ account_id, profile_id, caption, video_url, privacy_level, allow_comments, allow_duet, allow_stitch, content_preview_confirmed, express_consent_given, video_cover_timestamp_ms, video_cover_image_url, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("tiktok", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content: caption,
+        mediaItems: [{ type: "video", url: video_url }],
+        platforms: [{
+          platform: "tiktok",
+          accountId: target.accountId,
+          profileId: target.profileId,
+        }],
+        tiktokSettings: compactObject({
+          media_type: "video",
+          privacy_level: privacy_level ?? "PUBLIC_TO_EVERYONE",
+          allow_comments: allow_comments ?? true,
+          allow_duet: allow_duet ?? true,
+          allow_stitch: allow_stitch ?? true,
+          content_preview_confirmed: content_preview_confirmed ?? true,
+          express_consent_given: express_consent_given ?? true,
+          video_cover_timestamp_ms,
+          video_cover_image_url,
+        }),
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_tiktok_post_photo_carousel",
+    "Create a TikTok photo carousel with privacy, music, consent flags, and cover selection.",
+    {
+      ...tiktokSchedulingShape,
+      caption: z.string().optional().describe("Optional TikTok caption."),
+      description: z.string().optional().describe("Optional long-form description for the post payload."),
+      media_urls: z.array(z.string()).min(2).describe("Two or more direct public image URLs."),
+      photo_cover_index: z.number().int().min(0).optional().describe("Which photo should be used as cover."),
+      auto_add_music: z.boolean().optional().describe("Let TikTok auto-attach music. Defaults true."),
+      privacy_level: tiktokPrivacyLevel.optional().describe("Defaults to PUBLIC_TO_EVERYONE."),
+      allow_comments: z.boolean().optional().describe("Allow comments. Defaults true."),
+      allow_duet: z.boolean().optional().describe("Allow duets. Defaults true."),
+      allow_stitch: z.boolean().optional().describe("Allow stitch. Defaults true."),
+      content_preview_confirmed: z.boolean().optional().describe("Required confirmation for TikTok publishing. Defaults true."),
+      express_consent_given: z.boolean().optional().describe("Required consent flag for TikTok publishing. Defaults true."),
+    },
+    async ({ account_id, profile_id, caption, description, media_urls, photo_cover_index, auto_add_music, privacy_level, allow_comments, allow_duet, allow_stitch, content_preview_confirmed, express_consent_given, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("tiktok", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content: caption,
+        mediaItems: media_urls.map((url) => ({ type: "image", url })),
+        platforms: [{
+          platform: "tiktok",
+          accountId: target.accountId,
+          profileId: target.profileId,
+        }],
+        tiktokSettings: compactObject({
+          media_type: "photo",
+          description,
+          photo_cover_index,
+          auto_add_music: auto_add_music ?? true,
+          privacy_level: privacy_level ?? "PUBLIC_TO_EVERYONE",
+          allow_comments: allow_comments ?? true,
+          allow_duet: allow_duet ?? true,
+          allow_stitch: allow_stitch ?? true,
+          content_preview_confirmed: content_preview_confirmed ?? true,
+          express_consent_given: express_consent_given ?? true,
+        }),
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+}
+
+async function summarizePlatformAccounts(platform: "instagram" | "tiktok", profileId: string | undefined) {
+  const resolvedProfileId = profileId ?? await getDefaultZernioProfileId();
+  const accounts = await fetchPlatformAccounts(platform, resolvedProfileId);
+  return {
+    platform,
+    profile_id: resolvedProfileId ?? null,
+    total: accounts.length,
+    accounts: accounts.map((account) => summarizeAccount(account)),
+  };
+}
+
+async function fetchPlatformAccounts(platform: "instagram" | "tiktok", profileId?: string) {
+  const response = await zernioGet("/accounts", {
+    platform,
+    profileId,
+    limit: 100,
+  });
+  return getCollection(response, ["accounts", "data", "items"])
+    .filter((account) => {
+      const accountPlatform = stringValue(account.platform ?? account.network).toLowerCase();
+      if (accountPlatform !== platform) return false;
+      if (!profileId) return true;
+      const profileRef = asRecord(account.profileId);
+      const accountProfileId = stringValue(profileRef._id ?? profileRef.id ?? account.profile?._id ?? account.profile?.id ?? account.profileId);
+      return accountProfileId === profileId;
+    });
+}
+
+async function resolvePlatformTarget(platform: "instagram" | "tiktok", accountId?: string, profileId?: string) {
+  const resolvedProfileId = profileId ?? await getDefaultZernioProfileId();
+  const accounts = await fetchPlatformAccounts(platform, resolvedProfileId);
+  if (accountId) {
+    const account = accounts.find((item) => stringValue(item._id ?? item.id ?? item.accountId) === accountId);
+    if (!account) {
+      throw new Error(`Account ${accountId} was not found for ${platform} in profile ${resolvedProfileId ?? "(default profile)"}.`);
+    }
+    return { accountId, profileId: resolvedProfileId, account };
+  }
+
+  if (accounts.length === 1) {
+    const account = accounts[0];
+    return {
+      accountId: stringValue(account._id ?? account.id ?? account.accountId),
+      profileId: resolvedProfileId,
+      account,
+    };
+  }
+
+  if (accounts.length === 0) {
+    throw new Error(`No ${platform} accounts are connected in profile ${resolvedProfileId ?? "(default profile)"}. Use zernio_connect_get_url first.`);
+  }
+
+  const options = accounts
+    .map((account) => `${stringValue(account._id ?? account.id ?? account.accountId)}:${stringValue(account.username ?? account.handle ?? account.displayName ?? "unknown")}`)
+    .join(", ");
+  throw new Error(`Multiple ${platform} accounts are connected. Pass account_id explicitly. Options: ${options}`);
+}
+
+function summarizeAccount(account: ZernioAccount) {
+  const metadata = asRecord(account.metadata);
+  const profileData = asRecord(metadata.profileData);
+  const extraData = asRecord(profileData.extraData);
+  const profileRef = asRecord(account.profileId);
+  const profile = asRecord(account.profile);
+  return {
+    id: stringValue(account._id ?? account.id ?? account.accountId),
+    profile_id: stringValue(profileRef._id ?? profileRef.id ?? profile._id ?? profile.id),
+    profile_name: stringValue(profileRef.name ?? profile.name),
+    platform: stringValue(account.platform),
+    handle: stringValue(account.username ?? account.handle ?? profileData.username ?? account.displayName),
+    display_name: stringValue(account.displayName ?? profileData.displayName ?? profileData.username),
+    account_type: stringValue(extraData.accountType ?? profileData.accountType ?? account.accountType),
+    followers: numberValue(account.followersCount ?? profileData.followersCount),
+    profile_url: stringValue(account.profileUrl ?? profileData.profileUrl),
+    publish_ready: Boolean(account.enabled !== false && account.isActive !== false && stringValue(account.platformStatus || "active") === "active"),
+    analytics_ready: Boolean(account.analyticsLastSyncedAt ?? asRecord(account.xCapabilities).analytics),
+    permissions: stringArray(account.permissions),
+    permissions_count: stringArray(account.permissions).length,
+    privacy_levels: stringArray(metadata.availablePrivacyLevels ?? metadata.privacyLevels ?? metadata.creatorPrivacyLevels ?? metadata.postPrivacyOptions),
+    platform_status: stringValue(account.platformStatus ?? account.status ?? account.connectionStatus),
+    token_expires_at: stringValue(account.tokenExpiresAt),
+    ads_status: stringValue(account.adsStatus),
+  };
+}
+
+function getCollection(payload: unknown, keys: string[]) {
+  const record = asRecord(payload);
+  for (const key of keys) {
+    const candidate = record[key];
+    if (Array.isArray(candidate)) return candidate.map(asRecord);
+    if (candidate && typeof candidate === "object") {
+      const nested = asRecord(candidate);
+      if (Array.isArray(nested.items)) return nested.items.map(asRecord);
+      if (Array.isArray(nested.data)) return nested.data.map(asRecord);
+    }
+  }
+  return [];
+}
+
+function compactObject<T extends Record<string, unknown>>(value: T) {
+  return Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined && item !== null && item !== ""));
+}
+
+function asRecord(value: unknown): Record<string, any> {
+  return value && typeof value === "object" ? value as Record<string, any> : {};
+}
+
+function stringValue(value: unknown) {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  return "";
+}
+
+function stringArray(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => stringValue(item)).filter(Boolean);
+}
+
+function numberValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
 }
