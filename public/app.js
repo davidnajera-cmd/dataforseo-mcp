@@ -198,6 +198,10 @@ function renderSocialDashboard(data) {
   renderSocialPublishingHealth(data.social);
   renderSocialPlatformSpotlight("instagramSpotlight", "instagram", data.social);
   renderSocialPlatformSpotlight("tiktokSpotlight", "tiktok", data.social);
+  renderSocialVoice(data.social.customer_voice, data.social.note);
+  renderSocialAlerts(data.social.reputation_alerts, data.social.note);
+  renderSocialTopPosts(data.social.top_posts, data.social.note);
+  renderSocialCalendar(data.social.calendar, data.social.note);
   updateSectionVisibility();
 }
 
@@ -552,11 +556,133 @@ function renderSocialPlatformSpotlight(targetId, platform, social) {
   `;
 }
 
+function renderSocialVoice(voice, note) {
+  const target = document.querySelector("#socialVoice");
+  if (!target) return;
+  if (!voice || (!voice.commentsAnalyzed && !(voice.quotes || []).length)) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin comentarios suficientes todavía.")}</div>`;
+    return;
+  }
+  const terms = (voice.topTerms || []).slice(0, 8).map((item) => `<span class="tag-chip">${esc(item.term)} · ${esc(item.count)}</span>`).join("");
+  const quotes = (voice.quotes || []).slice(0, 4).map((quote) => `
+    <article class="quote-card">
+      <span class="badge ${quote.signal === "negative" ? "warn" : quote.signal === "lead" ? "info" : ""}">${esc(quote.signal)}</span>
+      <p>${esc(quote.text)}</p>
+      <small>${esc(quote.author || "audiencia")} · ${esc(capitalize(quote.platform || "social"))}</small>
+    </article>
+  `).join("");
+  target.innerHTML = `
+    <article class="social-stat-card">
+      <span>Comentarios leídos</span>
+      <strong>${displayValue(voice.commentsAnalyzed)}</strong>
+      <small>${displayValue(voice.questionComments)} preguntas · ${displayValue(voice.leadQuestions)} señales de lead</small>
+    </article>
+    <article class="social-stat-card">
+      <span>Riesgo reputacional</span>
+      <strong>${displayValue(voice.negativeSignals)}</strong>
+      <small>Comentarios con fricción u objeción detectada</small>
+    </article>
+    <article class="social-stat-card social-stat-wide">
+      <span>Temas dominantes</span>
+      <div class="tag-cloud">${terms || "<small>Sin temas claros todavía.</small>"}</div>
+    </article>
+    <div class="quote-grid">${quotes || `<div class="empty-inline">Sin citas destacadas todavía.</div>`}</div>
+  `;
+}
+
+function renderSocialAlerts(alerts, note) {
+  const target = document.querySelector("#socialAlerts");
+  if (!target) return;
+  if (!alerts || !alerts.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin alertas relevantes por ahora.")}</div>`;
+    return;
+  }
+  target.innerHTML = alerts.slice(0, 5).map((alert) => `
+    <article class="alert-card">
+      <div class="social-post-head">
+        <strong>${esc(alert.contentPreview || "Post con comentarios")}</strong>
+        <span class="badge warn">${displayValue(alert.negativeComments)} riesgo · ${displayValue(alert.leadQuestions)} leads</span>
+      </div>
+      <div class="social-post-meta">
+        <span>${displayValue(alert.commentCount)} comentarios</span>
+        <span>${alert.permalink ? `<a href="${esc(alert.permalink)}" target="_blank" rel="noreferrer">Abrir post</a>` : "Sin link"}</span>
+      </div>
+      ${alert.sampleNegative ? `<p>${esc(alert.sampleNegative)}</p>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderSocialTopPosts(posts, note) {
+  const target = document.querySelector("#socialTopPosts");
+  if (!target) return;
+  if (!posts || !posts.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin top posts todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = posts.slice(0, 8).map((post) => `
+    <article class="social-post-card">
+      <div class="social-post-head">
+        <strong>${esc(capitalize(post.platform || "social"))}</strong>
+        <span class="badge">${displayValue(post.engagementRate, "%")}</span>
+      </div>
+      <p>${esc(post.content || "Sin texto disponible.")}</p>
+      <div class="social-post-meta">
+        <span>${displayValue(post.impressions)} imp</span>
+        <span>${displayValue(post.reach)} reach</span>
+        <span>${displayValue(post.likes)} likes</span>
+        <span>${displayValue(post.comments)} comments</span>
+        <span>${esc(formatShortDate(post.publishedAt) || "Sin fecha")}</span>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderSocialCalendar(calendar, note) {
+  const target = document.querySelector("#socialCalendar");
+  if (!target) return;
+  if (!calendar || (!(calendar.bestSlots || []).length && !(calendar.cadence || []).length)) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin histórico suficiente para recomendar calendario.")}</div>`;
+    return;
+  }
+  const slots = (calendar.bestSlots || []).slice(0, 6).map((slot) => `
+    <div class="calendar-slot">
+      <strong>${esc(capitalize(slot.platform || "social"))}</strong>
+      <span>${esc(formatDayOfWeek(slot.dayOfWeek))} · ${String(slot.hour).padStart(2, "0")}:00</span>
+      <small>${displayValue(slot.avgEngagement)} engagement · ${displayValue(slot.postCount)} posts</small>
+    </div>
+  `).join("");
+  const cadence = (calendar.cadence || []).slice(0, 6).map((row) => `
+    <div class="calendar-slot">
+      <strong>${esc(capitalize(row.platform || "social"))}</strong>
+      <span>${displayValue(row.postsPerWeek)} posts/semana</span>
+      <small>${displayValue(row.avgEngagementRate, "%")} ER · ${displayValue(row.weeksCount)} semanas</small>
+    </div>
+  `).join("");
+  target.innerHTML = `
+    <article class="social-stat-card social-stat-wide">
+      <span>Recomendación</span>
+      <small>${esc(calendar.recommendation || note || "Sin recomendación todavía.")}</small>
+    </article>
+    <div class="calendar-band">
+      <h3>Mejores horarios</h3>
+      <div class="calendar-slot-grid">${slots}</div>
+    </div>
+    <div class="calendar-band">
+      <h3>Cadencia observada</h3>
+      <div class="calendar-slot-grid">${cadence}</div>
+    </div>
+  `;
+}
+
 function formatShortDate(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleDateString("es-CO", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function formatDayOfWeek(value) {
+  return ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"][Number(value) || 0];
 }
 
 function updateSectionVisibility() {

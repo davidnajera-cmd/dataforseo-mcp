@@ -692,6 +692,12 @@ select {
   grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 }
 
+.social-voice-grid,
+.social-calendar-grid {
+  display: grid;
+  gap: 16px;
+}
+
 .social-stat-card,
 .ai-grid,
 .backlinks-grid {
@@ -729,6 +735,10 @@ select {
 
 .social-stat-card small {
   color: #69717c;
+}
+
+.social-stat-wide {
+  grid-column: 1 / -1;
 }
 
 .ai-card header,
@@ -887,6 +897,77 @@ select {
   margin-top: 12px;
   color: #69717c;
   font-size: 12px;
+}
+
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 5px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  background: #eef2ff;
+  color: var(--accent, #2454ff);
+}
+
+.quote-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  grid-column: 1 / -1;
+}
+
+.quote-card,
+.alert-card,
+.calendar-slot {
+  border: 1px solid #eef0f5;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px 16px;
+}
+
+.quote-card p,
+.alert-card p {
+  margin: 10px 0;
+  color: #39414d;
+  line-height: 1.45;
+}
+
+.quote-card small,
+.calendar-slot small {
+  color: #69717c;
+}
+
+.empty-inline {
+  color: #69717c;
+  font-size: 13px;
+}
+
+.calendar-band h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+
+.calendar-slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.calendar-slot {
+  display: grid;
+  gap: 4px;
+}
+
+.calendar-slot span {
+  color: #39414d;
+  font-size: 13px;
 }
 
 @media (max-width: 720px) {

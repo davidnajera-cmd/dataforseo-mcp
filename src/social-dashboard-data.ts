@@ -52,6 +52,54 @@ type SocialPlatformSummary = {
   scheduled: number;
 };
 
+type SocialVoiceQuote = {
+  platform: string;
+  author: string | null;
+  text: string;
+  signal: "lead" | "negative" | "positive" | "question";
+};
+
+type SocialAlert = {
+  postId: string;
+  permalink: string | null;
+  contentPreview: string;
+  commentCount: number;
+  negativeComments: number;
+  leadQuestions: number;
+  sampleNegative: string | null;
+};
+
+type SocialTopPost = {
+  postId: string;
+  platform: string;
+  content: string;
+  publishedAt: string | null;
+  engagementRate: number | null;
+  impressions: number | null;
+  reach: number | null;
+  likes: number | null;
+  comments: number | null;
+  shares: number | null;
+  saves: number | null;
+  views: number | null;
+};
+
+type SocialBestSlot = {
+  platform: string;
+  dayOfWeek: number;
+  hour: number;
+  avgEngagement: number;
+  postCount: number;
+};
+
+type SocialCadenceRow = {
+  platform: string;
+  postsPerWeek: number;
+  avgEngagementRate: number;
+  avgEngagement: number;
+  weeksCount: number;
+};
+
 type SiteCode = Exclude<CountryCode, "all">;
 
 type SocialSiteConfig = {
@@ -73,6 +121,21 @@ type SocialData = {
   accounts: SocialAccountRow[];
   posts: SocialPostRow[];
   byPlatform: SocialPlatformSummary[];
+  customerVoice: {
+    commentsAnalyzed: number;
+    leadQuestions: number;
+    negativeSignals: number;
+    questionComments: number;
+    topTerms: Array<{ term: string; count: number }>;
+    quotes: SocialVoiceQuote[];
+  };
+  reputationAlerts: SocialAlert[];
+  topPosts: SocialTopPost[];
+  calendar: {
+    bestSlots: SocialBestSlot[];
+    cadence: SocialCadenceRow[];
+    recommendation: string;
+  };
 };
 
 export type SocialDashboardData = {
@@ -95,6 +158,10 @@ export type SocialDashboardData = {
     accounts: SocialAccountRow[];
     posts: SocialPostRow[];
     by_platform: SocialPlatformSummary[];
+    customer_voice: SocialData["customerVoice"];
+    reputation_alerts: SocialAlert[];
+    top_posts: SocialTopPost[];
+    calendar: SocialData["calendar"];
     note: string;
   };
 };
@@ -103,7 +170,7 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
   const filters = normalizeFilters(input);
   const sites = filters.country === "all" ? (["co", "mx", "lta"] as const) : ([filters.country] as const);
   const configs = await Promise.all(sites.map(getSocialSiteConfig));
-  const social = await loadSocialDashboard(configs);
+  const social = await loadSocialDashboard(configs, filters);
   const sources: SourceStatus[] = [{ name: "Zernio Social", status: sourceStatus(social), message: social.message }];
 
   const metrics: Metric[] = [
@@ -159,6 +226,10 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
       accounts: social.accounts,
       posts: social.posts,
       by_platform: social.byPlatform,
+      customer_voice: social.customerVoice,
+      reputation_alerts: social.reputationAlerts,
+      top_posts: social.topPosts,
+      calendar: social.calendar,
       note: social.message,
     },
   };
@@ -174,7 +245,7 @@ async function getSocialSiteConfig(site: SiteCode): Promise<SocialSiteConfig> {
   return { code: "lta", profileId: (await getRuntimeVariable("ZERNIO_PROFILE_ID_LTA")) ?? (await getRuntimeVariable("ZERNIO_DEFAULT_PROFILE_ID")) ?? null };
 }
 
-async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialData> {
+async function loadSocialDashboard(configs: SocialSiteConfig[], filters: DashboardFilters): Promise<SocialData> {
   if (!await getRuntimeVariable("ZERNIO_API_KEY")) {
     return emptySocial("Falta ZERNIO_API_KEY.");
   }
@@ -206,8 +277,60 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
       }
     }));
 
+    const analyticsResults = await Promise.all(profileIds.map(async (profileId) => {
+      try {
+        return await zernioGet("/analytics", {
+          profileId,
+          fromDate: filters.startDate,
+          toDate: filters.endDate,
+          sortBy: "engagement",
+          order: "desc",
+          limit: 12,
+          page: 1,
+        });
+      } catch (error) {
+        return { __error: error instanceof Error ? error.message : "Zernio analytics failed", profileId };
+      }
+    }));
+
+    const commentsResults = await Promise.all(profileIds.map(async (profileId) => {
+      try {
+        return await zernioGet("/inbox/comments", {
+          profileId,
+          platform: "instagram",
+          minComments: 1,
+          limit: 5,
+          sortBy: "comments",
+          sortOrder: "desc",
+        });
+      } catch (error) {
+        return { __error: error instanceof Error ? error.message : "Zernio comments failed", profileId };
+      }
+    }));
+
+    const bestTimeResults = await Promise.all(profileIds.map(async (profileId) => {
+      try {
+        return await zernioGet("/analytics/best-time", { profileId, source: "all" });
+      } catch (error) {
+        return { __error: error instanceof Error ? error.message : "Zernio best-time failed", profileId };
+      }
+    }));
+
+    const cadenceResults = await Promise.all(profileIds.map(async (profileId) => {
+      try {
+        return await zernioGet("/analytics/posting-frequency", { profileId, source: "all" });
+      } catch (error) {
+        return { __error: error instanceof Error ? error.message : "Zernio posting-frequency failed", profileId };
+      }
+    }));
+
     const posts = postResults.flatMap((result) => "__error" in asRecord(result) ? [] : getCollection(result, ["posts", "data", "items"]));
+    const analyticsRows = analyticsResults.flatMap((result) => "__error" in asRecord(result) ? [] : getCollection(result, ["data", "posts", "items"]));
     const postErrors = postResults
+      .map((result) => asRecord(result))
+      .filter((item) => typeof item.__error === "string")
+      .map((item) => String(item.__error));
+    const analyticsErrors = analyticsResults
       .map((result) => asRecord(result))
       .filter((item) => typeof item.__error === "string")
       .map((item) => String(item.__error));
@@ -240,6 +363,93 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
       profileName: nullableString(item.profile?.name ?? item.profileName),
     }));
 
+    const topPosts = analyticsRows.slice(0, 10).map((item) => {
+      const analytics = asRecord(item.analytics);
+      return {
+        postId: stringValue(item.postId ?? item.id ?? item._id),
+        platform: stringValue(item.platform ?? "unknown"),
+        content: stringValue(item.content ?? item.caption ?? item.text),
+        publishedAt: nullableString(item.publishedAt ?? item.createdAt ?? item.scheduledFor),
+        engagementRate: nullableNumber(analytics.engagementRate),
+        impressions: nullableNumber(analytics.impressions),
+        reach: nullableNumber(analytics.reach),
+        likes: nullableNumber(analytics.likes),
+        comments: nullableNumber(analytics.comments),
+        shares: nullableNumber(analytics.shares),
+        saves: nullableNumber(analytics.saves),
+        views: nullableNumber(analytics.views),
+      };
+    });
+
+    const commentedPosts = commentsResults.flatMap((result) => "__error" in asRecord(result) ? [] : getCollection(result, ["data", "items", "posts"]));
+    const commentThreads = await Promise.all(commentedPosts.slice(0, 5).map(async (post) => {
+      const postId = stringValue(post.id);
+      const accountId = stringValue(post.accountId);
+      if (!postId || !accountId) return null;
+      try {
+        const detail = await zernioGet(`/inbox/comments/${encodeURIComponent(postId)}`, { accountId, limit: 10 });
+        const comments = getCollection(detail, ["comments"]);
+        const heuristics = buildCommentHeuristics(comments);
+        return {
+          postId,
+          permalink: nullableString(post.permalink),
+          contentPreview: stringValue(post.content).slice(0, 160),
+          commentCount: nullableNumber(post.commentCount) ?? comments.length,
+          negativeComments: heuristics.negativeSignals,
+          leadQuestions: heuristics.leadQuestions,
+          sampleNegative: heuristics.quotes.find((item) => item.signal === "negative")?.text ?? null,
+          quotes: heuristics.quotes,
+          topTerms: heuristics.topTerms,
+          questionComments: heuristics.questionComments,
+        };
+      } catch {
+        return null;
+      }
+    }));
+    const validThreads = commentThreads.filter(Boolean) as Array<{
+      postId: string;
+      permalink: string | null;
+      contentPreview: string;
+      commentCount: number;
+      negativeComments: number;
+      leadQuestions: number;
+      sampleNegative: string | null;
+      quotes: SocialVoiceQuote[];
+      topTerms: Array<{ term: string; count: number }>;
+      questionComments: number;
+    }>;
+    const customerVoice = mergeCustomerVoice(validThreads);
+
+    const bestSlots = bestTimeResults.flatMap((result) => {
+      const record = asRecord(result);
+      if (typeof record.__error === "string") return [];
+      return getArray(record.slots).map((item: unknown) => {
+        const row = asRecord(item);
+        return {
+          platform: stringValue(row.platform ?? "mixed"),
+          dayOfWeek: nullableNumber(row.day_of_week) ?? 0,
+          hour: nullableNumber(row.hour) ?? 0,
+          avgEngagement: nullableNumber(row.avg_engagement) ?? 0,
+          postCount: nullableNumber(row.post_count) ?? 0,
+        };
+      });
+    }).sort((a, b) => b.avgEngagement - a.avgEngagement).slice(0, 6);
+
+    const cadence = cadenceResults.flatMap((result) => {
+      const record = asRecord(result);
+      if (typeof record.__error === "string") return [];
+      return getArray(record.frequency).map((item: unknown) => {
+        const row = asRecord(item);
+        return {
+          platform: stringValue(row.platform ?? "mixed"),
+          postsPerWeek: nullableNumber(row.posts_per_week) ?? 0,
+          avgEngagementRate: nullableNumber(row.avg_engagement_rate) ?? 0,
+          avgEngagement: nullableNumber(row.avg_engagement) ?? 0,
+          weeksCount: nullableNumber(row.weeks_count) ?? 0,
+        };
+      });
+    }).sort((a, b) => b.avgEngagementRate - a.avgEngagementRate);
+
     const byPlatformMap = new Map<string, SocialPlatformSummary>();
     for (const account of accountsRows) {
       const row = byPlatformMap.get(account.platform) ?? { platform: account.platform, accounts: 0, publishReady: 0, published: 0, scheduled: 0 };
@@ -264,7 +474,7 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
     return {
       live: accountsRows.length > 0 || postRows.length > 0,
       message: postErrors.length
-        ? `Datos parciales. ${postErrors.join(" | ")}`
+        ? `Datos parciales. ${[...postErrors, ...analyticsErrors].join(" | ")}`
         : "Datos sociales disponibles desde Zernio.",
       profiles: profileCount,
       connectedAccounts: accountsRows.length,
@@ -276,6 +486,16 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
       accounts: accountsRows,
       posts: postRows,
       byPlatform: [...byPlatformMap.values()].sort((a, b) => a.platform.localeCompare(b.platform)),
+      customerVoice,
+      reputationAlerts: validThreads
+        .filter((item) => item.negativeComments > 0 || item.leadQuestions > 0)
+        .map(({ quotes, topTerms, questionComments, ...item }) => item),
+      topPosts,
+      calendar: {
+        bestSlots,
+        cadence,
+        recommendation: buildCalendarRecommendation(bestSlots, cadence),
+      },
     };
   } catch (error) {
     return {
@@ -306,6 +526,21 @@ function emptySocial(message: string): SocialData {
     accounts: [],
     posts: [],
     byPlatform: [],
+    customerVoice: {
+      commentsAnalyzed: 0,
+      leadQuestions: 0,
+      negativeSignals: 0,
+      questionComments: 0,
+      topTerms: [],
+      quotes: [],
+    },
+    reputationAlerts: [],
+    topPosts: [],
+    calendar: {
+      bestSlots: [],
+      cadence: [],
+      recommendation: message,
+    },
   };
 }
 
@@ -347,10 +582,94 @@ function stringArray(value: unknown): string[] {
     .filter(Boolean);
 }
 
+function getArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("es-CO").format(Math.round(value));
 }
 
 function capitalize(value: string): string {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
+}
+
+function buildCommentHeuristics(comments: Array<Record<string, any>>) {
+  const negativeTerms = ["caro", "costoso", "malo", "mal", "error", "terrible", "no sirve", "engaño", "lento", "peor"];
+  const leadTerms = ["precio", "informacion", "información", "horario", "curso", "programa", "sede", "whatsapp", "dm", "inscripcion", "inscripción", "cupo"];
+  const positiveTerms = ["brutal", "excelente", "gracias", "duro", "top", "increible", "increíble", "🔥", "👏"];
+  const quotes: SocialVoiceQuote[] = [];
+  let leadQuestions = 0;
+  let negativeSignals = 0;
+  let questionComments = 0;
+  const counter = new Map<string, number>();
+  for (const item of comments) {
+    const text = stringValue(item.message ?? item.text ?? item.content).trim();
+    if (!text) continue;
+    const lowered = text.toLowerCase();
+    const signal = lowered.includes("?")
+      ? "question"
+      : negativeTerms.some((term) => lowered.includes(term))
+        ? "negative"
+        : leadTerms.some((term) => lowered.includes(term))
+          ? "lead"
+          : positiveTerms.some((term) => lowered.includes(term))
+            ? "positive"
+            : "positive";
+    if (signal === "question") questionComments += 1;
+    if (signal === "lead" || leadTerms.some((term) => lowered.includes(term))) leadQuestions += 1;
+    if (signal === "negative") negativeSignals += 1;
+    if (quotes.length < 8) {
+      quotes.push({
+        platform: "instagram",
+        author: nullableString(item.from?.username ?? item.from?.name),
+        text,
+        signal,
+      });
+    }
+    for (const token of tokenize(lowered)) {
+      counter.set(token, (counter.get(token) ?? 0) + 1);
+    }
+  }
+  const topTerms = [...counter.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10)
+    .map(([term, count]) => ({ term, count }));
+  return { leadQuestions, negativeSignals, questionComments, quotes, topTerms };
+}
+
+function mergeCustomerVoice(threads: Array<{ quotes: SocialVoiceQuote[]; topTerms: Array<{ term: string; count: number }>; leadQuestions: number; negativeComments: number; questionComments: number }>) {
+  const termCounter = new Map<string, number>();
+  const quotes = threads.flatMap((item) => item.quotes).slice(0, 8);
+  for (const thread of threads) {
+    for (const term of thread.topTerms) termCounter.set(term.term, (termCounter.get(term.term) ?? 0) + term.count);
+  }
+  return {
+    commentsAnalyzed: threads.reduce((sum, item) => sum + item.quotes.length, 0),
+    leadQuestions: threads.reduce((sum, item) => sum + item.leadQuestions, 0),
+    negativeSignals: threads.reduce((sum, item) => sum + item.negativeComments, 0),
+    questionComments: threads.reduce((sum, item) => sum + item.questionComments, 0),
+    topTerms: [...termCounter.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10).map(([term, count]) => ({ term, count })),
+    quotes,
+  };
+}
+
+function buildCalendarRecommendation(bestSlots: SocialBestSlot[], cadence: SocialCadenceRow[]) {
+  if (!bestSlots.length && !cadence.length) return "Sin suficiente histórico para recomendar calendario.";
+  const topSlot = bestSlots[0];
+  const topCadence = cadence[0];
+  const dayLabel = ["Dom", "Lun", "Mar", "Mie", "Jue", "Vie", "Sab"][topSlot?.dayOfWeek ?? 0];
+  return topSlot && topCadence
+    ? `Prioriza ${capitalize(topCadence.platform)} con ${formatNumber(topCadence.postsPerWeek)} posts/semana. Mejor slot observado: ${dayLabel} ${String(topSlot.hour).padStart(2, "0")}:00 con engagement promedio ${formatNumber(topSlot.avgEngagement)}.`
+    : "Usa los slots con mayor engagement histórico y evita subir frecuencia sin validar el rendimiento por semana.";
+}
+
+function tokenize(text: string) {
+  const stop = new Set(["que", "para", "con", "una", "por", "los", "las", "del", "está", "esta", "como", "pero", "sin", "hola", "gracias", "favor", "porque", "muy", "todo", "desde", "sobre", "entre", "cuando"]);
+  return text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .split(/[^a-z0-9#@]+/i)
+    .map((item) => item.trim())
+    .filter((item) => item.length > 2 && !stop.has(item));
 }
