@@ -761,17 +761,60 @@ select {
 .history-row:last-child { border-bottom: 0; }
 .history-row small { color: #69717c; }
 
-.social-account-row {
-  display: grid;
-  grid-template-columns: minmax(120px, 0.7fr) minmax(0, 1fr) minmax(0, 1fr) auto auto;
-  gap: 12px;
-  padding: 12px 0;
-  border-bottom: 1px solid #eef0f5;
-  align-items: center;
+.social-account-card {
+  border: 1px solid #eef0f5;
+  border-radius: 12px;
+  background: #fff;
+  padding: 14px 16px;
 }
 
-.social-account-row:last-child {
-  border-bottom: 0;
+.social-account-card + .social-account-card {
+  margin-top: 12px;
+}
+
+.social-account-top {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.social-account-subtitle {
+  margin-top: 4px;
+  color: #69717c;
+  font-size: 12px;
+}
+
+.social-account-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.social-account-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px 14px;
+}
+
+.social-account-grid span {
+  display: grid;
+  gap: 2px;
+  color: #39414d;
+  font-size: 13px;
+}
+
+.social-account-grid strong {
+  color: #69717c;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.social-account-grid a {
+  color: var(--accent, #2454ff);
+  text-decoration: none;
 }
 
 .social-posts-list {
@@ -814,8 +857,8 @@ select {
   .history-row {
     grid-template-columns: 1fr;
   }
-  .social-account-row {
-    grid-template-columns: 1fr;
+  .social-account-top {
+    flex-direction: column;
   }
 }
 

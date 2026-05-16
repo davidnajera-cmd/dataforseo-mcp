@@ -20,9 +20,17 @@ type SocialAccountRow = {
   id: string;
   platform: string;
   handle: string;
+  displayName: string | null;
   profileName: string | null;
   status: string;
   followers: number | null;
+  accountType: string | null;
+  permissionsCount: number;
+  profileUrl: string | null;
+  tokenExpiresAt: string | null;
+  publishReady: boolean;
+  analyticsReady: boolean;
+  privacyLevels: string[];
 };
 
 type SocialPostRow = {
@@ -39,6 +47,7 @@ type SocialPostRow = {
 type SocialPlatformSummary = {
   platform: string;
   accounts: number;
+  publishReady: number;
   published: number;
   scheduled: number;
 };
@@ -56,6 +65,8 @@ type SocialData = {
   message: string;
   profiles: number;
   connectedAccounts: number;
+  publishReadyAccounts: number;
+  analyticsReadyAccounts: number;
   publishedPosts: number;
   scheduledPosts: number;
   draftPosts: number;
@@ -76,6 +87,8 @@ export type SocialDashboardData = {
   social: {
     profiles: number;
     connected_accounts: number;
+    publish_ready_accounts: number;
+    analytics_ready_accounts: number;
     published_posts: number;
     scheduled_posts: number;
     draft_posts: number;
@@ -98,7 +111,7 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
       label: "Cuentas conectadas",
       value: social.connectedAccounts ? formatNumber(social.connectedAccounts) : "Sin datos",
       delta: null,
-      detail: `${formatNumber(social.profiles)} perfiles activos`,
+      detail: `${formatNumber(social.profiles)} perfiles activos · ${formatNumber(social.publishReadyAccounts)} listas para publicar`,
       source: social.live ? "Zernio" : "Pendiente",
     },
     {
@@ -120,7 +133,7 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
       value: social.byPlatform.length ? formatNumber(social.byPlatform.length) : "Sin datos",
       delta: null,
       detail: social.byPlatform.length
-        ? social.byPlatform.map((item) => `${capitalize(item.platform)} (${item.accounts})`).slice(0, 3).join(" · ")
+        ? social.byPlatform.map((item) => `${capitalize(item.platform)} (${item.publishReady}/${item.accounts} publish-ready)`).slice(0, 3).join(" · ")
         : social.message,
       source: social.live ? "Zernio" : "Pendiente",
     },
@@ -138,6 +151,8 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
     social: {
       profiles: social.profiles,
       connected_accounts: social.connectedAccounts,
+      publish_ready_accounts: social.publishReadyAccounts,
+      analytics_ready_accounts: social.analyticsReadyAccounts,
       published_posts: social.publishedPosts,
       scheduled_posts: social.scheduledPosts,
       draft_posts: social.draftPosts,
@@ -201,9 +216,17 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
       id: stringValue(item.id ?? item.accountId ?? item._id),
       platform: stringValue(item.platform ?? item.network ?? "unknown"),
       handle: stringValue(item.handle ?? item.username ?? item.name ?? "Sin handle"),
+      displayName: nullableString(item.displayName ?? item.metadata?.profileData?.displayName ?? item.name),
       profileName: nullableString(item.profile?.name ?? item.profileId?.name ?? item.profileName),
       status: stringValue(item.status ?? item.connectionStatus ?? item.platformStatus ?? (item.isActive === false ? "inactive" : "active")),
       followers: nullableNumber(item.followers ?? item.followersCount ?? item.audience),
+      accountType: nullableString(item.metadata?.profileData?.extraData?.accountType ?? item.metadata?.profileData?.accountType ?? item.accountType),
+      permissionsCount: stringArray(item.permissions).length,
+      profileUrl: nullableString(item.profileUrl ?? item.metadata?.profileData?.profileUrl),
+      tokenExpiresAt: nullableString(item.tokenExpiresAt),
+      publishReady: item.enabled !== false && item.isActive !== false && stringValue(item.platformStatus ?? item.status ?? "active") === "active",
+      analyticsReady: Boolean(item.analyticsLastSyncedAt ?? item.xCapabilities?.analytics),
+      privacyLevels: stringArray(item.metadata?.availablePrivacyLevels ?? item.metadata?.privacyLevels ?? item.metadata?.creatorPrivacyLevels ?? item.metadata?.postPrivacyOptions),
     }));
 
     const postRows = posts.slice(0, 12).map((item) => ({
@@ -219,13 +242,14 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
 
     const byPlatformMap = new Map<string, SocialPlatformSummary>();
     for (const account of accountsRows) {
-      const row = byPlatformMap.get(account.platform) ?? { platform: account.platform, accounts: 0, published: 0, scheduled: 0 };
+      const row = byPlatformMap.get(account.platform) ?? { platform: account.platform, accounts: 0, publishReady: 0, published: 0, scheduled: 0 };
       row.accounts += 1;
+      if (account.publishReady) row.publishReady += 1;
       byPlatformMap.set(account.platform, row);
     }
     for (const post of postRows) {
       for (const platform of post.platforms.length ? post.platforms : ["unknown"]) {
-        const row = byPlatformMap.get(platform) ?? { platform, accounts: 0, published: 0, scheduled: 0 };
+        const row = byPlatformMap.get(platform) ?? { platform, accounts: 0, publishReady: 0, published: 0, scheduled: 0 };
         if (post.status === "published") row.published += 1;
         if (post.status === "scheduled") row.scheduled += 1;
         byPlatformMap.set(platform, row);
@@ -244,6 +268,8 @@ async function loadSocialDashboard(configs: SocialSiteConfig[]): Promise<SocialD
         : "Datos sociales disponibles desde Zernio.",
       profiles: profileCount,
       connectedAccounts: accountsRows.length,
+      publishReadyAccounts: accountsRows.filter((item) => item.publishReady).length,
+      analyticsReadyAccounts: accountsRows.filter((item) => item.analyticsReady).length,
       publishedPosts,
       scheduledPosts,
       draftPosts,
@@ -272,6 +298,8 @@ function emptySocial(message: string): SocialData {
     message,
     profiles: 0,
     connectedAccounts: 0,
+    publishReadyAccounts: 0,
+    analyticsReadyAccounts: 0,
     publishedPosts: 0,
     scheduledPosts: 0,
     draftPosts: 0,
