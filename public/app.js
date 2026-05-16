@@ -1,24 +1,42 @@
 const state = {
+  module: "seo",
   view: "overview",
   data: null,
   socialData: null,
 };
 
-const views = {
-  overview: "Overview SEO",
-  backlog: "Backlog SEO",
-  monthly: "Dashboard Mensual",
-  weekly: "Dashboard Semanal",
-  content: "Contenido",
-  keywords: "Keywords",
-  social: "Redes Sociales",
-  ai: "Visibilidad AI",
-  backlinks: "Backlinks",
-  leads: "Leads / Conversiones",
-  technical: "Salud Tecnica",
-  comparison: "CO vs MX vs LTA",
-  business: "Insights de Negocio",
-  variables: "Variables",
+const modules = {
+  seo: {
+    eyebrow: "SEO Module",
+    defaultView: "overview",
+    views: {
+      overview: "Overview SEO",
+      backlog: "Backlog SEO",
+      monthly: "Dashboard Mensual",
+      weekly: "Dashboard Semanal",
+      content: "Contenido",
+      keywords: "Keywords",
+      ai: "Visibilidad AI",
+      backlinks: "Backlinks",
+      leads: "Leads / Conversiones",
+      technical: "Salud Tecnica",
+      comparison: "CO vs MX vs LTA",
+      business: "Insights de Negocio",
+      variables: "Variables",
+    },
+  },
+  social: {
+    eyebrow: "Social Media Module",
+    defaultView: "social_overview",
+    views: {
+      social_overview: "Overview Social",
+      social_accounts: "Cuentas conectadas",
+      social_publishing: "Publicacion",
+      social_instagram: "Instagram",
+      social_tiktok: "TikTok",
+      variables: "Variables",
+    },
+  },
 };
 
 const SITE_LABELS = {
@@ -44,13 +62,22 @@ function esc(value) {
 const shell = document.querySelector(".shell");
 const filters = document.querySelector("#filters");
 const navItems = [...document.querySelectorAll(".nav-item")];
+const moduleTabs = [...document.querySelectorAll(".module-tab")];
+const navGroups = [...document.querySelectorAll("[data-nav-module]")];
 
 document.querySelector("#sidebarToggle").addEventListener("click", () => {
   shell.dataset.sidebar = shell.dataset.sidebar === "closed" ? "open" : "closed";
 });
 
 navItems.forEach((button) => {
-  button.addEventListener("click", () => setView(button.dataset.view));
+  button.addEventListener("click", () => {
+    if (button.dataset.module !== state.module) setModule(button.dataset.module);
+    setView(button.dataset.view);
+  });
+});
+
+moduleTabs.forEach((button) => {
+  button.addEventListener("click", () => setModule(button.dataset.module));
 });
 
 document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
@@ -58,30 +85,50 @@ document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
 });
 
 filters.addEventListener("change", () => {
-  if (state.view === "social") loadSocialDashboard();
-  else loadDashboard();
+  if (state.module === "social" && state.view !== "variables") loadSocialDashboard();
+  else if (state.view !== "variables" && state.view !== "backlog") loadDashboard();
 });
 document.querySelector("#refreshVariables")?.addEventListener("click", () => loadVariables());
 document.querySelector("#adminToken")?.addEventListener("change", (event) => {
   localStorage.setItem("seoVariablesAdminToken", event.target.value);
 });
 
+function setModule(module) {
+  state.module = module;
+  moduleTabs.forEach((button) => {
+    const active = button.dataset.module === module;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  navGroups.forEach((group) => group.classList.toggle("hidden", group.dataset.navModule !== module));
+  document.querySelector("#moduleEyebrow").textContent = modules[module].eyebrow;
+  setView(modules[module].defaultView);
+}
+
 function setView(view) {
   state.view = view;
-  document.querySelector("#pageTitle").textContent = views[view];
-  navItems.forEach((button) => button.classList.toggle("is-active", button.dataset.view === view));
+  document.querySelector("#pageTitle").textContent = modules[state.module].views[view];
+  navItems.forEach((button) => button.classList.toggle("is-active", button.dataset.module === state.module && button.dataset.view === view));
+  if (state.module === "social") {
+    if (view === "variables") {
+      updateSectionVisibility();
+      loadVariables();
+      return;
+    }
+    loadSocialDashboard();
+    return;
+  }
   if (view === "weekly") {
     filters.elements.timeframe.value = "weekly";
     loadDashboard();
   } else if (view === "monthly") {
     filters.elements.timeframe.value = "monthly";
     loadDashboard();
-  } else if (view === "social") {
-    loadSocialDashboard();
   } else {
     updateSectionVisibility();
     if (view === "variables") loadVariables();
     if (view === "backlog") loadBacklog();
+    if (view !== "variables" && view !== "backlog") loadDashboard();
   }
 }
 
@@ -148,6 +195,9 @@ function renderSocialDashboard(data) {
   renderSocialSummary(data.social);
   renderSocialAccounts(data.social.accounts, data.social.note);
   renderSocialPosts(data.social.posts, data.social.note);
+  renderSocialPublishingHealth(data.social);
+  renderSocialPlatformSpotlight("instagramSpotlight", "instagram", data.social);
+  renderSocialPlatformSpotlight("tiktokSpotlight", "tiktok", data.social);
   updateSectionVisibility();
 }
 
@@ -461,6 +511,45 @@ function renderSocialPosts(posts, note) {
       </div>
     </article>
   `).join("");
+}
+
+function renderSocialPublishingHealth(social) {
+  const target = document.querySelector("#socialPublishingHealth");
+  if (!target) return;
+  const rows = [
+    ["Perfiles activos", displayValue(social.profiles)],
+    ["Cuentas listas para publicar", displayValue(social.publish_ready_accounts)],
+    ["Cuentas con analytics", displayValue(social.analytics_ready_accounts)],
+    ["Posts programados", displayValue(social.scheduled_posts)],
+    ["Drafts", displayValue(social.draft_posts)],
+    ["Posts publicados", displayValue(social.published_posts)],
+  ];
+  target.innerHTML = rows.map(([label, value]) => `<div class="row"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("");
+}
+
+function renderSocialPlatformSpotlight(targetId, platform, social) {
+  const target = document.querySelector(`#${targetId}`);
+  if (!target) return;
+  const accounts = (social.accounts || []).filter((item) => item.platform === platform);
+  const posts = (social.posts || []).filter((item) => (item.platforms || []).includes(platform));
+  if (!accounts.length) {
+    target.innerHTML = `<div class="empty-state">Sin cuentas conectadas en ${esc(capitalize(platform))}.</div>`;
+    return;
+  }
+  const totalFollowers = accounts.reduce((sum, item) => sum + (Number(item.followers) || 0), 0);
+  const ready = accounts.filter((item) => item.publishReady).length;
+  const analytics = accounts.filter((item) => item.analyticsReady).length;
+  const permissions = Math.max(0, ...accounts.map((item) => Number(item.permissionsCount) || 0));
+  const privacy = [...new Set(accounts.flatMap((item) => item.privacyLevels || []))];
+  target.innerHTML = `
+    <div class="row"><strong>Cuentas</strong><span>${displayValue(accounts.length)}</span></div>
+    <div class="row"><strong>Followers agregados</strong><span>${displayValue(totalFollowers)}</span></div>
+    <div class="row"><strong>Publish-ready</strong><span>${displayValue(ready)} / ${displayValue(accounts.length)}</span></div>
+    <div class="row"><strong>Analytics activos</strong><span>${displayValue(analytics)} / ${displayValue(accounts.length)}</span></div>
+    <div class="row"><strong>Max permisos</strong><span>${displayValue(permissions)}</span></div>
+    <div class="row"><strong>Posts visibles</strong><span>${displayValue(posts.length)}</span></div>
+    <div class="row"><strong>Privacidad</strong><span>${esc(privacy.join(" · ") || "Por defecto / no expuesta")}</span></div>
+  `;
 }
 
 function formatShortDate(value) {
@@ -935,4 +1024,4 @@ function capitalize(value) {
   }
 })();
 
-loadDashboard();
+setModule("seo");
