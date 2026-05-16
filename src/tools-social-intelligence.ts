@@ -209,6 +209,177 @@ export function registerSocialIntelligenceTools(server: McpServer) {
       return { content: [{ type: "text" as const, text: JSON.stringify({ items: normalized, analysis: summary }, null, 2) }] };
     }
   );
+
+  server.tool(
+    "social_intel_customer_voice_report",
+    "Customer voice report across Instagram and TikTok comments. Surfaces objections, motivations, repeated questions, sentiment, and content opportunities.",
+    {
+      instagram_post_ids: z.array(z.string()).optional().describe("Instagram/Zernio post IDs to inspect."),
+      instagram_account_id: z.string().optional().describe("Instagram connected account ID for the provided post IDs."),
+      tiktok_video_urls: z.array(z.string()).optional().describe("TikTok video URLs to inspect."),
+      max_comments_per_source: z.number().int().min(1).max(150).optional().describe("Default 50."),
+      include_replies: z.boolean().optional().describe("Default true."),
+    },
+    async ({ instagram_post_ids, instagram_account_id, tiktok_video_urls, max_comments_per_source, include_replies }) => {
+      const comments: CommentRow[] = [];
+      if (instagram_post_ids?.length) {
+        if (!instagram_account_id) throw new Error("instagram_account_id is required when instagram_post_ids are provided.");
+        for (const postId of instagram_post_ids) {
+          comments.push(...await fetchInstagramComments(postId, instagram_account_id, max_comments_per_source ?? 50, include_replies ?? true));
+        }
+      }
+      if (tiktok_video_urls?.length) {
+        comments.push(...await fetchTikTokComments(tiktok_video_urls, max_comments_per_source ?? 50, include_replies ?? true));
+      }
+      if (!comments.length) throw new Error("Provide at least one Instagram post or TikTok video source.");
+      const report = await analyzeComments({
+        source: "mixed_customer_voice",
+        comments,
+        objective: "Construye un reporte de voz del cliente con motivadores, objeciones, fricciones, preguntas frecuentes, tono emocional y oportunidades de contenido.",
+      });
+      return { content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "social_intel_weekly_executive_report",
+    "Weekly executive report for social performance: growth, engagement, publishing cadence, timing, top posts, and risks.",
+    {
+      profile_id: z.string().optional().describe("Profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platforms: z.array(z.enum(["instagram", "tiktok"])).optional().describe("Platforms to include. Default both."),
+      from_date: z.string().optional().describe("YYYY-MM-DD lower bound."),
+      to_date: z.string().optional().describe("YYYY-MM-DD upper bound."),
+    },
+    async ({ profile_id, platforms, from_date, to_date }) => {
+      const resolvedProfileId = profile_id ?? await getDefaultZernioProfileId();
+      const targetPlatforms = platforms?.length ? platforms : ["instagram", "tiktok"];
+      const payload = [];
+      for (const platform of targetPlatforms) {
+        const [dailyMetrics, bestTime, postingFrequency, topPosts] = await Promise.all([
+          zernioGet("/analytics/daily-metrics", { profileId: resolvedProfileId, platform, fromDate: from_date, toDate: to_date }),
+          zernioGet("/analytics/best-time", { profileId: resolvedProfileId, platform, source: "all" }),
+          zernioGet("/analytics/posting-frequency", { profileId: resolvedProfileId, platform, source: "all" }),
+          zernioGet("/analytics", { profileId: resolvedProfileId, platform, fromDate: from_date, toDate: to_date, sortBy: "engagement", order: "desc", limit: 5, page: 1 }),
+        ]);
+        payload.push({ platform, daily_metrics: dailyMetrics, best_time: bestTime, posting_frequency: postingFrequency, top_posts: normalizeAnalyticsRows(topPosts) });
+      }
+      const fallback = {
+        profile_id: resolvedProfileId,
+        platforms: payload,
+        summary: "Reporte semanal compilado con métricas diarias, mejores horarios, frecuencia y top posts.",
+      };
+      const report = await summarizeStructured(
+        "Eres un director de growth. Entrega un weekly executive report social en JSON con executive_summary, platform_highlights, wins, risks, anomalies y next_actions.",
+        payload,
+        fallback
+      );
+      return { content: [{ type: "text" as const, text: JSON.stringify(report, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "social_intel_content_calendar_recommendation",
+    "Generate a recommended weekly content calendar by platform using best times, cadence, top-post patterns, and audience signals.",
+    {
+      profile_id: z.string().optional().describe("Profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platforms: z.array(z.enum(["instagram", "tiktok"])).optional().describe("Platforms to include. Default both."),
+      from_date: z.string().optional().describe("YYYY-MM-DD lower bound for historical performance."),
+      to_date: z.string().optional().describe("YYYY-MM-DD upper bound for historical performance."),
+      goals: z.array(z.string()).optional().describe("Optional goals, e.g. ['leads', 'awareness', 'community']."),
+    },
+    async ({ profile_id, platforms, from_date, to_date, goals }) => {
+      const resolvedProfileId = profile_id ?? await getDefaultZernioProfileId();
+      const targetPlatforms = platforms?.length ? platforms : ["instagram", "tiktok"];
+      const payload = [];
+      for (const platform of targetPlatforms) {
+        const [bestTime, postingFrequency, topPosts] = await Promise.all([
+          zernioGet("/analytics/best-time", { profileId: resolvedProfileId, platform, source: "all" }),
+          zernioGet("/analytics/posting-frequency", { profileId: resolvedProfileId, platform, source: "all" }),
+          zernioGet("/analytics", { profileId: resolvedProfileId, platform, fromDate: from_date, toDate: to_date, sortBy: "engagement", order: "desc", limit: 8, page: 1 }),
+        ]);
+        payload.push({ platform, best_time: bestTime, posting_frequency: postingFrequency, top_posts: normalizeAnalyticsRows(topPosts) });
+      }
+      const fallback = {
+        goals: goals ?? [],
+        calendar: payload.map((item) => ({
+          platform: item.platform,
+          recommended_slots: getArray(asRecord(item.best_time).slots).slice(0, 5),
+          cadence_rows: getArray(asRecord(item.posting_frequency).frequency).slice(0, 3),
+          content_notes: "Usar los patrones de top posts y comments para construir la próxima parrilla.",
+        })),
+      };
+      const calendar = await summarizeStructured(
+        "Eres un estratega editorial. Devuelve JSON con a weekly_content_calendar per platform: day, hour, objective, content_pillar, suggested_format, hook_direction y rationale.",
+        { goals: goals ?? [], history: payload },
+        fallback
+      );
+      return { content: [{ type: "text" as const, text: JSON.stringify(calendar, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "social_intel_competitor_social_benchmark",
+    "Benchmark DNA Music against competitor social profiles on Instagram and TikTok using public profile/video data plus your connected-account metrics.",
+    {
+      instagram_profiles: z.array(z.string()).optional().describe("Instagram handles or URLs for competitors."),
+      tiktok_profiles: z.array(z.string()).optional().describe("TikTok handles for competitors."),
+      include_own_accounts: z.boolean().optional().describe("Include connected DNA Music accounts for side-by-side comparison. Default true."),
+      max_items: z.number().int().min(1).max(30).optional().describe("Cap scraped videos/posts per platform. Default 12."),
+    },
+    async ({ instagram_profiles, tiktok_profiles, include_own_accounts, max_items }) => {
+      const benchmark: JsonRecord = {
+        own_accounts: [],
+        instagram_competitors: [],
+        tiktok_competitors: [],
+      };
+      if (include_own_accounts ?? true) {
+        const profileId = await getDefaultZernioProfileId();
+        const accounts = await zernioGet("/accounts", { profileId, limit: 100 });
+        benchmark.own_accounts = getArray(asRecord(accounts).accounts).map(asRecord).map((item) => ({
+          platform: stringValue(item.platform),
+          handle: stringValue(item.username ?? item.handle),
+          followers: numberValue(item.followersCount),
+          post_count: numberValue(item.externalPostCount),
+          profile_url: stringValue(item.profileUrl),
+        }));
+      }
+      if (instagram_profiles?.length) {
+        const actorId = await getConfiguredActor("instagram");
+        const urls = instagram_profiles.map(normalizeInstagramProfileUrl);
+        const items = await runActorSync(actorId, {
+          directUrls: urls,
+          resultsType: "details",
+          resultsLimit: 5,
+        }, { max_items: max_items ?? 12 });
+        benchmark.instagram_competitors = items.map(asRecord).map((item) => ({
+          handle: stringValue(item.username ?? item.ownerUsername ?? item.userName),
+          full_name: stringValue(item.fullName ?? item.full_name ?? item.name),
+          followers: numberValue(item.followersCount ?? item.followers),
+          following: numberValue(item.followsCount ?? item.following),
+          posts: numberValue(item.postsCount ?? item.posts),
+          url: stringValue(item.url ?? item.inputUrl),
+        }));
+      }
+      if (tiktok_profiles?.length) {
+        const actorId = await getConfiguredActor("tiktok_content");
+        const items = await runActorSync(actorId, {
+          profiles: tiktok_profiles.map(stripAtSign),
+          resultsPerPage: max_items ?? 12,
+          shouldDownloadVideos: false,
+          shouldDownloadCovers: false,
+          shouldDownloadSlideshowImages: false,
+          shouldDownloadSubtitles: false,
+        }, { max_items: max_items ?? 12 });
+        benchmark.tiktok_competitors = aggregateTikTokProfileRows(items.map(asRecord));
+      }
+      const summary = await summarizeStructured(
+        "Eres un estratega competitivo en social media. Compara a DNA Music con competidores y devuelve JSON con benchmark, gaps, notable_competitors, and opportunities.",
+        benchmark,
+        benchmark
+      );
+      return { content: [{ type: "text" as const, text: JSON.stringify(summary, null, 2) }] };
+    }
+  );
 }
 
 type CommentRow = {
@@ -400,6 +571,34 @@ function fallbackTranscriptSummary(items: Array<{ title: string; url: string; tr
       "Detectar módulos o conceptos que se repiten y convertirlos en series editoriales.",
     ],
   };
+}
+
+function normalizeInstagramProfileUrl(value: string) {
+  const clean = value.trim();
+  if (clean.includes("instagram.com/")) return clean;
+  return `https://www.instagram.com/${clean.replace(/^@/, "")}/`;
+}
+
+function stripAtSign(value: string) {
+  return value.replace(/^@/, "").trim();
+}
+
+function aggregateTikTokProfileRows(items: JsonRecord[]) {
+  const grouped = new Map<string, { handle: string; videos: number; total_views: number; total_likes: number; total_comments: number; sample_urls: string[] }>();
+  for (const item of items) {
+    const authorMeta = asRecord(item.authorMeta);
+    const handle = stripAtSign(stringValue(authorMeta.name ?? authorMeta.nickName ?? authorMeta.userName ?? item.author ?? item.authorName ?? item.profileName));
+    if (!handle) continue;
+    const row = grouped.get(handle) ?? { handle, videos: 0, total_views: 0, total_likes: 0, total_comments: 0, sample_urls: [] };
+    row.videos += 1;
+    row.total_views += numberValue(item.playCount ?? item.plays ?? item.views) ?? 0;
+    row.total_likes += numberValue(item.diggCount ?? item.likes) ?? 0;
+    row.total_comments += numberValue(item.commentCount ?? item.comments) ?? 0;
+    const url = stringValue(item.webVideoUrl ?? item.url);
+    if (url && row.sample_urls.length < 3) row.sample_urls.push(url);
+    grouped.set(handle, row);
+  }
+  return [...grouped.values()];
 }
 
 async function summarizeStructured(systemPrompt: string, payload: unknown, fallback: unknown) {
