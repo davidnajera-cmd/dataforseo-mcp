@@ -3,6 +3,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { collectSeoDashboardData } from "./dashboard-data.js";
+import { collectSocialDashboardData } from "./social-dashboard-data.js";
 import { listDashboardSnapshots, saveDashboardSnapshot } from "./dashboard-store.js";
 import { runSeoConnectivityChecks } from "./seo-connectivity.js";
 import {
@@ -50,6 +51,24 @@ app.get("/api/seo-dashboard", async (req, res) => {
     res.status(500).json({
       error: "seo_dashboard_failed",
       message: error instanceof Error ? error.message : "Unexpected dashboard error",
+    });
+  }
+});
+
+app.get("/api/social-dashboard", async (req, res) => {
+  try {
+    const data = await collectSocialDashboardData({
+      country: req.query.country as never,
+      timeframe: req.query.timeframe as never,
+      channel: req.query.channel as never,
+      startDate: typeof req.query.startDate === "string" ? req.query.startDate : undefined,
+      endDate: typeof req.query.endDate === "string" ? req.query.endDate : undefined,
+    });
+    res.json(data);
+  } catch (error) {
+    res.status(500).json({
+      error: "social_dashboard_failed",
+      message: error instanceof Error ? error.message : "Unexpected social dashboard error",
     });
   }
 });

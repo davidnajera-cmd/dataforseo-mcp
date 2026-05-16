@@ -42,6 +42,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^social_tiktok_comments$/,
     /^social_instagram_scraper$/,
     /^social_youtube_transcript$/,
+    /^zernio_/,
     /^market_news_monitor$/,
     /^market_reddit_intelligence$/,
     // Local + content crawl
@@ -94,6 +95,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^social_tiktok_/,
     /^social_instagram_scraper$/,
     /^social_youtube_transcript$/,
+    /^zernio_/,
     /^ai_optimization_/,
     /^market_news_monitor$/,
     /^local_google_maps_scraper$/,
@@ -112,6 +114,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^seo_legacy_redirect_audit$/,
     /^snapshot_/,
     /^keyword_universe_/,
+    /^zernio_/,
   ],
 };
 
