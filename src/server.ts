@@ -78,6 +78,9 @@ If you are answering a question and your only source for a claim is a tool resul
 - "What pages have UX issues?" -> clarity_traffic_overview, clarity_traffic_by_page
 - "What sessions/conversions do I have?" -> ga4_run_report
 - "How did rankings evolve over time?" -> history_keyword_ranking, history_domain_rankings
+- "How are my social comments / audience / post metrics behaving?" -> zernio_comments_posts_list, zernio_comments_get_post_comments, zernio_analytics_posts, zernio_analytics_daily_metrics
+- "What is the best social posting cadence / timing?" -> zernio_analytics_best_time, zernio_analytics_posting_frequency, zernio_analytics_content_decay
+- "What do my social videos actually say?" -> social_youtube_transcript, serp_youtube_video_subtitles_live
 - "What programs/materias does DNA Music offer in CO?" -> brand_dna_offer_summary
 - "Which page should this query rank with?" -> brand_map_keyword_to_program
 - "Generate Course schema for a program" -> brand_generate_course_schema
@@ -118,7 +121,8 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - history_*, keyword_universe_*, snapshot_* : historical persistence and snapshots
 - backlog_*, agent_runs_* : SEO Agent backlog (DeepSeek + Opus tasks)
 - brand_* : DNA Music academic catalog (Colombia only)
-- zernio_* : social media profiles, connected accounts, OAuth connect flows, generic publishing, and platform-specific Instagram/TikTok posting tools via Zernio
+- zernio_* : social media profiles, connected accounts, comments inbox, analytics, OAuth connect flows, generic publishing, and platform-specific Instagram/TikTok tools via Zernio
+- social_* : social intelligence scrapers (TikTok comments/content, Instagram scraping, YouTube transcripts)
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
 export function createServer(options: { bundle?: BundleName } = {}): McpServer {

@@ -27,6 +27,8 @@ const postStatus = z.enum(["draft", "scheduled", "published", "failed"]);
 const mediaType = z.enum(["image", "video", "carousel", "document"]);
 const instagramMediaType = z.enum(["image", "video"]);
 const tiktokPrivacyLevel = z.enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]);
+const analyticsSource = z.enum(["all", "late", "external"]);
+const analyticsMetricType = z.enum(["time_series", "total_value"]);
 
 const mediaItemSchema = z.object({
   type: mediaType.describe("Media type recognized by Zernio."),
@@ -224,6 +226,253 @@ export function registerZernioTools(server: McpServer) {
         queuedFromProfile: queued_from_profile,
         queueId: queue_id,
         metadata,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_comments_posts_list",
+    "List social posts that currently have comments across connected accounts. Good first step before drilling into comment threads.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platform: z.enum(["facebook", "instagram", "twitter", "bluesky", "threads", "youtube", "linkedin", "reddit", "metaads"]).optional().describe("Filter by platform."),
+      account_id: z.string().optional().describe("Filter by connected social account ID."),
+      min_comments: z.number().int().min(0).optional().describe("Only return posts with at least this many comments."),
+      since: z.string().optional().describe("ISO datetime lower bound for post creation."),
+      sort_by: z.enum(["date", "comments"]).optional(),
+      sort_order: z.enum(["asc", "desc"]).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+      cursor: z.string().optional().describe("Pagination cursor from a previous response."),
+    },
+    async ({ profile_id, platform, account_id, min_comments, since, sort_by, sort_order, limit, cursor }) => {
+      const result = await zernioGet("/inbox/comments", {
+        profileId: profile_id ?? await getDefaultZernioProfileId(),
+        platform,
+        accountId: account_id,
+        minComments: min_comments,
+        since,
+        sortBy: sort_by,
+        sortOrder: sort_order,
+        limit: limit ?? 50,
+        cursor,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_comments_get_post_comments",
+    "Fetch comments for a specific social post. Use this to read real audience feedback thread-by-thread.",
+    {
+      post_id: z.string().describe("Zernio post ID or platform-native post ID."),
+      account_id: z.string().describe("Connected social account ID that owns the post."),
+      cursor: z.string().optional().describe("Pagination cursor from a previous response."),
+      limit: z.number().int().min(1).max(100).optional().describe("Page size. Default 50."),
+    },
+    async ({ post_id, account_id, cursor, limit }) => {
+      const result = await zernioGet(`/inbox/comments/${encodeURIComponent(post_id)}`, {
+        accountId: account_id,
+        cursor,
+        limit: limit ?? 50,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_analytics_posts",
+    "Get post-level analytics. With post_id, fetches a single post's metrics; without it, returns a filtered list with overview stats.",
+    {
+      post_id: z.string().optional().describe("Specific Zernio post ID or external post ID."),
+      profile_id: z.string().optional().describe("Filter analytics by Zernio profile ID."),
+      account_id: z.string().optional().describe("Filter analytics by connected account."),
+      platform: zernioPlatform.optional().describe("Filter by platform."),
+      source: analyticsSource.optional().describe("Whether to analyze all, only Zernio-published, or only external/imported posts."),
+      from_date: z.string().optional().describe("Lower date bound YYYY-MM-DD. Defaults to 90 days ago in Zernio."),
+      to_date: z.string().optional().describe("Upper date bound YYYY-MM-DD."),
+      sort_by: z.enum(["date", "engagement", "impressions", "reach", "likes", "comments", "shares", "saves", "clicks", "views"]).optional(),
+      order: z.enum(["asc", "desc"]).optional(),
+      page: z.number().int().min(1).optional(),
+      limit: z.number().int().min(1).max(100).optional(),
+    },
+    async ({ post_id, profile_id, account_id, platform, source, from_date, to_date, sort_by, order, page, limit }) => {
+      const result = await zernioGet("/analytics", {
+        postId: post_id,
+        profileId: profile_id,
+        accountId: account_id,
+        platform,
+        source: source ?? "all",
+        fromDate: from_date,
+        toDate: to_date,
+        sortBy: sort_by,
+        order,
+        page,
+        limit: limit ?? 50,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_analytics_daily_metrics",
+    "Get daily aggregated social metrics plus platform breakdown. Useful for growth curves, engagement velocity, and cross-platform trend analysis.",
+    {
+      profile_id: z.string().optional().describe("Filter by profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platform: zernioPlatform.optional().describe("Filter by platform."),
+      from_date: z.string().optional().describe("Lower date bound YYYY-MM-DD."),
+      to_date: z.string().optional().describe("Upper date bound YYYY-MM-DD."),
+    },
+    async ({ profile_id, platform, from_date, to_date }) => {
+      const result = await zernioGet("/analytics/daily-metrics", {
+        profileId: profile_id ?? await getDefaultZernioProfileId(),
+        platform,
+        fromDate: from_date,
+        toDate: to_date,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_analytics_best_time",
+    "Get best times to post based on historical engagement. Best used for content scheduling strategy per platform/account.",
+    {
+      profile_id: z.string().optional().describe("Filter by profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platform: zernioPlatform.optional().describe("Filter by platform."),
+      account_id: z.string().optional().describe("Filter by connected account."),
+      source: analyticsSource.optional().describe("Whether to use all posts, only Zernio-published, or only external/imported posts."),
+    },
+    async ({ profile_id, platform, account_id, source }) => {
+      const result = await zernioGet("/analytics/best-time", {
+        profileId: profile_id ?? await getDefaultZernioProfileId(),
+        platform,
+        accountId: account_id,
+        source: source ?? "all",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_analytics_posting_frequency",
+    "Analyze the relationship between posting frequency and engagement rate. Helps find the right cadence by platform.",
+    {
+      profile_id: z.string().optional().describe("Filter by profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platform: zernioPlatform.optional().describe("Filter by platform."),
+      account_id: z.string().optional().describe("Filter by connected account."),
+      source: analyticsSource.optional().describe("Whether to use all posts, only Zernio-published, or only external/imported posts."),
+    },
+    async ({ profile_id, platform, account_id, source }) => {
+      const result = await zernioGet("/analytics/posting-frequency", {
+        profileId: profile_id ?? await getDefaultZernioProfileId(),
+        platform,
+        accountId: account_id,
+        source: source ?? "all",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_analytics_content_decay",
+    "Measure how fast posts lose engagement after publishing. Useful for creative lifecycle analysis and repost decisions.",
+    {
+      profile_id: z.string().optional().describe("Filter by profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      platform: zernioPlatform.optional().describe("Filter by platform."),
+      account_id: z.string().optional().describe("Filter by connected account."),
+      source: analyticsSource.optional().describe("Whether to use all posts, only Zernio-published, or only external/imported posts."),
+      from_date: z.string().optional().describe("Lower date bound YYYY-MM-DD."),
+      to_date: z.string().optional().describe("Upper date bound YYYY-MM-DD."),
+    },
+    async ({ profile_id, platform, account_id, source, from_date, to_date }) => {
+      const result = await zernioGet("/analytics/content-decay", {
+        profileId: profile_id ?? await getDefaultZernioProfileId(),
+        platform,
+        accountId: account_id,
+        source: source ?? "all",
+        fromDate: from_date,
+        toDate: to_date,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_analytics_post_timeline",
+    "Get the day-by-day timeline for one post's metrics since publishing. Best for deep creative autopsies.",
+    {
+      post_id: z.string().describe("Zernio post ID or external post ID."),
+    },
+    async ({ post_id }) => {
+      const result = await zernioGet("/analytics/post-timeline", {
+        postId: post_id,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_instagram_account_insights",
+    "Get deep Instagram account-level insights such as reach, views, total interactions, comments, likes, saves, shares, and profile link taps.",
+    {
+      account_id: z.string().optional().describe("Instagram account ID. Auto-selects when only one IG account is connected in the target profile."),
+      profile_id: z.string().optional().describe("Target profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      since: z.string().optional().describe("Start date YYYY-MM-DD."),
+      until: z.string().optional().describe("End date YYYY-MM-DD."),
+      metric_type: analyticsMetricType.optional().describe("time_series for daily values, total_value for totals only."),
+      metrics: z.array(z.enum(["reach", "views", "accounts_engaged", "total_interactions", "comments", "likes", "saves", "shares", "replies", "reposts", "follows_and_unfollows", "profile_links_taps"])).optional(),
+    },
+    async ({ account_id, profile_id, since, until, metric_type, metrics }) => {
+      const target = await resolvePlatformTarget("instagram", account_id, profile_id);
+      const result = await zernioGet("/analytics/instagram/account-insights", {
+        accountId: target.accountId,
+        since,
+        until,
+        metricType: metric_type ?? "total_value",
+        metrics: metrics?.join(","),
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_instagram_demographics",
+    "Get Instagram audience demographics by age, city, country, and gender. Requires at least 100 followers per Zernio docs.",
+    {
+      account_id: z.string().optional().describe("Instagram account ID. Auto-selects when only one IG account is connected in the target profile."),
+      profile_id: z.string().optional().describe("Target profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      breakdown: z.enum(["age", "city", "country", "gender"]).optional().describe("Dimension to prioritize if you only want one slice."),
+    },
+    async ({ account_id, profile_id, breakdown }) => {
+      const target = await resolvePlatformTarget("instagram", account_id, profile_id);
+      const result = await zernioGet("/analytics/instagram/demographics", {
+        accountId: target.accountId,
+        breakdown,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_tiktok_account_insights",
+    "Get TikTok account-level insights and follower history. Zernio exposes the public TikTok metrics that are actually available via API.",
+    {
+      account_id: z.string().optional().describe("TikTok account ID. Auto-selects when only one TikTok account is connected in the target profile."),
+      profile_id: z.string().optional().describe("Target profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      since: z.string().optional().describe("Start date YYYY-MM-DD."),
+      until: z.string().optional().describe("End date YYYY-MM-DD."),
+      metric_type: analyticsMetricType.optional().describe("time_series for daily values, total_value for totals only."),
+      metrics: z.array(z.enum(["follower_count", "following_count", "likes_count", "video_count", "followers_gained", "followers_lost"])).optional(),
+    },
+    async ({ account_id, profile_id, since, until, metric_type, metrics }) => {
+      const target = await resolvePlatformTarget("tiktok", account_id, profile_id);
+      const result = await zernioGet("/analytics/tiktok/account-insights", {
+        accountId: target.accountId,
+        since,
+        until,
+        metricType: metric_type ?? "total_value",
+        metrics: metrics?.join(","),
       });
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
