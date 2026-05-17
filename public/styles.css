@@ -1502,6 +1502,69 @@ select {
   font-size: 12px;
 }
 
+.executive-narrative-grid,
+.executive-trend-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.executive-trend-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.executive-brief-card,
+.executive-trend-card {
+  min-width: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface-muted);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.executive-brief-primary {
+  background: linear-gradient(180deg, #fffefe 0%, #f5f1ff 100%);
+}
+
+.executive-brief-card span,
+.executive-trend-card span {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+}
+
+.executive-brief-card strong,
+.executive-trend-card h3 {
+  font-size: 18px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.executive-brief-card p,
+.executive-trend-card p,
+.executive-trend-row small {
+  margin: 0;
+  color: #4f4a42;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.executive-trend-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+}
+
+.executive-trend-row span {
+  min-width: 52px;
+}
+
 .tag-cloud {
   display: flex;
   flex-wrap: wrap;
@@ -1582,7 +1645,9 @@ select {
   }
   .social-executive-grid,
   .social-pipeline-grid,
-  .social-platform-grid {
+  .social-platform-grid,
+  .executive-narrative-grid,
+  .executive-trend-grid {
     grid-template-columns: 1fr;
   }
   .social-account-top {
