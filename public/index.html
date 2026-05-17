@@ -45,11 +45,11 @@
         </nav>
         <nav class="nav hidden" data-nav-module="social">
           <span class="nav-group-label">Social</span>
-          <button class="nav-item" data-module="social" data-view="social_overview">Overview Social</button>
-          <button class="nav-item" data-module="social" data-view="social_accounts">Cuentas conectadas</button>
-          <button class="nav-item" data-module="social" data-view="social_publishing">Publicacion</button>
-          <button class="nav-item" data-module="social" data-view="social_instagram">Instagram</button>
-          <button class="nav-item" data-module="social" data-view="social_tiktok">TikTok</button>
+          <button class="nav-item" data-module="social" data-view="social_overview">Radar social</button>
+          <button class="nav-item" data-module="social" data-view="social_accounts">Canales y activos</button>
+          <button class="nav-item" data-module="social" data-view="social_publishing">Pipeline editorial</button>
+          <button class="nav-item" data-module="social" data-view="social_instagram">Instagram intelligence</button>
+          <button class="nav-item" data-module="social" data-view="social_tiktok">TikTok intelligence</button>
           <button class="nav-item" data-module="social" data-view="variables">Variables</button>
         </nav>
         <div class="sidebar-footer">
@@ -224,11 +224,61 @@
             <div id="opportunities" class="action-list"></div>
           </div>
 
+          <div class="panel wide" data-section="social_overview social_accounts social_publishing social_instagram social_tiktok">
+            <div class="panel-head">
+              <div>
+                <span>Executive</span>
+                <h2>Radar ejecutivo</h2>
+              </div>
+            </div>
+            <div id="socialExecutiveSummary" class="social-executive-grid"></div>
+          </div>
+
+          <div class="panel wide" data-section="social_overview social_publishing social_instagram social_tiktok">
+            <div class="panel-head">
+              <div>
+                <span>Tendencia</span>
+                <h2>Momentum de performance</h2>
+              </div>
+            </div>
+            <div id="socialTrendChart" class="chart social-trend-chart"></div>
+          </div>
+
+          <div class="panel wide" data-section="social_overview social_accounts social_instagram social_tiktok">
+            <div class="panel-head">
+              <div>
+                <span>Platforms</span>
+                <h2>Salud por plataforma</h2>
+              </div>
+            </div>
+            <div id="socialPlatformBoard" class="social-platform-board"></div>
+          </div>
+
+          <div class="panel" data-section="social_overview social_publishing">
+            <div class="panel-head">
+              <div>
+                <span>Publishing</span>
+                <h2>Pipeline editorial</h2>
+              </div>
+            </div>
+            <div id="socialPipelineStats" class="social-pipeline-grid"></div>
+          </div>
+
+          <div class="panel wide" data-section="social_overview social_publishing social_instagram social_tiktok">
+            <div class="panel-head">
+              <div>
+                <span>Decisioning</span>
+                <h2>Acciones prioritarias</h2>
+              </div>
+            </div>
+            <div id="socialActionCenter" class="action-list"></div>
+          </div>
+
           <div class="panel wide" data-section="social_overview social_instagram social_tiktok">
             <div class="panel-head">
               <div>
                 <span>Social</span>
-                <h2>Resumen de redes</h2>
+                <h2>Snapshot de canales</h2>
               </div>
             </div>
             <div id="socialSummary" class="social-summary-grid"></div>
