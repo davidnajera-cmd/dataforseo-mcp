@@ -24,12 +24,17 @@
           </div>
         </div>
         <div class="module-switcher" role="tablist" aria-label="Modulos principales">
-          <button class="module-tab is-active" data-module="seo" role="tab" aria-selected="true">SEO</button>
+          <button class="module-tab is-active" data-module="executive" role="tab" aria-selected="true">Executive</button>
+          <button class="module-tab" data-module="seo" role="tab" aria-selected="false">SEO</button>
           <button class="module-tab" data-module="social" role="tab" aria-selected="false">Redes Sociales</button>
         </div>
-        <nav class="nav" data-nav-module="seo">
+        <nav class="nav" data-nav-module="executive">
+          <span class="nav-group-label">Executive</span>
+          <button class="nav-item is-active" data-module="executive" data-view="executive_overview">Executive Overview</button>
+        </nav>
+        <nav class="nav hidden" data-nav-module="seo">
           <span class="nav-group-label">SEO</span>
-          <button class="nav-item is-active" data-module="seo" data-view="overview">Overview SEO</button>
+          <button class="nav-item" data-module="seo" data-view="overview">Overview SEO</button>
           <button class="nav-item" data-module="seo" data-view="backlog">Backlog SEO</button>
           <button class="nav-item" data-module="seo" data-view="monthly">Dashboard Mensual</button>
           <button class="nav-item" data-module="seo" data-view="weekly">Dashboard Semanal</button>
@@ -62,8 +67,8 @@
         <header class="topbar">
           <button id="sidebarToggle" class="icon-button" aria-label="Toggle sidebar">☰</button>
           <div class="topbar-title">
-            <span id="moduleEyebrow">SEO Module</span>
-            <strong id="pageTitle">Overview SEO</strong>
+            <span id="moduleEyebrow">Executive Overview</span>
+            <strong id="pageTitle">Executive Overview</strong>
           </div>
           <form id="filters" class="filters">
             <label>
@@ -117,6 +122,66 @@
         <section id="benchmarkBoard" class="benchmark-board" aria-label="Benchmark operativo"></section>
 
         <section class="content-grid">
+          <div class="panel wide" data-section="executive">
+            <div class="panel-head">
+              <div>
+                <span>Cross-channel</span>
+                <h2>Lectura ejecutiva</h2>
+              </div>
+            </div>
+            <div id="executiveNarrative" class="executive-narrative-grid"></div>
+          </div>
+
+          <div class="panel" data-section="executive">
+            <div class="panel-head">
+              <div>
+                <span>Demand</span>
+                <h2>SEO snapshot</h2>
+              </div>
+            </div>
+            <div id="executiveSeoSnapshot" class="stack"></div>
+          </div>
+
+          <div class="panel" data-section="executive">
+            <div class="panel-head">
+              <div>
+                <span>Community</span>
+                <h2>Social snapshot</h2>
+              </div>
+            </div>
+            <div id="executiveSocialSnapshot" class="stack"></div>
+          </div>
+
+          <div class="panel wide" data-section="executive">
+            <div class="panel-head">
+              <div>
+                <span>Momentum</span>
+                <h2>Tendencia comparada</h2>
+              </div>
+            </div>
+            <div id="executiveTrendBlend" class="executive-trend-grid"></div>
+          </div>
+
+          <div class="panel" data-section="executive">
+            <div class="panel-head">
+              <div>
+                <span>Priorities</span>
+                <h2>Agenda de decisión</h2>
+              </div>
+            </div>
+            <div id="executiveOpportunityBoard" class="stack"></div>
+          </div>
+
+          <div class="panel" data-section="executive">
+            <div class="panel-head">
+              <div>
+                <span>Stack</span>
+                <h2>Estado de fuentes</h2>
+              </div>
+            </div>
+            <div id="executiveSourceBoard" class="stack"></div>
+          </div>
+
           <div class="panel wide" data-section="overview monthly weekly">
             <div class="panel-head">
               <div>

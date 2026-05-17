@@ -1,11 +1,19 @@
 const state = {
-  module: "seo",
-  view: "overview",
+  module: "executive",
+  view: "executive_overview",
   data: null,
   socialData: null,
+  executiveData: null,
 };
 
 const modules = {
+  executive: {
+    eyebrow: "Executive Overview",
+    defaultView: "executive_overview",
+    views: {
+      executive_overview: "Executive Overview",
+    },
+  },
   seo: {
     eyebrow: "Modulo SEO",
     defaultView: "overview",
@@ -86,7 +94,8 @@ document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
 });
 
 filters.addEventListener("change", () => {
-  if (state.module === "social" && state.view !== "variables") loadSocialDashboard();
+  if (state.module === "executive") loadExecutiveOverview();
+  else if (state.module === "social" && state.view !== "variables") loadSocialDashboard();
   else if (state.view !== "variables" && state.view !== "backlog") loadDashboard();
 });
 document.querySelector("#refreshVariables")?.addEventListener("click", () => loadVariables());
@@ -111,6 +120,10 @@ function setView(view) {
   state.view = view;
   document.querySelector("#pageTitle").textContent = modules[state.module].views[view];
   navItems.forEach((button) => button.classList.toggle("is-active", button.dataset.module === state.module && button.dataset.view === view));
+  if (state.module === "executive") {
+    loadExecutiveOverview();
+    return;
+  }
   if (state.module === "social") {
     if (view === "variables") {
       updateSectionVisibility();
@@ -164,6 +177,28 @@ async function loadSocialDashboard() {
   }
 }
 
+async function loadExecutiveOverview() {
+  const params = new URLSearchParams(new FormData(filters));
+  setLoading(true);
+  try {
+    const [seoResponse, socialResponse] = await Promise.all([
+      fetch(`/api/seo-dashboard?${params}`),
+      fetch(`/api/social-dashboard?${params}`),
+    ]);
+    if (!seoResponse.ok) throw new Error(`SEO HTTP ${seoResponse.status}`);
+    if (!socialResponse.ok) throw new Error(`Social HTTP ${socialResponse.status}`);
+    const [seo, social] = await Promise.all([seoResponse.json(), socialResponse.json()]);
+    state.data = seo;
+    state.socialData = social;
+    state.executiveData = { seo, social };
+    renderExecutiveOverview(state.executiveData);
+  } catch (error) {
+    document.querySelector("#summary").textContent = `No se pudo cargar el executive overview: ${error.message}`;
+  } finally {
+    setLoading(false);
+  }
+}
+
 function setLoading(isLoading) {
   document.querySelector("#freshness").textContent = isLoading ? "Sincronizando" : "Actualizado";
 }
@@ -187,6 +222,29 @@ function render(data) {
   renderAiVisibility(data.ai_visibility);
   renderBacklinks(data.backlinks);
   renderHistory(data.history_summary);
+  updateSectionVisibility();
+}
+
+function renderExecutiveOverview(bundle) {
+  const seo = bundle.seo;
+  const social = bundle.social;
+  const intel = deriveSocialIntelligence(social.social);
+  const generatedAt = latestGeneratedAt([seo.generatedAt, social.generatedAt]);
+  const combined = buildExecutiveOverviewModel(seo, social, intel);
+  document.querySelector("#verdict").textContent = combined.verdict;
+  document.querySelector("#summary").textContent = combined.summary;
+  document.querySelector("#freshness").textContent = formatFreshness(generatedAt);
+  renderSources(combined.sources);
+  renderMetrics(combined.metrics);
+  renderCommandDeck(combined.deck);
+  renderSignalRail(combined.signals);
+  renderInsightMatrix(combined.insights);
+  renderBenchmarkBoard(combined.benchmarks);
+  renderExecutiveNarrativePanel(combined);
+  renderExecutiveSnapshots(seo, social, intel);
+  renderExecutiveTrendBlend(seo, social, intel);
+  renderExecutiveOpportunityBoard(seo, social, intel);
+  renderExecutiveSourceBoard(combined.sources);
   updateSectionVisibility();
 }
 
@@ -462,6 +520,224 @@ function renderBenchmarkBoard(rows) {
       `).join("")}
     </div>
   `;
+}
+
+function buildExecutiveOverviewModel(seo, social, intel) {
+  const seoClicks = Number(seo.overview?.metrics?.[0]?.value) || 0;
+  const socialFollowers = Number(intel.audience?.totalFollowers) || 0;
+  const socialLeads = Number(intel.community?.leadSignals) || 0;
+  const seoTop10 = Number(seo.keywords?.top10) || 0;
+  const seoTechnical = Number(seo.technical?.score) || 0;
+  const socialReadiness = Number(intel.operations?.publishReadyRate) || 0;
+  const socialPerformance = Number(intel.performance?.avgEngagementRate) || 0;
+  const opportunity = seo.business?.opportunities?.[0];
+  const topPlatform = intel.platforms?.[0];
+  const combinedSources = dedupeSources([...toArray(seo.sources), ...toArray(social.sources)]);
+  const liveSources = combinedSources.filter((item) => item.status === "live").length;
+  const metricBlend = Math.min(100, Math.round((Math.min(seoTop10, 40) * 1.4) + (Math.min(socialPerformance, 10) * 4)));
+  const demandBlend = Math.min(100, Math.round((Math.min(seoClicks, 10000) / 10000) * 50 + (Math.min(socialFollowers, 100000) / 100000) * 50));
+  const riskScore = Math.max(0, 100 - Math.min(100, (toArray(social.social?.reputation_alerts).length * 14) + (seoTechnical < 80 ? 22 : 0)));
+  return {
+    verdict: "Executive signal en vivo",
+    summary: "Lectura unificada de demanda, comunidad, operación y riesgo para priorizar mejor SEO y Social desde una sola superficie.",
+    metrics: [
+      { label: "Search demand", value: displayValue(seoClicks), delta: seo.overview?.metrics?.[0]?.delta ?? 0, detail: `${displayValue(seoTop10)} keywords Top 10`, source: "Search Console" },
+      { label: "Audience base", value: displayValue(socialFollowers), delta: 0, detail: `${displayValue(intel.audience?.activePlatforms)} plataformas activas`, source: "Zernio" },
+      { label: "Commercial signals", value: displayValue(socialLeads), delta: 0, detail: `${displayValue(toArray(social.social?.reputation_alerts).length)} alertas reputacionales`, source: "Comments + Zernio" },
+      { label: "Execution readiness", value: displayValue(Math.round((seoTechnical + socialReadiness) / 2)), delta: 0, detail: `${displayValue(seoTechnical)} technical · ${displayValue(socialReadiness, "%")} social`, source: "PageSpeed + Zernio" },
+    ],
+    deck: [
+      {
+        kicker: "Command",
+        title: "Demanda + comunidad",
+        value: displayValue(demandBlend, "%"),
+        body: `${displayValue(seoClicks)} clics orgánicos y ${displayValue(socialFollowers)} seguidores activos ya permiten operar el sistema como un frente integrado, no como dos canales aislados.`,
+        tone: "primary",
+        meta: [
+          { label: "Canal líder", value: topPlatform ? capitalize(topPlatform.platform) : "Sin líder", note: topPlatform ? `${displayValue(topPlatform.followers)} followers` : "Sin datos" },
+          { label: "Search posture", value: displayValue(seoTop10), note: "keywords en Top 10" },
+        ],
+      },
+      {
+        kicker: "Revenue pressure",
+        title: "Señales comerciales",
+        value: displayValue(socialLeads),
+        body: `${displayValue(intel.community?.responsePressure)} fricciones/preguntas activas están entrando por comunidad, así que Social ya opera como superficie de captura y contención.`,
+        meta: [
+          { label: "Opportunity", value: opportunity?.title || "Mantener seguimiento", note: opportunity?.priority || "Baja" },
+        ],
+      },
+      {
+        kicker: "Ops health",
+        title: "Capacidad de ejecución",
+        value: displayValue(Math.round((seoTechnical + socialReadiness) / 2)),
+        body: `La base técnica SEO marca ${displayValue(seoTechnical)} y la readiness social ${displayValue(socialReadiness, "%")}. Esto define cuánto puede acelerar el sistema sin perder calidad.`,
+        meta: [
+          { label: "Social readiness", value: displayValue(socialReadiness, "%"), note: `${displayValue(intel.operations?.accountsReady)} cuentas listas` },
+        ],
+      },
+      {
+        kicker: "Source health",
+        title: "Cobertura de medición",
+        value: `${liveSources}/${combinedSources.length}`,
+        body: "La lectura ejecutiva depende de mantener vivo el stack de fuentes, no solo de mirar números bonitos.",
+        wide: true,
+        sourceRows: combinedSources.map((source) => ({ label: source.name, value: source.status, note: source.message })),
+      },
+    ],
+    signals: [
+      { kicker: "SEO", title: "Search pulse", value: displayValue(seoClicks), note: `${displayValue(seoTop10)} Top 10 activas`, status: "live" },
+      { kicker: "Social", title: "Audience pulse", value: displayValue(socialFollowers), note: topPlatform ? `${capitalize(topPlatform.platform)} lidera` : "Sin líder claro", status: "live" },
+      { kicker: "Ops", title: "Execution blend", value: displayValue(Math.round((seoTechnical + socialReadiness) / 2)), note: "Promedio entre técnica y publishing readiness", status: seoTechnical < 80 || socialReadiness < 70 ? "pending" : "live" },
+      { kicker: "Risk", title: "Risk floor", value: displayValue(riskScore, "%"), note: `${displayValue(toArray(social.social?.reputation_alerts).length)} alertas sociales · score técnico ${displayValue(seoTechnical)}`, status: riskScore < 60 ? "pending" : "live" },
+    ],
+    insights: [
+      { kicker: "Now", title: "Dónde está la tracción", value: topPlatform ? capitalize(topPlatform.platform) : "SEO", body: topPlatform ? `${capitalize(topPlatform.platform)} concentra la mayor base de audiencia, mientras SEO sigue capturando intención activa con ${displayValue(seoClicks)} clics.` : `SEO concentra hoy la mejor señal visible de intención.`, meta: "Usa el canal fuerte para distribuir y el otro para convertir.", priority: "Acelerar", priorityTone: "live", tone: "accent" },
+      { kicker: "Friction", title: "Qué puede trabar crecimiento", value: displayValue(toArray(social.social?.reputation_alerts).length), body: seoTechnical < 80 ? "La técnica aún puede frenar crecimiento sostenible." : "La mayor fricción hoy está más en comunidad y operación que en técnica.", meta: `${displayValue(intel.community?.responsePressure)} señales de respuesta pendientes`, priority: seoTechnical < 80 ? "Atender" : "Responder", priorityTone: "pending" },
+      { kicker: "Leverage", title: "Mejor palanca inmediata", value: opportunity?.priority || "Media", body: opportunity?.action || "Toma el contenido SEO con más tracción y conviértelo en secuencia social para amplificar demanda con un CTA claro.", meta: opportunity?.title || "Sin palanca declarada", priority: "Ejecutar", priorityTone: "live" },
+      { kicker: "Cadence", title: "Ritmo del sistema", value: displayValue(intel.pipeline?.postsPerWeek), body: `${displayValue(intel.pipeline?.scheduleCoverage, "%")} del pipeline social está agendado. Eso marca qué tan predecible es el frente de awareness y nurturing.`, meta: seo.overview?.metrics?.[3]?.detail || "Search Console", priority: intel.pipeline?.scheduleCoverage < 40 ? "Completar" : "Estable", priorityTone: intel.pipeline?.scheduleCoverage < 40 ? "pending" : "live" },
+    ],
+    benchmarks: [
+      { kicker: "Blend", label: "Demand engine", score: demandBlend, scoreLabel: displayValue(demandBlend, "%"), note: "Combina demanda orgánica y masa social para leer fuerza del sistema.", tone: benchmarkTone(demandBlend) },
+      { kicker: "Creative", label: "Content + engagement", score: metricBlend, scoreLabel: displayValue(metricBlend, "%"), note: `${displayValue(seoTop10)} keywords y ${displayValue(socialPerformance, "%")} ER media como señal de contenido que sí mueve atención.`, tone: benchmarkTone(metricBlend) },
+      { kicker: "Ops", label: "Execution resilience", score: Math.round((seoTechnical + socialReadiness) / 2), scoreLabel: displayValue(Math.round((seoTechnical + socialReadiness) / 2), "%"), note: "Promedia robustez técnica con readiness social.", tone: benchmarkTone(Math.round((seoTechnical + socialReadiness) / 2)) },
+      { kicker: "Risk", label: "Risk stability", score: riskScore, scoreLabel: displayValue(riskScore, "%"), note: "Mide si el sistema puede crecer sin ruido reputacional o fragilidad operativa.", tone: benchmarkTone(riskScore) },
+      { kicker: "Stack", label: "Measurement coverage", score: combinedSources.length ? Math.round((liveSources / combinedSources.length) * 100) : 0, scoreLabel: displayValue(combinedSources.length ? Math.round((liveSources / combinedSources.length) * 100) : 0, "%"), note: `${liveSources}/${combinedSources.length} fuentes críticas vivas.`, tone: benchmarkTone(combinedSources.length ? Math.round((liveSources / combinedSources.length) * 100) : 0) },
+    ],
+    sources: combinedSources,
+  };
+}
+
+function dedupeSources(sources) {
+  const map = new Map();
+  for (const source of toArray(sources)) {
+    const key = source.name || Math.random().toString(36);
+    if (!map.has(key)) map.set(key, source);
+    else {
+      const current = map.get(key);
+      if ((current.status !== "live" && source.status === "live") || (current.message || "").length < (source.message || "").length) {
+        map.set(key, source);
+      }
+    }
+  }
+  return [...map.values()];
+}
+
+function renderExecutiveNarrativePanel(model) {
+  const target = document.querySelector("#executiveNarrative");
+  if (!target) return;
+  target.innerHTML = `
+    <article class="executive-brief-card executive-brief-primary">
+      <span>Lectura principal</span>
+      <strong>El sistema ya se puede gestionar por flujos, no por silos.</strong>
+      <p>${esc(model.summary)}</p>
+    </article>
+    <article class="executive-brief-card">
+      <span>Foco de crecimiento</span>
+      <strong>Capturar demanda y redistribuirla mejor.</strong>
+      <p>SEO está trayendo intención activa; Social debe amplificar, nutrir y recoger fricción comercial en comentarios.</p>
+    </article>
+    <article class="executive-brief-card">
+      <span>Foco de control</span>
+      <strong>Proteger el ritmo operativo.</strong>
+      <p>La mezcla entre salud técnica, readiness de cuentas y cobertura de pipeline define cuánto podemos acelerar sin perder claridad.</p>
+    </article>
+  `;
+}
+
+function renderExecutiveSnapshots(seo, social, intel) {
+  const seoTarget = document.querySelector("#executiveSeoSnapshot");
+  const socialTarget = document.querySelector("#executiveSocialSnapshot");
+  if (seoTarget) {
+    seoTarget.innerHTML = `
+      <div class="row"><strong>Clics orgánicos</strong><span>${displayValue(seo.overview?.metrics?.[0]?.value)}</span></div>
+      <div class="row"><strong>Keywords Top 10</strong><span>${displayValue(seo.keywords?.top10)}</span></div>
+      <div class="row"><strong>CTR promedio</strong><span>${seo.overview?.metrics?.[3]?.value ?? "Sin datos"}</span></div>
+      <div class="row"><strong>Top page</strong><span>${stripUrl(seo.content?.topPages?.[0]?.path) || "Sin datos"}</span></div>
+      <div class="row"><strong>Salud técnica</strong><span>${displayValue(seo.technical?.score)}</span></div>
+    `;
+  }
+  if (socialTarget) {
+    socialTarget.innerHTML = `
+      <div class="row"><strong>Followers</strong><span>${displayValue(intel.audience?.totalFollowers)}</span></div>
+      <div class="row"><strong>ER media</strong><span>${displayValue(intel.performance?.avgEngagementRate, "%")}</span></div>
+      <div class="row"><strong>Lead signals</strong><span>${displayValue(intel.community?.leadSignals)}</span></div>
+      <div class="row"><strong>Publish-ready</strong><span>${displayValue(intel.operations?.publishReadyRate, "%")}</span></div>
+      <div class="row"><strong>Best slot</strong><span>${formatBestSlot(social.social?.calendar?.bestSlots?.[0])}</span></div>
+    `;
+  }
+}
+
+function renderExecutiveTrendBlend(seo, social, intel) {
+  const target = document.querySelector("#executiveTrendBlend");
+  if (!target) return;
+  const seoTrend = toArray(seo.trends).slice(-6);
+  const socialTrend = toArray(intel.trendSeries).slice(-6);
+  const seoRows = seoTrend.length ? seoTrend.map((point) => `
+    <div class="executive-trend-row">
+      <span>${esc(formatTrendLabel(point.label))}</span>
+      <div class="bar"><span style="width:${Math.max(6, Math.min(100, Math.round(((point.organic || 0) / Math.max(1, ...seoTrend.map((item) => item.organic || 0))) * 100)))}%"></span></div>
+      <small>${displayValue(point.organic)} clics</small>
+    </div>
+  `).join("") : `<div class="empty-state">Sin tendencia SEO suficiente.</div>`;
+  const socialRows = socialTrend.length ? socialTrend.map((point) => `
+    <div class="executive-trend-row">
+      <span>${esc(point.label)}</span>
+      <div class="bar"><span style="width:${Math.max(6, Math.min(100, Math.round(((point.reach || 0) / Math.max(1, ...socialTrend.map((item) => item.reach || 0))) * 100)))}%"></span></div>
+      <small>${displayValue(point.reach)} reach</small>
+    </div>
+  `).join("") : `<div class="empty-state">Sin tendencia social suficiente.</div>`;
+  target.innerHTML = `
+    <article class="executive-trend-card">
+      <span>SEO momentum</span>
+      <h3>Últimos cortes de search</h3>
+      <div class="stack">${seoRows}</div>
+    </article>
+    <article class="executive-trend-card">
+      <span>Social momentum</span>
+      <h3>Últimos cortes de reach</h3>
+      <div class="stack">${socialRows}</div>
+    </article>
+  `;
+}
+
+function renderExecutiveOpportunityBoard(seo, social, intel) {
+  const target = document.querySelector("#executiveOpportunityBoard");
+  if (!target) return;
+  const items = [
+    ...(seo.business?.opportunities || []).slice(0, 2).map((item) => ({
+      title: item.title,
+      body: item.action,
+      priority: item.priority || "Media",
+      tag: "SEO",
+    })),
+    ...intel.actions.slice(0, 2).map((item) => ({
+      title: item.title,
+      body: item.action,
+      priority: item.priority || "Media",
+      tag: "Social",
+    })),
+  ];
+  target.innerHTML = items.length ? items.map((item) => `
+    <div class="action-item">
+      <div>
+        <strong>${esc(item.title)}</strong>
+        <p>${esc(item.body)}</p>
+      </div>
+      <span class="badge ${item.priority === "Alta" ? "warn" : ""}">${esc(item.tag)} · ${esc(item.priority)}</span>
+    </div>
+  `).join("") : `<div class="empty-state">Sin prioridades activas todavía.</div>`;
+}
+
+function renderExecutiveSourceBoard(sources) {
+  const target = document.querySelector("#executiveSourceBoard");
+  if (!target) return;
+  target.innerHTML = `<div class="source-health-list">${toArray(sources).map((source) => `
+    <div class="source-health-row">
+      <strong>${esc(source.name)}</strong>
+      <span><strong>${esc(source.status)}</strong>${source.message ? ` <small>${esc(source.message)}</small>` : ""}</span>
+    </div>
+  `).join("")}</div>`;
 }
 
 function buildSeoInsightCards(data) {
@@ -1478,6 +1754,14 @@ function normalizeSignalStatus(status) {
   return ["live", "pending", "error", "degraded"].includes(status) ? status : "live";
 }
 
+function latestGeneratedAt(values) {
+  const timestamps = toArray(values)
+    .map((value) => new Date(value).getTime())
+    .filter((value) => Number.isFinite(value));
+  if (!timestamps.length) return new Date().toISOString();
+  return new Date(Math.max(...timestamps)).toISOString();
+}
+
 function average(values) {
   const valid = values.filter(isFiniteNumber);
   if (!valid.length) return null;
@@ -1980,4 +2264,4 @@ function capitalize(value) {
   }
 })();
 
-setModule("seo");
+setModule("executive");
