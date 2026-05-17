@@ -458,7 +458,8 @@ async function loadSocialDashboard(configs: SocialSiteConfig[], filters: Dashboa
       byPlatformMap.set(account.platform, row);
     }
     for (const post of postRows) {
-      for (const platform of post.platforms.length ? post.platforms : ["unknown"]) {
+      const platforms = Array.isArray(post.platforms) && post.platforms.length ? post.platforms : ["unknown"];
+      for (const platform of platforms) {
         const row = byPlatformMap.get(platform) ?? { platform, accounts: 0, publishReady: 0, published: 0, scheduled: 0 };
         if (post.status === "published") row.published += 1;
         if (post.status === "scheduled") row.scheduled += 1;

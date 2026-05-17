@@ -218,6 +218,10 @@ function renderSocialDashboard(data) {
   updateSectionVisibility();
 }
 
+function toArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 function renderSources(sources) {
   document.querySelector("#sourceDots").innerHTML = sources.map((source) => (
     `<span class="source-dot ${source.status}" title="${source.name}: ${source.message}"></span>`
@@ -477,7 +481,8 @@ function renderSocialSummary(social, intel) {
 function renderSocialAccounts(accounts, note, platformFilter = null) {
   const target = document.querySelector("#socialAccounts");
   if (!target) return;
-  const visibleAccounts = platformFilter ? accounts.filter((item) => item.platform === platformFilter) : accounts;
+  const safeAccounts = toArray(accounts);
+  const visibleAccounts = platformFilter ? safeAccounts.filter((item) => item.platform === platformFilter) : safeAccounts;
   if (!visibleAccounts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin cuentas conectadas todavía.")}</div>`;
     return;
@@ -511,9 +516,10 @@ function renderSocialAccounts(accounts, note, platformFilter = null) {
 function renderSocialPosts(posts, note, platformFilter = null) {
   const target = document.querySelector("#socialPosts");
   if (!target) return;
+  const safePosts = toArray(posts);
   const visiblePosts = platformFilter
-    ? posts.filter((post) => (post.platforms || []).includes(platformFilter))
-    : posts;
+    ? safePosts.filter((post) => toArray(post.platforms).includes(platformFilter))
+    : safePosts;
   if (!visiblePosts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin posts recientes todavía.")}</div>`;
     return;
@@ -617,7 +623,7 @@ function renderSocialVoice(voice, note, platformFilter = null) {
 function renderSocialAlerts(alerts, note, platformFilter = null) {
   const target = document.querySelector("#socialAlerts");
   if (!target) return;
-  const visibleAlerts = platformFilter === "tiktok" ? [] : alerts;
+  const visibleAlerts = platformFilter === "tiktok" ? [] : toArray(alerts);
   if (!visibleAlerts || !visibleAlerts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin alertas relevantes por ahora.")}</div>`;
     return;
@@ -640,7 +646,8 @@ function renderSocialAlerts(alerts, note, platformFilter = null) {
 function renderSocialTopPosts(posts, note, platformFilter = null) {
   const target = document.querySelector("#socialTopPosts");
   if (!target) return;
-  const visiblePosts = platformFilter ? posts.filter((post) => post.platform === platformFilter) : posts;
+  const safePosts = toArray(posts);
+  const visiblePosts = platformFilter ? safePosts.filter((post) => post.platform === platformFilter) : safePosts;
   if (!visiblePosts || !visiblePosts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin top posts todavía.")}</div>`;
     return;
@@ -853,10 +860,15 @@ function renderSocialActionCenter(intel, note) {
 }
 
 function deriveSocialIntelligence(social, platformFilter = null) {
-  const accounts = platformFilter ? (social.accounts || []).filter((item) => item.platform === platformFilter) : (social.accounts || []);
-  const topPosts = platformFilter ? (social.top_posts || []).filter((item) => item.platform === platformFilter) : (social.top_posts || []);
-  const posts = platformFilter ? (social.posts || []).filter((item) => (item.platforms || []).includes(platformFilter)) : (social.posts || []);
-  const byPlatformSeed = platformFilter ? (social.by_platform || []).filter((item) => item.platform === platformFilter) : (social.by_platform || []);
+  const safeSocial = social || {};
+  const accountsBase = toArray(safeSocial.accounts);
+  const topPostsBase = toArray(safeSocial.top_posts);
+  const postsBase = toArray(safeSocial.posts);
+  const byPlatformBase = toArray(safeSocial.by_platform);
+  const accounts = platformFilter ? accountsBase.filter((item) => item.platform === platformFilter) : accountsBase;
+  const topPosts = platformFilter ? topPostsBase.filter((item) => item.platform === platformFilter) : topPostsBase;
+  const posts = platformFilter ? postsBase.filter((item) => toArray(item.platforms).includes(platformFilter)) : postsBase;
+  const byPlatformSeed = platformFilter ? byPlatformBase.filter((item) => item.platform === platformFilter) : byPlatformBase;
   const totalFollowers = accounts.reduce((sum, account) => sum + (Number(account.followers) || 0), 0);
   const avgEngagementRate = average(topPosts.map((item) => item.engagementRate).filter(isFiniteNumber));
   const avgReach = average(topPosts.map((item) => item.reach ?? item.impressions).filter(isFiniteNumber));
@@ -866,8 +878,10 @@ function deriveSocialIntelligence(social, platformFilter = null) {
   const publishedPosts = posts.filter((item) => item.status === "published").length;
   const scheduledPosts = posts.filter((item) => item.status === "scheduled").length;
   const draftPosts = posts.filter((item) => item.status === "draft").length;
-  const cadenceRows = platformFilter ? (social.calendar?.cadence || []).filter((item) => item.platform === platformFilter) : (social.calendar?.cadence || []);
-  const bestSlots = platformFilter ? (social.calendar?.bestSlots || []).filter((item) => item.platform === platformFilter) : (social.calendar?.bestSlots || []);
+  const cadenceRowsBase = toArray(safeSocial.calendar?.cadence);
+  const bestSlotsBase = toArray(safeSocial.calendar?.bestSlots);
+  const cadenceRows = platformFilter ? cadenceRowsBase.filter((item) => item.platform === platformFilter) : cadenceRowsBase;
+  const bestSlots = platformFilter ? bestSlotsBase.filter((item) => item.platform === platformFilter) : bestSlotsBase;
   const postsPerWeek = cadenceRows.reduce((sum, row) => sum + (row.postsPerWeek || 0), 0);
   const scheduleCoverage = percentage(scheduledPosts, Math.max(1, scheduledPosts + draftPosts + publishedPosts));
   const publishReadyRate = percentage(publishReadyAccounts, Math.max(1, accounts.length));
@@ -905,8 +919,8 @@ function deriveSocialIntelligence(social, platformFilter = null) {
     platformFilter,
     accounts,
     topPosts,
-    alerts: social.reputation_alerts || [],
-    voice: social.customer_voice,
+    alerts: toArray(safeSocial.reputation_alerts),
+    voice: safeSocial.customer_voice,
     cadenceRows,
     bestSlots,
     scheduleCoverage,
@@ -923,8 +937,8 @@ function deriveSocialIntelligence(social, platformFilter = null) {
     publishReadyRate,
     analyticsCoverage,
     scheduleCoverage,
-    leadSignals: social.customer_voice?.leadQuestions || 0,
-    riskAlerts: (social.reputation_alerts || []).length,
+    leadSignals: safeSocial.customer_voice?.leadQuestions || 0,
+    riskAlerts: toArray(safeSocial.reputation_alerts).length,
     bestSlots,
   });
   return {
@@ -948,9 +962,9 @@ function deriveSocialIntelligence(social, platformFilter = null) {
       accountsReady: publishReadyAccounts,
     },
     community: {
-      leadSignals: social.customer_voice?.leadQuestions || 0,
-      riskAlerts: (social.reputation_alerts || []).length,
-      responsePressure: (social.customer_voice?.negativeSignals || 0) + (social.customer_voice?.questionComments || 0),
+      leadSignals: safeSocial.customer_voice?.leadQuestions || 0,
+      riskAlerts: toArray(safeSocial.reputation_alerts).length,
+      responsePressure: (safeSocial.customer_voice?.negativeSignals || 0) + (safeSocial.customer_voice?.questionComments || 0),
     },
     pipeline: {
       published: publishedPosts,
