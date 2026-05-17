@@ -29,11 +29,11 @@ const modules = {
     eyebrow: "Modulo Redes Sociales",
     defaultView: "social_overview",
     views: {
-      social_overview: "Overview Social",
-      social_accounts: "Cuentas conectadas",
-      social_publishing: "Publicacion",
-      social_instagram: "Instagram",
-      social_tiktok: "TikTok",
+      social_overview: "Radar social",
+      social_accounts: "Canales y activos",
+      social_publishing: "Pipeline editorial",
+      social_instagram: "Instagram intelligence",
+      social_tiktok: "TikTok intelligence",
       variables: "Variables",
     },
   },
@@ -189,21 +189,32 @@ function render(data) {
 }
 
 function renderSocialDashboard(data) {
+  const platformFilter = state.view === "social_instagram"
+    ? "instagram"
+    : state.view === "social_tiktok"
+      ? "tiktok"
+      : null;
+  const intel = deriveSocialIntelligence(data.social, platformFilter);
   document.querySelector("#verdict").textContent = data.overview.verdict;
   document.querySelector("#summary").textContent = data.overview.summary;
   document.querySelector("#freshness").textContent = formatFreshness(data.generatedAt);
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
-  renderSocialSummary(data.social);
-  renderSocialAccounts(data.social.accounts, data.social.note);
-  renderSocialPosts(data.social.posts, data.social.note);
-  renderSocialPublishingHealth(data.social);
-  renderSocialPlatformSpotlight("instagramSpotlight", "instagram", data.social);
-  renderSocialPlatformSpotlight("tiktokSpotlight", "tiktok", data.social);
-  renderSocialVoice(data.social.customer_voice, data.social.note);
-  renderSocialAlerts(data.social.reputation_alerts, data.social.note);
-  renderSocialTopPosts(data.social.top_posts, data.social.note);
-  renderSocialCalendar(data.social.calendar, data.social.note);
+  renderSocialExecutiveSummary(intel, data.social.note);
+  renderSocialTrendChart(intel, data.social.note);
+  renderSocialPlatformBoard(intel, data.social.note);
+  renderSocialPipeline(intel, data.social.note);
+  renderSocialActionCenter(intel, data.social.note);
+  renderSocialSummary(data.social, intel);
+  renderSocialAccounts(data.social.accounts, data.social.note, platformFilter);
+  renderSocialPosts(data.social.posts, data.social.note, platformFilter);
+  renderSocialPublishingHealth(data.social, intel);
+  renderSocialPlatformSpotlight("instagramSpotlight", "instagram", data.social, intel);
+  renderSocialPlatformSpotlight("tiktokSpotlight", "tiktok", data.social, intel);
+  renderSocialVoice(data.social.customer_voice, data.social.note, platformFilter);
+  renderSocialAlerts(data.social.reputation_alerts, data.social.note, platformFilter);
+  renderSocialTopPosts(data.social.top_posts, data.social.note, platformFilter);
+  renderSocialCalendar(data.social.calendar, data.social.note, platformFilter);
   updateSectionVisibility();
 }
 
@@ -446,10 +457,10 @@ function renderOpportunities(items) {
   `).join("");
 }
 
-function renderSocialSummary(social) {
+function renderSocialSummary(social, intel) {
   const target = document.querySelector("#socialSummary");
   if (!target) return;
-  const byPlatform = social?.by_platform ?? [];
+  const byPlatform = intel?.platforms ?? [];
   if (!byPlatform.length) {
     target.innerHTML = `<div class="empty-state">${esc(social?.note ?? "Sin datos sociales todavía.")}</div>`;
     return;
@@ -457,20 +468,21 @@ function renderSocialSummary(social) {
   target.innerHTML = byPlatform.map((item) => `
     <article class="social-stat-card">
       <span>${esc(capitalize(item.platform))}</span>
-      <strong>${formatNumber(item.accounts)}</strong>
-      <small>${formatNumber(item.publishReady)} listas para publicar · ${formatNumber(item.published)} publicados · ${formatNumber(item.scheduled)} programados</small>
+      <strong>${displayValue(item.followers)}</strong>
+      <small>${displayValue(item.avgEngagementRate, "%")} ER media · ${displayValue(item.recentPosts)} posts recientes · ${displayValue(item.publishReady)} / ${displayValue(item.accounts)} publish-ready</small>
     </article>
   `).join("");
 }
 
-function renderSocialAccounts(accounts, note) {
+function renderSocialAccounts(accounts, note, platformFilter = null) {
   const target = document.querySelector("#socialAccounts");
   if (!target) return;
-  if (!accounts.length) {
+  const visibleAccounts = platformFilter ? accounts.filter((item) => item.platform === platformFilter) : accounts;
+  if (!visibleAccounts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin cuentas conectadas todavía.")}</div>`;
     return;
   }
-  target.innerHTML = accounts.map((account) => `
+  target.innerHTML = visibleAccounts.map((account) => `
     <article class="social-account-card">
       <div class="social-account-top">
         <div>
@@ -496,14 +508,17 @@ function renderSocialAccounts(accounts, note) {
   `).join("");
 }
 
-function renderSocialPosts(posts, note) {
+function renderSocialPosts(posts, note, platformFilter = null) {
   const target = document.querySelector("#socialPosts");
   if (!target) return;
-  if (!posts.length) {
+  const visiblePosts = platformFilter
+    ? posts.filter((post) => (post.platforms || []).includes(platformFilter))
+    : posts;
+  if (!visiblePosts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin posts recientes todavía.")}</div>`;
     return;
   }
-  target.innerHTML = posts.map((post) => `
+  target.innerHTML = visiblePosts.map((post) => `
     <article class="social-post-card">
       <div class="social-post-head">
         <strong>${esc(post.title || "Post")}</strong>
@@ -519,7 +534,7 @@ function renderSocialPosts(posts, note) {
   `).join("");
 }
 
-function renderSocialPublishingHealth(social) {
+function renderSocialPublishingHealth(social, intel) {
   const target = document.querySelector("#socialPublishingHealth");
   if (!target) return;
   const rows = [
@@ -529,13 +544,16 @@ function renderSocialPublishingHealth(social) {
     ["Posts programados", displayValue(social.scheduled_posts)],
     ["Drafts", displayValue(social.draft_posts)],
     ["Posts publicados", displayValue(social.published_posts)],
+    ["Cadencia estimada", `${displayValue(intel.pipeline.postsPerWeek)} posts/semana`],
+    ["Cobertura del calendario", displayValue(intel.pipeline.scheduleCoverage, "%")],
   ];
   target.innerHTML = rows.map(([label, value]) => `<div class="row"><strong>${esc(label)}</strong><span>${esc(value)}</span></div>`).join("");
 }
 
-function renderSocialPlatformSpotlight(targetId, platform, social) {
+function renderSocialPlatformSpotlight(targetId, platform, social, intel) {
   const target = document.querySelector(`#${targetId}`);
   if (!target) return;
+  const platformSummary = intel.platforms.find((item) => item.platform === platform);
   const accounts = (social.accounts || []).filter((item) => item.platform === platform);
   const posts = (social.posts || []).filter((item) => (item.platforms || []).includes(platform));
   if (!accounts.length) {
@@ -550,23 +568,27 @@ function renderSocialPlatformSpotlight(targetId, platform, social) {
   target.innerHTML = `
     <div class="row"><strong>Cuentas</strong><span>${displayValue(accounts.length)}</span></div>
     <div class="row"><strong>Followers agregados</strong><span>${displayValue(totalFollowers)}</span></div>
+    <div class="row"><strong>ER media</strong><span>${displayValue(platformSummary?.avgEngagementRate, "%")}</span></div>
+    <div class="row"><strong>Reach medio</strong><span>${displayValue(platformSummary?.avgReach)}</span></div>
     <div class="row"><strong>Publish-ready</strong><span>${displayValue(ready)} / ${displayValue(accounts.length)}</span></div>
     <div class="row"><strong>Analytics activos</strong><span>${displayValue(analytics)} / ${displayValue(accounts.length)}</span></div>
     <div class="row"><strong>Max permisos</strong><span>${displayValue(permissions)}</span></div>
     <div class="row"><strong>Posts visibles</strong><span>${displayValue(posts.length)}</span></div>
+    <div class="row"><strong>Top contenido</strong><span>${esc(platformSummary?.topContentLabel || "Sin top post")}</span></div>
     <div class="row"><strong>Privacidad</strong><span>${esc(privacy.join(" · ") || "Por defecto / no expuesta")}</span></div>
   `;
 }
 
-function renderSocialVoice(voice, note) {
+function renderSocialVoice(voice, note, platformFilter = null) {
   const target = document.querySelector("#socialVoice");
   if (!target) return;
-  if (!voice || (!voice.commentsAnalyzed && !(voice.quotes || []).length)) {
+  const quotesFiltered = (voice?.quotes || []).filter((quote) => !platformFilter || quote.platform === platformFilter);
+  if (!voice || (platformFilter === "tiktok" ? !quotesFiltered.length : (!voice.commentsAnalyzed && !quotesFiltered.length))) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin comentarios suficientes todavía.")}</div>`;
     return;
   }
   const terms = (voice.topTerms || []).slice(0, 8).map((item) => `<span class="tag-chip">${esc(item.term)} · ${esc(item.count)}</span>`).join("");
-  const quotes = (voice.quotes || []).slice(0, 4).map((quote) => `
+  const quotes = quotesFiltered.slice(0, 4).map((quote) => `
     <article class="quote-card">
       <span class="badge ${quote.signal === "negative" ? "warn" : quote.signal === "lead" ? "info" : ""}">${esc(quote.signal)}</span>
       <p>${esc(quote.text)}</p>
@@ -592,14 +614,15 @@ function renderSocialVoice(voice, note) {
   `;
 }
 
-function renderSocialAlerts(alerts, note) {
+function renderSocialAlerts(alerts, note, platformFilter = null) {
   const target = document.querySelector("#socialAlerts");
   if (!target) return;
-  if (!alerts || !alerts.length) {
+  const visibleAlerts = platformFilter === "tiktok" ? [] : alerts;
+  if (!visibleAlerts || !visibleAlerts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin alertas relevantes por ahora.")}</div>`;
     return;
   }
-  target.innerHTML = alerts.slice(0, 5).map((alert) => `
+  target.innerHTML = visibleAlerts.slice(0, 5).map((alert) => `
     <article class="alert-card">
       <div class="social-post-head">
         <strong>${esc(alert.contentPreview || "Post con comentarios")}</strong>
@@ -614,14 +637,15 @@ function renderSocialAlerts(alerts, note) {
   `).join("");
 }
 
-function renderSocialTopPosts(posts, note) {
+function renderSocialTopPosts(posts, note, platformFilter = null) {
   const target = document.querySelector("#socialTopPosts");
   if (!target) return;
-  if (!posts || !posts.length) {
+  const visiblePosts = platformFilter ? posts.filter((post) => post.platform === platformFilter) : posts;
+  if (!visiblePosts || !visiblePosts.length) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin top posts todavía.")}</div>`;
     return;
   }
-  target.innerHTML = posts.slice(0, 8).map((post) => `
+  target.innerHTML = visiblePosts.slice(0, 8).map((post) => `
     <article class="social-post-card">
       <div class="social-post-head">
         <strong>${esc(capitalize(post.platform || "social"))}</strong>
@@ -639,21 +663,23 @@ function renderSocialTopPosts(posts, note) {
   `).join("");
 }
 
-function renderSocialCalendar(calendar, note) {
+function renderSocialCalendar(calendar, note, platformFilter = null) {
   const target = document.querySelector("#socialCalendar");
   if (!target) return;
-  if (!calendar || (!(calendar.bestSlots || []).length && !(calendar.cadence || []).length)) {
+  const bestSlotsList = platformFilter ? (calendar?.bestSlots || []).filter((slot) => slot.platform === platformFilter) : (calendar?.bestSlots || []);
+  const cadenceList = platformFilter ? (calendar?.cadence || []).filter((row) => row.platform === platformFilter) : (calendar?.cadence || []);
+  if (!calendar || (!bestSlotsList.length && !cadenceList.length)) {
     target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin histórico suficiente para recomendar calendario.")}</div>`;
     return;
   }
-  const slots = (calendar.bestSlots || []).slice(0, 6).map((slot) => `
+  const slots = bestSlotsList.slice(0, 6).map((slot) => `
     <div class="calendar-slot">
       <strong>${esc(capitalize(slot.platform || "social"))}</strong>
       <span>${esc(formatDayOfWeek(slot.dayOfWeek))} · ${String(slot.hour).padStart(2, "0")}:00</span>
       <small>${displayValue(slot.avgEngagement)} engagement · ${displayValue(slot.postCount)} posts</small>
     </div>
   `).join("");
-  const cadence = (calendar.cadence || []).slice(0, 6).map((row) => `
+  const cadence = cadenceList.slice(0, 6).map((row) => `
     <div class="calendar-slot">
       <strong>${esc(capitalize(row.platform || "social"))}</strong>
       <span>${displayValue(row.postsPerWeek)} posts/semana</span>
@@ -674,6 +700,374 @@ function renderSocialCalendar(calendar, note) {
       <div class="calendar-slot-grid">${cadence}</div>
     </div>
   `;
+}
+
+function renderSocialExecutiveSummary(intel, note) {
+  const target = document.querySelector("#socialExecutiveSummary");
+  if (!target) return;
+  if (!intel.platforms.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin inteligencia social todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = `
+    <article class="social-exec-card social-exec-primary">
+      <span>Audiencia total</span>
+      <strong>${displayValue(intel.audience.totalFollowers)}</strong>
+      <small>${esc(intel.audience.leaderLabel)} lidera la comunidad · ${displayValue(intel.audience.activePlatforms)} plataformas activas</small>
+    </article>
+    <article class="social-exec-card">
+      <span>ER promedio</span>
+      <strong>${displayValue(intel.performance.avgEngagementRate, "%")}</strong>
+      <small>${displayValue(intel.performance.avgReach)} reach medio · ${displayValue(intel.performance.postsAnalyzed)} posts analizados</small>
+    </article>
+    <article class="social-exec-card">
+      <span>Readiness operativa</span>
+      <strong>${displayValue(intel.operations.publishReadyRate, "%")}</strong>
+      <small>${displayValue(intel.operations.analyticsCoverage, "%")} cobertura analytics · ${displayValue(intel.operations.accountsReady)} cuentas listas</small>
+    </article>
+    <article class="social-exec-card">
+      <span>Comunidad</span>
+      <strong>${displayValue(intel.community.responsePressure)}</strong>
+      <small>${displayValue(intel.community.leadSignals)} señales de lead · ${displayValue(intel.community.riskAlerts)} alertas</small>
+    </article>
+    <article class="social-exec-card social-exec-wide">
+      <span>Lectura ejecutiva</span>
+      <p>${esc(intel.executiveSummary)}</p>
+    </article>
+  `;
+}
+
+function renderSocialTrendChart(intel, note) {
+  const target = document.querySelector("#socialTrendChart");
+  if (!target) return;
+  const points = intel.trendSeries;
+  if (!points.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin suficiente histórico reciente para ver tendencia.")}</div>`;
+    return;
+  }
+  const width = 760;
+  const height = 280;
+  const pad = 28;
+  const bottomPad = 38;
+  const maxReach = Math.max(1, ...points.map((point) => point.reach || 0));
+  const maxEngagement = Math.max(1, ...points.map((point) => point.engagementRate || 0));
+  const x = (index) => pad + index * ((width - pad * 2) / Math.max(1, points.length - 1));
+  const yReach = (value) => height - bottomPad - (value / maxReach) * (height - pad - bottomPad);
+  const yEr = (value) => height - bottomPad - (value / maxEngagement) * (height - pad - bottomPad);
+  const line = (accessor) => points.map((point, index) => `${index === 0 ? "M" : "L"} ${x(index)} ${accessor(point)}`).join(" ");
+  target.innerHTML = `
+    <svg viewBox="0 0 ${width} ${height}" role="img" aria-label="Tendencia de performance social">
+      <defs>
+        <linearGradient id="socialArea" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0%" stop-color="#6d4cc2" stop-opacity="0.18" />
+          <stop offset="100%" stop-color="#6d4cc2" stop-opacity="0" />
+        </linearGradient>
+      </defs>
+      <path d="${line((p) => yReach(p.reach || 0))} L ${x(points.length - 1)} ${height - bottomPad} L ${pad} ${height - bottomPad} Z" fill="url(#socialArea)" />
+      <path d="${line((p) => yReach(p.reach || 0))}" fill="none" stroke="#6d4cc2" stroke-width="3.5" stroke-linecap="round" />
+      <path d="${line((p) => yEr(p.engagementRate || 0))}" fill="none" stroke="#138a72" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="4 7" />
+      ${points.map((point, index) => `
+        <g>
+          <circle cx="${x(index)}" cy="${yReach(point.reach || 0)}" r="4" fill="#6d4cc2" />
+          <text x="${x(index)}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#736d64">${esc(point.label)}</text>
+        </g>
+      `).join("")}
+    </svg>
+    <div class="social-chart-legend">
+      <span><i class="swatch swatch-reach"></i> Reach / impresiones</span>
+      <span><i class="swatch swatch-er"></i> Engagement rate</span>
+    </div>
+  `;
+}
+
+function renderSocialPlatformBoard(intel, note) {
+  const target = document.querySelector("#socialPlatformBoard");
+  if (!target) return;
+  if (!intel.platforms.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin plataformas activas todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = intel.platforms.map((platform) => `
+    <article class="social-platform-card">
+      <header>
+        <div>
+          <strong>${esc(capitalize(platform.platform))}</strong>
+          <small>${displayValue(platform.accounts)} cuentas · ${displayValue(platform.followers)} followers</small>
+        </div>
+        <span class="badge ${platform.healthScore < 60 ? "warn" : ""}">${displayValue(platform.healthScore)} health</span>
+      </header>
+      <div class="social-platform-grid">
+        <span><strong>ER media</strong>${displayValue(platform.avgEngagementRate, "%")}</span>
+        <span><strong>Reach medio</strong>${displayValue(platform.avgReach)}</span>
+        <span><strong>Programados</strong>${displayValue(platform.scheduled)}</span>
+        <span><strong>Publish-ready</strong>${displayValue(platform.publishReady)} / ${displayValue(platform.accounts)}</span>
+      </div>
+      <p>${esc(platform.takeaway)}</p>
+    </article>
+  `).join("");
+}
+
+function renderSocialPipeline(intel, note) {
+  const target = document.querySelector("#socialPipelineStats");
+  if (!target) return;
+  if (!intel.platforms.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin pipeline editorial todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = `
+    <article class="social-pipeline-card">
+      <span>Posts publicados</span>
+      <strong>${displayValue(intel.pipeline.published)}</strong>
+      <small>${displayValue(intel.pipeline.postsPerWeek)} posts/semana observados</small>
+    </article>
+    <article class="social-pipeline-card">
+      <span>Programados</span>
+      <strong>${displayValue(intel.pipeline.scheduled)}</strong>
+      <small>${displayValue(intel.pipeline.scheduleCoverage, "%")} del pipeline listo</small>
+    </article>
+    <article class="social-pipeline-card">
+      <span>Drafts</span>
+      <strong>${displayValue(intel.pipeline.drafts)}</strong>
+      <small>${displayValue(intel.pipeline.backlogDepth)} piezas en backlog inmediato</small>
+    </article>
+  `;
+}
+
+function renderSocialActionCenter(intel, note) {
+  const target = document.querySelector("#socialActionCenter");
+  if (!target) return;
+  if (!intel.actions.length) {
+    target.innerHTML = `<div class="empty-state">${esc(note ?? "Sin acciones prioritarias por ahora.")}</div>`;
+    return;
+  }
+  target.innerHTML = intel.actions.map((item) => `
+    <div class="action-item">
+      <div>
+        <strong>${esc(item.title)}</strong>
+        <p>${esc(item.reason)}</p>
+        <p>${esc(item.action)}</p>
+      </div>
+      <span class="badge ${item.priority === "Alta" ? "warn" : ""}">${esc(item.priority)}</span>
+    </div>
+  `).join("");
+}
+
+function deriveSocialIntelligence(social, platformFilter = null) {
+  const accounts = platformFilter ? (social.accounts || []).filter((item) => item.platform === platformFilter) : (social.accounts || []);
+  const topPosts = platformFilter ? (social.top_posts || []).filter((item) => item.platform === platformFilter) : (social.top_posts || []);
+  const posts = platformFilter ? (social.posts || []).filter((item) => (item.platforms || []).includes(platformFilter)) : (social.posts || []);
+  const byPlatformSeed = platformFilter ? (social.by_platform || []).filter((item) => item.platform === platformFilter) : (social.by_platform || []);
+  const totalFollowers = accounts.reduce((sum, account) => sum + (Number(account.followers) || 0), 0);
+  const avgEngagementRate = average(topPosts.map((item) => item.engagementRate).filter(isFiniteNumber));
+  const avgReach = average(topPosts.map((item) => item.reach ?? item.impressions).filter(isFiniteNumber));
+  const postsAnalyzed = topPosts.length;
+  const publishReadyAccounts = accounts.filter((item) => item.publishReady).length;
+  const analyticsReadyAccounts = accounts.filter((item) => item.analyticsReady).length;
+  const publishedPosts = posts.filter((item) => item.status === "published").length;
+  const scheduledPosts = posts.filter((item) => item.status === "scheduled").length;
+  const draftPosts = posts.filter((item) => item.status === "draft").length;
+  const cadenceRows = platformFilter ? (social.calendar?.cadence || []).filter((item) => item.platform === platformFilter) : (social.calendar?.cadence || []);
+  const bestSlots = platformFilter ? (social.calendar?.bestSlots || []).filter((item) => item.platform === platformFilter) : (social.calendar?.bestSlots || []);
+  const postsPerWeek = cadenceRows.reduce((sum, row) => sum + (row.postsPerWeek || 0), 0);
+  const scheduleCoverage = percentage(scheduledPosts, Math.max(1, scheduledPosts + draftPosts + publishedPosts));
+  const publishReadyRate = percentage(publishReadyAccounts, Math.max(1, accounts.length));
+  const analyticsCoverage = percentage(analyticsReadyAccounts, Math.max(1, accounts.length));
+  const trendSeries = buildSocialTrendSeries(topPosts);
+  const platforms = byPlatformSeed.map((item) => {
+    const platformAccounts = accounts.filter((account) => account.platform === item.platform);
+    const platformPosts = topPosts.filter((post) => post.platform === item.platform);
+    const followers = platformAccounts.reduce((sum, account) => sum + (Number(account.followers) || 0), 0);
+    const platformAvgEr = average(platformPosts.map((post) => post.engagementRate).filter(isFiniteNumber));
+    const platformAvgReach = average(platformPosts.map((post) => post.reach ?? post.impressions).filter(isFiniteNumber));
+    const topContent = [...platformPosts].sort((a, b) => (b.engagementRate || 0) - (a.engagementRate || 0))[0];
+    const healthScore = Math.round(
+      (percentage(platformAccounts.filter((account) => account.publishReady).length, Math.max(1, platformAccounts.length)) * 0.35)
+      + (percentage(platformAccounts.filter((account) => account.analyticsReady).length, Math.max(1, platformAccounts.length)) * 0.25)
+      + (Math.min(platformAvgEr || 0, 15) / 15) * 40
+    );
+    return {
+      platform: item.platform,
+      accounts: item.accounts,
+      publishReady: item.publishReady,
+      published: item.published,
+      scheduled: item.scheduled,
+      followers,
+      avgEngagementRate: platformAvgEr,
+      avgReach: platformAvgReach,
+      recentPosts: platformPosts.length,
+      topContentLabel: topContent?.content ? topContent.content.slice(0, 52) : null,
+      healthScore,
+      takeaway: buildPlatformTakeaway(item.platform, platformAvgEr, item.publishReady, item.accounts, topContent),
+    };
+  }).sort((a, b) => (b.followers || 0) - (a.followers || 0));
+  const leader = platforms[0];
+  const actions = buildSocialActionItems({
+    platformFilter,
+    accounts,
+    topPosts,
+    alerts: social.reputation_alerts || [],
+    voice: social.customer_voice,
+    cadenceRows,
+    bestSlots,
+    scheduleCoverage,
+    publishReadyRate,
+    analyticsCoverage,
+    platforms,
+    scheduledPosts,
+    draftPosts,
+  });
+  const executiveSummary = buildSocialExecutiveSummary({
+    platformFilter,
+    leader,
+    avgEngagementRate,
+    publishReadyRate,
+    analyticsCoverage,
+    scheduleCoverage,
+    leadSignals: social.customer_voice?.leadQuestions || 0,
+    riskAlerts: (social.reputation_alerts || []).length,
+    bestSlots,
+  });
+  return {
+    platforms,
+    trendSeries,
+    actions,
+    executiveSummary,
+    audience: {
+      totalFollowers,
+      leaderLabel: leader ? `${capitalize(leader.platform)} (${displayValue(leader.followers)} followers)` : "Sin líder claro",
+      activePlatforms: platforms.length,
+    },
+    performance: {
+      avgEngagementRate,
+      avgReach,
+      postsAnalyzed,
+    },
+    operations: {
+      publishReadyRate,
+      analyticsCoverage,
+      accountsReady: publishReadyAccounts,
+    },
+    community: {
+      leadSignals: social.customer_voice?.leadQuestions || 0,
+      riskAlerts: (social.reputation_alerts || []).length,
+      responsePressure: (social.customer_voice?.negativeSignals || 0) + (social.customer_voice?.questionComments || 0),
+    },
+    pipeline: {
+      published: publishedPosts,
+      scheduled: scheduledPosts,
+      drafts: draftPosts,
+      postsPerWeek,
+      scheduleCoverage,
+      backlogDepth: scheduledPosts + draftPosts,
+    },
+  };
+}
+
+function buildSocialTrendSeries(posts) {
+  const buckets = new Map();
+  for (const post of posts) {
+    const rawDate = post.publishedAt || "";
+    const date = rawDate ? new Date(rawDate) : null;
+    if (!date || Number.isNaN(date.getTime())) continue;
+    const key = date.toISOString().slice(0, 10);
+    const bucket = buckets.get(key) || { label: key.slice(5), reach: 0, engagementRateSum: 0, count: 0 };
+    bucket.reach += Number(post.reach ?? post.impressions) || 0;
+    bucket.engagementRateSum += Number(post.engagementRate) || 0;
+    bucket.count += 1;
+    buckets.set(key, bucket);
+  }
+  return [...buckets.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .slice(-8)
+    .map(([, bucket]) => ({
+      label: bucket.label,
+      reach: bucket.reach,
+      engagementRate: bucket.count ? bucket.engagementRateSum / bucket.count : 0,
+    }));
+}
+
+function buildPlatformTakeaway(platform, avgEr, publishReady, accounts, topContent) {
+  const readiness = accounts ? percentage(publishReady, accounts) : 0;
+  const contentHint = topContent?.content ? `Top creativo: ${topContent.content.slice(0, 46)}.` : "Sin top post claro todavía.";
+  if ((avgEr || 0) >= 8) return `${capitalize(platform)} está respondiendo bien. ${contentHint}`;
+  if (readiness < 100) return `${capitalize(platform)} aún tiene fricción operativa (${displayValue(readiness, "%")} listo). ${contentHint}`;
+  return `${capitalize(platform)} necesita más experimentación creativa o distribución. ${contentHint}`;
+}
+
+function buildSocialExecutiveSummary(input) {
+  const slot = input.bestSlots?.[0];
+  const slotLabel = slot ? `${formatDayOfWeek(slot.dayOfWeek)} ${String(slot.hour).padStart(2, "0")}:00` : "sin slot ganador claro";
+  const scope = input.platformFilter ? capitalize(input.platformFilter) : "el portafolio social";
+  return `${scope} promedia ${displayValue(input.avgEngagementRate, "%")} de engagement rate, con readiness operativa de ${displayValue(input.publishReadyRate, "%")} y analytics coverage de ${displayValue(input.analyticsCoverage, "%")}. El mejor momento observado hoy es ${slotLabel}; hay ${displayValue(input.leadSignals)} señales de lead y ${displayValue(input.riskAlerts)} focos reputacionales a vigilar.`;
+}
+
+function buildSocialActionItems(input) {
+  const actions = [];
+  if (input.riskAlerts.length > 0) {
+    actions.push({
+      title: "Atender conversación con riesgo",
+      reason: `${displayValue(input.riskAlerts.length)} posts tienen comentarios con fricción o señales de crisis.`,
+      action: "Responder primero los hilos con objeciones o preguntas repetidas y convertirlos en FAQ o contenido de soporte.",
+      priority: "Alta",
+    });
+  }
+  if (input.voice?.leadQuestions > 0) {
+    actions.push({
+      title: "Capturar demanda comercial en comentarios",
+      reason: `${displayValue(input.voice.leadQuestions)} comentarios muestran intención de compra o solicitud de información.`,
+      action: "Centraliza respuestas sobre precio, horarios y cupos con CTA claro hacia WhatsApp o formulario.",
+      priority: "Alta",
+    });
+  }
+  if (input.scheduleCoverage < 35) {
+    actions.push({
+      title: "Subir cobertura del calendario",
+      reason: `Solo ${displayValue(input.scheduleCoverage, "%")} del pipeline está agendado frente al backlog inmediato.`,
+      action: "Programa contenido para la próxima semana antes de abrir nuevos drafts y usa los slots de mejor performance.",
+      priority: "Media",
+    });
+  }
+  if (input.publishReadyRate < 100) {
+    actions.push({
+      title: "Cerrar brechas operativas por cuenta",
+      reason: `${displayValue(input.publishReadyRate, "%")} de las cuentas está realmente lista para publicar.`,
+      action: "Revisa permisos, privacidad y estado de conexión para que ninguna cuenta clave quede fuera del calendario.",
+      priority: "Media",
+    });
+  }
+  const weakPlatform = [...input.platforms].sort((a, b) => (a.avgEngagementRate || 0) - (b.avgEngagementRate || 0))[0];
+  if (weakPlatform && input.platforms.length > 1) {
+    actions.push({
+      title: `Elevar el piso de ${capitalize(weakPlatform.platform)}`,
+      reason: `${capitalize(weakPlatform.platform)} está por debajo del resto en engagement relativo.`,
+      action: "Replica ganchos, formatos o temas del canal líder y prueba una secuencia de 2-3 piezas con hipótesis claras.",
+      priority: "Media",
+    });
+  }
+  if (!actions.length) {
+    actions.push({
+      title: "Sistema estable",
+      reason: "No hay alertas fuertes ni vacíos críticos en la operación actual.",
+      action: "Mantén la cadencia, documenta aprendizajes de los top posts y sigue monitoreando comunidad y analytics.",
+      priority: "Baja",
+    });
+  }
+  return actions.slice(0, 5);
+}
+
+function average(values) {
+  const valid = values.filter(isFiniteNumber);
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+function percentage(value, total) {
+  if (!isFiniteNumber(value) || !isFiniteNumber(total) || total <= 0) return null;
+  return Math.round((value / total) * 100);
+}
+
+function isFiniteNumber(value) {
+  return typeof value === "number" && Number.isFinite(value);
 }
 
 function formatShortDate(value) {
@@ -1132,6 +1526,12 @@ function formatNumber(value) {
 
 function displayValue(value, suffix = "") {
   if (value === null || value === undefined) return "Sin datos";
+  if (typeof value === "number") {
+    const formatted = suffix === "%"
+      ? new Intl.NumberFormat("es-CO", { maximumFractionDigits: value >= 10 ? 0 : 1 }).format(value)
+      : formatNumber(Math.round(value));
+    return `${formatted}${suffix}`;
+  }
   return `${value}${suffix}`;
 }
 
