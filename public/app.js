@@ -190,16 +190,12 @@ async function loadExecutiveOverview() {
   const params = new URLSearchParams(new FormData(filters));
   setLoading(true);
   try {
-    const [seoResponse, socialResponse] = await Promise.all([
-      fetch(`/api/seo-dashboard?${params}`),
-      fetch(`/api/social-dashboard?${params}`),
-    ]);
-    if (!seoResponse.ok) throw new Error(`SEO HTTP ${seoResponse.status}`);
-    if (!socialResponse.ok) throw new Error(`Social HTTP ${socialResponse.status}`);
-    const [seo, social] = await Promise.all([seoResponse.json(), socialResponse.json()]);
-    state.data = seo;
-    state.socialData = social;
-    state.executiveData = { seo, social };
+    const response = await fetch(`/api/executive-overview?${params}`);
+    if (!response.ok) throw new Error(`Executive HTTP ${response.status}`);
+    const bundle = await response.json();
+    state.data = bundle.seo;
+    state.socialData = bundle.social;
+    state.executiveData = bundle;
     renderExecutiveOverview(state.executiveData);
   } catch (error) {
     document.querySelector("#summary").textContent = `No se pudo cargar el executive overview: ${error.message}`;
@@ -256,6 +252,7 @@ function renderExecutiveOverview(bundle) {
   renderExecutiveSourceBoard(combined.sources);
   renderExecutiveBaselineBoard(seo, social, intel);
   renderExecutiveAnomalyBoard(seo, social, intel);
+  renderExecutiveAnomalyHistory(bundle.anomaly_history);
   updateSectionVisibility();
 }
 
@@ -782,6 +779,23 @@ function renderExecutiveAnomalyBoard(seo, social, intel) {
       <span class="badge ${item.severity === "Alta" ? "warn" : item.severity === "Media" ? "info" : ""}">${esc(item.scope)} · ${esc(item.severity)}</span>
     </div>
   `).join("") : `<div class="empty-state">Sin anomalías fuertes contra baseline en este corte.</div>`;
+}
+
+function renderExecutiveAnomalyHistory(rows) {
+  const target = document.querySelector("#executiveAnomalyHistory");
+  if (!target) return;
+  const items = toArray(rows);
+  target.innerHTML = items.length ? items.map((row) => `
+    <div class="history-row">
+      <div>
+        <strong>${esc(formatShortDate(row.snapshot_date))}</strong>
+        <small>${esc(row.top_titles?.join(" · ") || "Sin anomalías destacadas")}</small>
+      </div>
+      <span>${esc(displayValue(row.anomaly_count))} alertas</span>
+      <span>${esc(row.top_delta || "Sin delta clave")}</span>
+      <span class="badge ${row.anomaly_count > 2 ? "warn" : row.anomaly_count > 0 ? "info" : ""}">${row.anomaly_count > 0 ? "Activo" : "Estable"}</span>
+    </div>
+  `).join("") : `<div class="empty-state">Todavía no hay historial persistido de anomalías.</div>`;
 }
 
 function buildExecutiveBaselineRows(seo, social, intel) {
