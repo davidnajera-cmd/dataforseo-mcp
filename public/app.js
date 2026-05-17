@@ -919,7 +919,7 @@ function deriveSocialIntelligence(social, platformFilter = null) {
     platformFilter,
     accounts,
     topPosts,
-    alerts: toArray(safeSocial.reputation_alerts),
+    riskAlerts: toArray(safeSocial.reputation_alerts),
     voice: safeSocial.customer_voice,
     cadenceRows,
     bestSlots,
