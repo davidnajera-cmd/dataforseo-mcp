@@ -174,6 +174,7 @@ function render(data) {
   document.querySelector("#freshness").textContent = formatFreshness(data.generatedAt);
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
+  renderSeoExecutiveLayer(data);
   renderTrend(data.trends);
   renderKeywords(data.keywords);
   renderContent(data.content);
@@ -200,6 +201,7 @@ function renderSocialDashboard(data) {
   document.querySelector("#freshness").textContent = formatFreshness(data.generatedAt);
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
+  renderSocialExecutiveLayer(data, intel, platformFilter);
   renderSocialExecutiveSummary(intel, data.social.note);
   renderSocialTrendChart(intel, data.social.note);
   renderSocialPlatformBoard(intel, data.social.note);
@@ -226,6 +228,178 @@ function renderSources(sources) {
   document.querySelector("#sourceDots").innerHTML = sources.map((source) => (
     `<span class="source-dot ${source.status}" title="${source.name}: ${source.message}"></span>`
   )).join("");
+}
+
+function renderSeoExecutiveLayer(data) {
+  const deck = [
+    {
+      kicker: "Search Pulse",
+      title: "Visibilidad orgánica en control",
+      value: `${displayValue(data.overview.metrics?.[0]?.value ?? null)}`,
+      body: buildSeoExecutiveNarrative(data),
+      tone: "primary",
+      meta: [
+        { label: "Top 10 activas", value: displayValue(data.keywords?.top10), note: displayValue(data.keywords?.top3) + " en Top 3" },
+        { label: "Página líder", value: stripUrl(data.content?.topPages?.[0]?.path) || "Sin líder claro", note: `${displayValue(data.content?.topPages?.[0]?.sessions)} sesiones` },
+      ],
+    },
+    {
+      kicker: "AI + Authority",
+      title: "Cobertura de presencia",
+      value: `${displayValue(data.ai_visibility?.by_domain?.[0]?.google_mentions)}`,
+      body: data.ai_visibility?.note || "Sin señal AI todavía.",
+      meta: [
+        { label: "Referring domains", value: displayValue(data.backlinks?.by_domain?.[0]?.referring_domains), note: "Backlinks vivos" },
+      ],
+    },
+    {
+      kicker: "Technical Posture",
+      title: "Salud técnica",
+      value: displayValue(data.technical?.score),
+      body: `LCP ${data.technical?.lcp ?? "Sin datos"} · CLS ${data.technical?.cls ?? "Sin datos"} · velocidad ${data.technical?.speed ?? "Sin datos"}.`,
+      meta: [
+        { label: "UX incidents", value: [data.technical?.deadClicks, data.technical?.rageClicks].every((v) => v === null) ? "Monitoreo parcial" : `${displayValue(data.technical?.deadClicks)} dead · ${displayValue(data.technical?.rageClicks)} rage`, note: "Clarity + PageSpeed" },
+      ],
+    },
+    {
+      kicker: "Decision Queue",
+      title: "Siguiente foco",
+      body: data.business?.opportunities?.[0]?.action || "Sin prioridad crítica detectada.",
+      meta: [
+        { label: "Insight", value: data.business?.opportunities?.[0]?.title || "Mantener seguimiento", note: data.business?.opportunities?.[0]?.priority || "Baja" },
+      ],
+    },
+    {
+      kicker: "Source Health",
+      title: "Estado de fuentes",
+      body: "Lectura operativa del stack de datos que alimenta este tablero.",
+      wide: true,
+      sourceRows: (data.sources || []).map((source) => ({
+        label: source.name,
+        value: source.status,
+        note: source.message,
+      })),
+    },
+  ];
+  renderCommandDeck(deck);
+  renderSignalRail([
+    { kicker: "Organic", title: "CTR promedio", value: data.overview.metrics?.[3]?.value ?? "Sin datos", note: data.overview.metrics?.[3]?.detail ?? "", status: "live" },
+    { kicker: "Content", title: "Top page", value: stripUrl(data.content?.topPages?.[0]?.path) || "Sin datos", note: `${displayValue(data.content?.topPages?.[0]?.sessions)} sesiones`, status: "live" },
+    { kicker: "AI", title: "LLM visibility", value: displayValue(data.ai_visibility?.by_domain?.[0]?.google_mentions), note: data.ai_visibility?.note ?? "", status: data.ai_visibility?.has_data ? "live" : "pending" },
+    { kicker: "Risk", title: "Technical score", value: displayValue(data.technical?.score), note: data.sources?.find((item) => item.name === "Microsoft Clarity")?.message || "Sin alertas críticas", status: normalizeSignalStatus(data.sources?.find((item) => item.name === "Microsoft Clarity")?.status || "live") },
+  ]);
+}
+
+function renderSocialExecutiveLayer(data, intel, platformFilter) {
+  const leadPlatform = intel.platforms?.[0];
+  const topPost = (platformFilter
+    ? toArray(data.social?.top_posts).filter((post) => post.platform === platformFilter)
+    : toArray(data.social?.top_posts))[0];
+  const deck = [
+    {
+      kicker: "Audience Command",
+      title: platformFilter ? `${capitalize(platformFilter)} en foco` : "Radar social multi-plataforma",
+      value: displayValue(intel.audience?.totalFollowers),
+      body: buildSocialExecutiveNarrative(data.social, intel, leadPlatform, platformFilter),
+      tone: "primary",
+      meta: [
+        { label: "Canal líder", value: leadPlatform ? capitalize(leadPlatform.platform) : "Sin líder", note: leadPlatform ? `${displayValue(leadPlatform.followers)} seguidores` : "Sin datos" },
+        { label: "Readiness", value: displayValue(intel.operations?.publishReadyRate, "%"), note: `${displayValue(intel.operations?.analyticsCoverage, "%")} analytics coverage` },
+      ],
+    },
+    {
+      kicker: "Content Momentum",
+      title: "Rendimiento creativo",
+      value: displayValue(intel.performance?.avgEngagementRate, "%"),
+      body: topPost?.content ? `Top post actual: ${topPost.content.slice(0, 130)}.` : "Sin top post claro todavía.",
+      meta: [
+        { label: "Posts analizados", value: displayValue(intel.performance?.postsAnalyzed), note: `${displayValue(intel.performance?.avgReach)} reach medio` },
+      ],
+    },
+    {
+      kicker: "Community Pressure",
+      title: "Lectura de audiencia",
+      value: displayValue(intel.community?.responsePressure),
+      body: `${displayValue(intel.community?.leadSignals)} señales de lead y ${displayValue(intel.community?.riskAlerts)} alertas reputacionales activas.`,
+      meta: [
+        { label: "Comentarios", value: displayValue(data.social?.customer_voice?.commentsAnalyzed), note: `${displayValue(data.social?.customer_voice?.questionComments)} preguntas detectadas` },
+      ],
+    },
+    {
+      kicker: "Publishing Ops",
+      title: "Cobertura editorial",
+      value: displayValue(intel.pipeline?.scheduleCoverage, "%"),
+      body: data.social?.calendar?.recommendation || data.social?.note || "Sin recomendación editorial todavía.",
+      meta: [
+        { label: "Programados", value: displayValue(intel.pipeline?.scheduled), note: `${displayValue(intel.pipeline?.drafts)} drafts` },
+      ],
+    },
+    {
+      kicker: "Source Health",
+      title: "Conectividad social",
+      body: data.social?.note || "Sin lectura operativa todavía.",
+      wide: true,
+      sourceRows: [
+        { label: "Cuentas conectadas", value: displayValue(data.social?.connected_accounts), note: `${displayValue(data.social?.publish_ready_accounts)} listas para publicar` },
+        { label: "Analytics activos", value: displayValue(data.social?.analytics_ready_accounts), note: `${displayValue(data.social?.published_posts)} posts publicados` },
+        ...toArray(data.sources).map((source) => ({ label: source.name, value: source.status, note: source.message })),
+      ],
+    },
+  ];
+  renderCommandDeck(deck);
+  renderSignalRail([
+    { kicker: "Leader", title: "Canal dominante", value: leadPlatform ? capitalize(leadPlatform.platform) : "Sin datos", note: leadPlatform?.takeaway || "Sin lectura líder", status: "live" },
+    { kicker: "Audience", title: "Followers", value: displayValue(intel.audience?.totalFollowers), note: `${displayValue(intel.audience?.activePlatforms)} plataformas activas`, status: "live" },
+    { kicker: "Community", title: "Lead signals", value: displayValue(intel.community?.leadSignals), note: `${displayValue(intel.community?.riskAlerts)} alertas`, status: intel.community?.riskAlerts > 0 ? "pending" : "live" },
+    { kicker: "Calendar", title: "Best slot", value: formatBestSlot(data.social?.calendar?.bestSlots?.[0]), note: data.social?.calendar?.recommendation || "", status: "live" },
+  ]);
+}
+
+function renderCommandDeck(cards) {
+  const target = document.querySelector("#executiveDeck");
+  if (!target) return;
+  target.innerHTML = toArray(cards).map((card) => `
+    <article class="command-card ${card.tone || ""} ${card.wide ? "wide" : ""}">
+      <header>
+        <div>
+          <span class="command-card-kicker">${esc(card.kicker || "")}</span>
+          <h3>${esc(card.title || "")}</h3>
+        </div>
+        ${card.value ? `<strong class="command-value">${esc(card.value)}</strong>` : ""}
+      </header>
+      ${card.body ? `<p>${esc(card.body)}</p>` : ""}
+      ${card.meta?.length ? `<div class="command-meta">${card.meta.map((row) => `
+        <div class="command-meta-row">
+          <span>${esc(row.label)}</span>
+          <span><strong>${esc(row.value)}</strong>${row.note ? ` <small>${esc(row.note)}</small>` : ""}</span>
+        </div>
+      `).join("")}</div>` : ""}
+      ${card.sourceRows?.length ? `<div class="source-health-list">${card.sourceRows.map((row) => `
+        <div class="source-health-row">
+          <span>${esc(row.label)}</span>
+          <span><strong>${esc(row.value)}</strong>${row.note ? ` <small>${esc(row.note)}</small>` : ""}</span>
+        </div>
+      `).join("")}</div>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderSignalRail(items) {
+  const target = document.querySelector("#signalRail");
+  if (!target) return;
+  target.innerHTML = toArray(items).map((item) => `
+    <article class="signal-card">
+      <header>
+        <div>
+          <span class="signal-card-kicker">${esc(item.kicker || "")}</span>
+          <h3>${esc(item.title || "")}</h3>
+        </div>
+        <span class="status-chip ${esc(normalizeSignalStatus(item.status || "live"))}">${esc(normalizeSignalStatus(item.status || "live"))}</span>
+      </header>
+      <strong class="signal-value">${esc(item.value || "Sin datos")}</strong>
+      <p>${esc(item.note || "")}</p>
+    </article>
+  `).join("");
 }
 
 function renderMetrics(metrics) {
@@ -1069,6 +1243,39 @@ function buildSocialActionItems(input) {
   return actions.slice(0, 5);
 }
 
+function buildSeoExecutiveNarrative(data) {
+  const clicks = data.overview?.metrics?.[0]?.value ?? "Sin datos";
+  const top10 = displayValue(data.keywords?.top10);
+  const score = displayValue(data.technical?.score);
+  const ai = displayValue(data.ai_visibility?.by_domain?.[0]?.google_mentions);
+  return `El frente orgánico está sosteniendo ${clicks} clics reales, ${top10} keywords en Top 10 y una postura técnica de ${score}. La capa de AI visibility ya registra ${ai} menciones en Google AI para el dominio principal.`;
+}
+
+function buildSocialExecutiveNarrative(social, intel, leadPlatform, platformFilter) {
+  const scope = platformFilter ? capitalize(platformFilter) : "el ecosistema social";
+  const leadSignals = displayValue(social?.customer_voice?.leadQuestions);
+  const alerts = displayValue(toArray(social?.reputation_alerts).length);
+  const cadence = displayValue(intel.pipeline?.postsPerWeek);
+  const leaderLine = leadPlatform ? `${capitalize(leadPlatform.platform)} concentra la mayor masa de audiencia y lidera el momentum.` : "Todavía no hay un líder claro entre plataformas.";
+  return `${scope} opera con una cadencia observada de ${cadence} posts/semana. ${leaderLine} Hoy vemos ${leadSignals} señales de lead y ${alerts} focos reputacionales a vigilar.`;
+}
+
+function formatBestSlot(slot) {
+  if (!slot) return "Sin datos";
+  return `${formatDayOfWeek(slot.dayOfWeek)} ${String(slot.hour).padStart(2, "0")}:00`;
+}
+
+function stripUrl(value) {
+  if (!value) return "";
+  return String(value)
+    .replace(/^https?:\/\//, "")
+    .replace(/\/$/, "");
+}
+
+function normalizeSignalStatus(status) {
+  return ["live", "pending", "error", "degraded"].includes(status) ? status : "live";
+}
+
 function average(values) {
   const valid = values.filter(isFiniteNumber);
   if (!valid.length) return null;
@@ -1100,6 +1307,9 @@ function updateSectionVisibility() {
     const allowed = panel.dataset.section.split(" ");
     panel.classList.toggle("hidden", !allowed.includes(state.view));
   });
+  const executiveVisible = state.view !== "variables" && state.view !== "backlog";
+  document.querySelector("#executiveDeck")?.classList.toggle("hidden", !executiveVisible);
+  document.querySelector("#signalRail")?.classList.toggle("hidden", !executiveVisible);
 }
 
 // =====================================================================
