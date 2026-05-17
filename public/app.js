@@ -254,6 +254,8 @@ function renderExecutiveOverview(bundle) {
   renderExecutiveTrendBlend(seo, social, intel);
   renderExecutiveOpportunityBoard(seo, social, intel);
   renderExecutiveSourceBoard(combined.sources);
+  renderExecutiveBaselineBoard(seo, social, intel);
+  renderExecutiveAnomalyBoard(seo, social, intel);
   updateSectionVisibility();
 }
 
@@ -747,6 +749,164 @@ function renderExecutiveSourceBoard(sources) {
       <span><strong>${esc(source.status)}</strong>${source.message ? ` <small>${esc(source.message)}</small>` : ""}</span>
     </div>
   `).join("")}</div>`;
+}
+
+function renderExecutiveBaselineBoard(seo, social, intel) {
+  const target = document.querySelector("#executiveBaselineBoard");
+  if (!target) return;
+  const rows = buildExecutiveBaselineRows(seo, social, intel);
+  target.innerHTML = rows.map((row) => `
+    <div class="comparison-row executive-baseline-row">
+      <div>
+        <strong>${esc(row.label)}</strong>
+        <small>${esc(row.note)}</small>
+      </div>
+      <span>${esc(row.current)}</span>
+      <span>${esc(row.baseline)}</span>
+      <span class="badge ${row.tone === "warn" ? "warn" : row.tone === "info" ? "info" : ""}">${esc(row.delta)}</span>
+    </div>
+  `).join("");
+}
+
+function renderExecutiveAnomalyBoard(seo, social, intel) {
+  const target = document.querySelector("#executiveAnomalyBoard");
+  if (!target) return;
+  const rows = buildExecutiveAnomalies(seo, social, intel);
+  target.innerHTML = rows.length ? rows.map((item) => `
+    <div class="action-item">
+      <div>
+        <strong>${esc(item.title)}</strong>
+        <p>${esc(item.reason)}</p>
+        <p>${esc(item.action)}</p>
+      </div>
+      <span class="badge ${item.severity === "Alta" ? "warn" : item.severity === "Media" ? "info" : ""}">${esc(item.scope)} · ${esc(item.severity)}</span>
+    </div>
+  `).join("") : `<div class="empty-state">Sin anomalías fuertes contra baseline en este corte.</div>`;
+}
+
+function buildExecutiveBaselineRows(seo, social, intel) {
+  const seoTrend = toArray(seo.trends).slice(-8);
+  const organicNow = seoTrend.at(-1)?.organic ?? null;
+  const organicBaseline = average(seoTrend.slice(0, -1).map((item) => item.organic).filter(isFiniteNumber));
+  const ctrNow = seoTrend.at(-1)?.ctr ?? null;
+  const ctrBaseline = average(seoTrend.slice(0, -1).map((item) => item.ctr).filter(isFiniteNumber));
+  const historyRows = toArray(seo.history_summary?.rankings_by_domain);
+  const trackedTop10Baseline = historyRows.reduce((sum, row) => sum + (Number(row.top10) || 0), 0);
+  const trackedTop10Now = Number(seo.keywords?.top10) || 0;
+  const socialCadence = toArray(social.social?.calendar?.cadence);
+  const observedCadence = average(socialCadence.map((row) => row.postsPerWeek).filter(isFiniteNumber));
+  const liveCadence = Number(intel.pipeline?.postsPerWeek) || 0;
+  const responseNow = Number(intel.community?.responsePressure) || 0;
+  const responseBaseline = Math.max(1, Number(social.social?.customer_voice?.questionComments || 0) + Number(social.social?.customer_voice?.leadQuestions || 0));
+  return [
+    {
+      label: "Organic clicks vs. trailing week",
+      note: "Último día visible comparado contra la media de los 7 cortes anteriores.",
+      current: displayValue(organicNow),
+      baseline: displayValue(organicBaseline),
+      delta: formatDeltaValue(organicNow, organicBaseline, false),
+      tone: trendTone(organicNow, organicBaseline, 15),
+    },
+    {
+      label: "CTR vs. trailing week",
+      note: "Último CTR observado contra el baseline reciente del mismo periodo.",
+      current: displayValue(ctrNow, "%"),
+      baseline: displayValue(ctrBaseline, "%"),
+      delta: formatDeltaValue(ctrNow, ctrBaseline, true),
+      tone: trendTone(ctrNow, ctrBaseline, 8),
+    },
+    {
+      label: "Search breadth vs. tracked history",
+      note: "Top 10 actual contra el baseline histórico persistido en snapshots de rankings.",
+      current: displayValue(trackedTop10Now),
+      baseline: displayValue(trackedTop10Baseline),
+      delta: formatDeltaValue(trackedTop10Now, trackedTop10Baseline, false),
+      tone: trendTone(trackedTop10Now, trackedTop10Baseline, 20),
+    },
+    {
+      label: "Publishing cadence vs. observed pattern",
+      note: "Cadencia viva del pipeline contra la media observada en la recomendación histórica.",
+      current: `${displayValue(liveCadence)} posts/semana`,
+      baseline: `${displayValue(observedCadence)} posts/semana`,
+      delta: formatDeltaValue(liveCadence, observedCadence, false),
+      tone: trendTone(liveCadence, observedCadence, 20),
+    },
+    {
+      label: "Community pressure vs. baseline de preguntas",
+      note: "Presión actual de respuesta frente al volumen base de preguntas/lead comments.",
+      current: displayValue(responseNow),
+      baseline: displayValue(responseBaseline),
+      delta: formatDeltaValue(responseNow, responseBaseline, false),
+      tone: responseNow > responseBaseline ? "warn" : "neutral",
+    },
+  ];
+}
+
+function buildExecutiveAnomalies(seo, social, intel) {
+  const anomalies = [];
+  const seoTrend = toArray(seo.trends).slice(-8);
+  const organicNow = Number(seoTrend.at(-1)?.organic) || 0;
+  const organicBaseline = average(seoTrend.slice(0, -1).map((item) => item.organic).filter(isFiniteNumber)) || 0;
+  const ctrNow = Number(seoTrend.at(-1)?.ctr) || 0;
+  const ctrBaseline = average(seoTrend.slice(0, -1).map((item) => item.ctr).filter(isFiniteNumber)) || 0;
+  const topPost = toArray(social.social?.top_posts)[0];
+  const topPlatform = intel.platforms?.[0];
+  const weakPlatform = [...toArray(intel.platforms)].sort((a, b) => (a.avgEngagementRate || 0) - (b.avgEngagementRate || 0))[0];
+  if (organicBaseline && organicNow < organicBaseline * 0.72) {
+    anomalies.push({
+      scope: "SEO",
+      severity: "Alta",
+      title: "Caída de clics orgánicos frente al baseline reciente",
+      reason: `El último corte visible cae a ${displayValue(organicNow)} frente a un baseline de ${displayValue(organicBaseline)}.`,
+      action: "Revisa qué URLs perdieron tracción, si hubo cambio de mix en impresiones y si el CTR también cayó en paralelo.",
+    });
+  }
+  if (ctrBaseline && ctrNow < ctrBaseline * 0.88) {
+    anomalies.push({
+      scope: "SEO",
+      severity: "Media",
+      title: "Drift de CTR en el cierre del periodo",
+      reason: `El CTR reciente está en ${displayValue(ctrNow, "%")} contra ${displayValue(ctrBaseline, "%")} de baseline.`,
+      action: "Audita titles/snippets de las páginas líderes y detecta si la demanda se movió a queries menos transaccionales.",
+    });
+  }
+  if ((Number(intel.pipeline?.scheduled) || 0) === 0 && (Number(intel.pipeline?.drafts) || 0) === 0) {
+    anomalies.push({
+      scope: "Social",
+      severity: "Alta",
+      title: "Pipeline editorial sin cobertura futura",
+      reason: "No hay posts programados ni drafts visibles, así que el sistema está operando sin cola de ejecución.",
+      action: "Programa al menos una semana de contenido usando el best slot observado y replica el formato del top post actual.",
+    });
+  }
+  if (topPlatform && weakPlatform && topPlatform.platform !== weakPlatform.platform && (topPlatform.avgEngagementRate || 0) > ((weakPlatform.avgEngagementRate || 0) * 1.6)) {
+    anomalies.push({
+      scope: "Social",
+      severity: "Media",
+      title: `Brecha de performance entre ${capitalize(topPlatform.platform)} y ${capitalize(weakPlatform.platform)}`,
+      reason: `${capitalize(topPlatform.platform)} está rindiendo claramente mejor en ER media que ${capitalize(weakPlatform.platform)}.`,
+      action: "Traslada hooks, duración y tema del canal ganador al débil y prueba 2-3 iteraciones con hipótesis cerrada.",
+    });
+  }
+  if ((Number(intel.community?.responsePressure) || 0) >= 4) {
+    anomalies.push({
+      scope: "Community",
+      severity: "Media",
+      title: "Presión de respuesta por comentarios",
+      reason: `Hay ${displayValue(intel.community?.responsePressure)} señales entre preguntas y fricción que ya merecen seguimiento activo.`,
+      action: "Agrupa respuestas sobre precio, horarios y sedes y conviértelas en plantillas o FAQ visibles.",
+    });
+  }
+  if (topPost && topPost.platform === "tiktok" && (Number(topPost.views) || 0) > 20000 && (Number(topPost.engagementRate) || 0) >= 3) {
+    anomalies.push({
+      scope: "Creative",
+      severity: "Oportunidad",
+      title: "Top post con señal fuerte para escalar",
+      reason: `Un post de ${capitalize(topPost.platform)} ya pasó ${displayValue(topPost.views)} views con ${displayValue(topPost.engagementRate, "%")} de ER.`,
+      action: "Convierte ese tema en secuencia: remake, respuesta, versión corta y pieza SEO-support para capturar la demanda que abrió.",
+    });
+  }
+  return anomalies.slice(0, 6);
 }
 
 function buildSeoInsightCards(data) {
@@ -1769,6 +1929,22 @@ function latestGeneratedAt(values) {
     .filter((value) => Number.isFinite(value));
   if (!timestamps.length) return new Date().toISOString();
   return new Date(Math.max(...timestamps)).toISOString();
+}
+
+function formatDeltaValue(current, baseline, isPercent = false) {
+  if (!isFiniteNumber(current) || !isFiniteNumber(baseline) || baseline === 0) return "Sin baseline";
+  const delta = ((current - baseline) / Math.abs(baseline)) * 100;
+  const formatted = new Intl.NumberFormat("es-CO", { maximumFractionDigits: Math.abs(delta) >= 10 ? 0 : 1 }).format(Math.abs(delta));
+  const suffix = isPercent ? " vs base" : " vs base";
+  return `${delta >= 0 ? "+" : "-"}${formatted}%${suffix}`;
+}
+
+function trendTone(current, baseline, threshold = 10) {
+  if (!isFiniteNumber(current) || !isFiniteNumber(baseline) || baseline === 0) return "neutral";
+  const delta = ((current - baseline) / Math.abs(baseline)) * 100;
+  if (delta <= -threshold) return "warn";
+  if (delta >= threshold) return "info";
+  return "neutral";
 }
 
 function average(values) {
