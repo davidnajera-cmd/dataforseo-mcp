@@ -249,6 +249,11 @@ select {
   box-shadow: 0 0 0 4px rgba(184, 74, 78, 0.12);
 }
 
+.source-dot.degraded {
+  background: #8a96a8;
+  box-shadow: 0 0 0 4px rgba(138, 150, 168, 0.14);
+}
+
 .source-dot.pending {
   background: var(--warn);
   box-shadow: 0 0 0 4px rgba(165, 107, 18, 0.12);
