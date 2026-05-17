@@ -72,7 +72,7 @@ type ActionItem = {
 
 type SourceStatus = {
   name: string;
-  status: "live" | "pending" | "error";
+  status: "live" | "pending" | "error" | "degraded";
   message: string;
 };
 
@@ -209,7 +209,7 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       return data;
     }),
     loadClarity().then((data) => {
-      sources.push({ name: "Microsoft Clarity", status: data.live ? "live" : data.error ? "error" : "pending", message: data.message });
+      sources.push({ name: "Microsoft Clarity", status: data.live ? "live" : data.degraded ? "degraded" : data.error ? "error" : "pending", message: data.message });
       return data;
     }),
     loadBacklinksSection(configs).then((data) => {
@@ -259,7 +259,7 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
   ];
 
   const pendingReasons = sources
-    .filter((source) => source.status !== "live")
+    .filter((source) => source.status === "pending" || source.status === "error")
     .map((source) => `${source.name}: ${source.message}`);
 
   return {
@@ -814,6 +814,7 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
 type ClaritySection = {
   live: boolean;
   error?: boolean;
+  degraded?: boolean;
   message: string;
   deadClicks: number | null;
   rageClicks: number | null;
@@ -842,10 +843,13 @@ async function loadClarity(): Promise<ClaritySection> {
       quickbackClick: metrics["QuickbackClick"] ?? null,
     };
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Clarity no respondio.";
+    const isTransientUpstream = /Clarity API error 5\d\d:/.test(message);
     return {
       live: false,
-      error: true,
-      message: error instanceof Error ? error.message : "Clarity no respondio.",
+      error: !isTransientUpstream,
+      degraded: isTransientUpstream,
+      message: isTransientUpstream ? "Servicio externo temporalmente inestable." : message,
       deadClicks: null, rageClicks: null, excessiveScroll: null, quickbackClick: null,
     };
   }
