@@ -175,6 +175,7 @@ function render(data) {
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
   renderSeoExecutiveLayer(data);
+  renderSeoInsightLayer(data);
   renderTrend(data.trends);
   renderKeywords(data.keywords);
   renderContent(data.content);
@@ -202,6 +203,7 @@ function renderSocialDashboard(data) {
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
   renderSocialExecutiveLayer(data, intel, platformFilter);
+  renderSocialInsightLayer(data, intel, platformFilter);
   renderSocialExecutiveSummary(intel, data.social.note);
   renderSocialTrendChart(intel, data.social.note);
   renderSocialPlatformBoard(intel, data.social.note);
@@ -400,6 +402,206 @@ function renderSignalRail(items) {
       <p>${esc(item.note || "")}</p>
     </article>
   `).join("");
+}
+
+function renderSeoInsightLayer(data) {
+  renderInsightMatrix(buildSeoInsightCards(data));
+  renderBenchmarkBoard(buildSeoBenchmarkRows(data));
+}
+
+function renderSocialInsightLayer(data, intel, platformFilter) {
+  renderInsightMatrix(buildSocialInsightCards(data.social, intel, platformFilter));
+  renderBenchmarkBoard(buildSocialBenchmarkRows(data.social, intel, platformFilter));
+}
+
+function renderInsightMatrix(cards) {
+  const target = document.querySelector("#insightMatrix");
+  if (!target) return;
+  target.innerHTML = toArray(cards).map((card) => `
+    <article class="insight-card ${esc(card.tone || "neutral")}">
+      <header>
+        <div>
+          <span class="insight-kicker">${esc(card.kicker || "")}</span>
+          <h3>${esc(card.title || "")}</h3>
+        </div>
+        <span class="insight-priority ${esc(card.priorityTone || "live")}">${esc(card.priority || "Monitor")}</span>
+      </header>
+      ${card.value ? `<strong class="insight-value">${esc(card.value)}</strong>` : ""}
+      <p>${esc(card.body || "")}</p>
+      ${card.meta ? `<small>${esc(card.meta)}</small>` : ""}
+    </article>
+  `).join("");
+}
+
+function renderBenchmarkBoard(rows) {
+  const target = document.querySelector("#benchmarkBoard");
+  if (!target) return;
+  target.innerHTML = `
+    <div class="benchmark-head">
+      <div>
+        <span>Operating benchmark</span>
+        <h3>Lectura comparativa del sistema</h3>
+      </div>
+      <small>Normaliza cobertura, riesgo y capacidad operativa para priorizar mejor.</small>
+    </div>
+    <div class="benchmark-grid">
+      ${toArray(rows).map((row) => `
+        <article class="benchmark-card">
+          <header>
+            <div>
+              <span class="benchmark-kicker">${esc(row.kicker || "")}</span>
+              <h4>${esc(row.label || "")}</h4>
+            </div>
+            <strong>${esc(row.scoreLabel || "Sin datos")}</strong>
+          </header>
+          <div class="benchmark-bar">
+            <span class="${esc(row.tone || "neutral")}" style="width:${Math.max(6, Math.min(100, Number(row.score) || 0))}%"></span>
+          </div>
+          <p>${esc(row.note || "")}</p>
+        </article>
+      `).join("")}
+    </div>
+  `;
+}
+
+function buildSeoInsightCards(data) {
+  const topMetric = data.overview?.metrics?.[0];
+  const ctrMetric = data.overview?.metrics?.[3];
+  const aiMentions = Number(data.ai_visibility?.by_domain?.[0]?.google_mentions) || 0;
+  const technicalScore = Number(data.technical?.score) || 0;
+  const clarityStatus = data.sources?.find((item) => item.name === "Microsoft Clarity")?.status || "degraded";
+  const opportunity = data.business?.opportunities?.[0];
+  const topPage = data.content?.topPages?.[0];
+  return [
+    {
+      kicker: "Growth",
+      title: "Captura orgánica activa",
+      value: displayValue(topMetric?.value),
+      body: `La demanda orgánica visible sostiene ${displayValue(data.keywords?.top10)} keywords en Top 10 y ${displayValue(data.keywords?.top3)} en Top 3.`,
+      meta: ctrMetric?.detail || "Search Console",
+      priority: "Activa",
+      priorityTone: "live",
+      tone: "accent",
+    },
+    {
+      kicker: "Content",
+      title: "Mayor palanca editorial",
+      value: stripUrl(topPage?.path) || "Sin líder",
+      body: topPage?.path
+        ? `La URL con más tracción está generando ${displayValue(topPage?.sessions)} sesiones. Conviene usarla como plantilla de expansión o refresh.`
+        : "Aún no hay una página líder clara para amplificar.",
+      meta: `${displayValue(topPage?.ctr, "%")} CTR · ${displayValue(topPage?.position)} posición media`,
+      priority: "Expandir",
+      priorityTone: "pending",
+    },
+    {
+      kicker: "Risk",
+      title: "Postura técnica y medición",
+      value: displayValue(data.technical?.score),
+      body: technicalScore >= 80
+        ? "La base técnica está estable; el foco puede ir a CTR, contenidos y distribución."
+        : "La salud técnica todavía puede limitar crecimiento y conviene tratarla como cuello de botella.",
+      meta: clarityStatus === "degraded"
+        ? "Clarity está degradado, así que la lectura UX está parcial."
+        : `LCP ${data.technical?.lcp ?? "Sin datos"} · CLS ${data.technical?.cls ?? "Sin datos"}`,
+      priority: technicalScore >= 80 ? "Controlado" : "Atender",
+      priorityTone: technicalScore >= 80 ? "live" : "pending",
+    },
+    {
+      kicker: "Decision",
+      title: opportunity?.title || "Siguiente jugada recomendada",
+      value: opportunity?.priority || "Monitor",
+      body: opportunity?.action || "No hay una alerta crítica ahora mismo, así que toca sostener ejecución y revisar nuevas oportunidades.",
+      meta: aiMentions > 0 ? `${displayValue(aiMentions)} menciones en AI visibility ya registradas.` : "La capa de AI visibility todavía necesita más masa histórica.",
+      priority: opportunity?.priority || "Baja",
+      priorityTone: opportunity?.priority === "Alta" ? "pending" : "live",
+    },
+  ];
+}
+
+function buildSeoBenchmarkRows(data) {
+  const sources = toArray(data.sources);
+  const liveSources = sources.filter((item) => item.status === "live").length;
+  const visibilityScore = Math.min(100, Math.round(((Number(data.keywords?.top10) || 0) * 1.8) + ((Number(data.keywords?.top3) || 0) * 2.4)));
+  const contentScore = Math.min(100, Math.round((Number(data.content?.topPages?.[0]?.ctr) || 0) * 5));
+  const technicalScore = Number(data.technical?.score) || 0;
+  const aiScore = Math.min(100, Math.round((Number(data.ai_visibility?.by_domain?.[0]?.google_mentions) || 0) * 4));
+  const sourceScore = sources.length ? Math.round((liveSources / sources.length) * 100) : 0;
+  return [
+    { kicker: "Search", label: "Organic visibility", score: visibilityScore, scoreLabel: displayValue(visibilityScore, "%"), note: `${displayValue(data.keywords?.top10)} keywords Top 10 y ${displayValue(data.overview?.metrics?.[0]?.value)} clics reales.`, tone: benchmarkTone(visibilityScore) },
+    { kicker: "Content", label: "CTR + page leverage", score: contentScore, scoreLabel: displayValue(contentScore, "%"), note: `${stripUrl(data.content?.topPages?.[0]?.path) || "Sin URL líder"} está empujando el frente editorial.`, tone: benchmarkTone(contentScore) },
+    { kicker: "Technical", label: "Technical resilience", score: technicalScore, scoreLabel: displayValue(technicalScore), note: `LCP ${data.technical?.lcp ?? "Sin datos"} · Speed ${data.technical?.speed ?? "Sin datos"}.`, tone: benchmarkTone(technicalScore) },
+    { kicker: "AI", label: "LLM / AI presence", score: aiScore, scoreLabel: displayValue(aiScore, "%"), note: data.ai_visibility?.note || "Sin notas AI todavía.", tone: benchmarkTone(aiScore) },
+    { kicker: "Ops", label: "Measurement stack", score: sourceScore, scoreLabel: displayValue(sourceScore, "%"), note: `${liveSources}/${sources.length || 0} fuentes críticas en estado live.`, tone: benchmarkTone(sourceScore) },
+  ];
+}
+
+function buildSocialInsightCards(social, intel, platformFilter) {
+  const leadPlatform = intel.platforms?.[0];
+  const bestSlot = formatBestSlot(social?.calendar?.bestSlots?.find((slot) => !platformFilter || slot.platform === platformFilter) || social?.calendar?.bestSlots?.[0]);
+  return [
+    {
+      kicker: "Audience",
+      title: platformFilter ? `${capitalize(platformFilter)} concentra la lectura` : "Masa social y liderazgo",
+      value: displayValue(intel.audience?.totalFollowers),
+      body: leadPlatform
+        ? `${capitalize(leadPlatform.platform)} lidera con ${displayValue(leadPlatform.followers)} seguidores y ${displayValue(leadPlatform.avgEngagementRate, "%")} de ER media.`
+        : "Todavía no hay suficiente masa para establecer un líder claro entre plataformas.",
+      meta: `${displayValue(intel.audience?.activePlatforms)} plataformas activas`,
+      priority: "Escalar",
+      priorityTone: "live",
+      tone: "accent",
+    },
+    {
+      kicker: "Community",
+      title: "Señales comerciales y fricción",
+      value: displayValue(intel.community?.leadSignals),
+      body: `${displayValue(intel.community?.riskAlerts)} focos reputacionales y ${displayValue(social?.customer_voice?.questionComments)} preguntas activas están entrando por comentarios.`,
+      meta: `${displayValue(social?.customer_voice?.commentsAnalyzed)} comentarios analizados`,
+      priority: intel.community?.riskAlerts > 0 ? "Responder" : "Monitor",
+      priorityTone: intel.community?.riskAlerts > 0 ? "pending" : "live",
+    },
+    {
+      kicker: "Publishing",
+      title: "Ventana de ejecución",
+      value: bestSlot,
+      body: social?.calendar?.recommendation || "Todavía no hay suficiente histórico para cerrar un patrón de calendarización más fino.",
+      meta: `${displayValue(intel.pipeline?.scheduleCoverage, "%")} del pipeline ya está agendado`,
+      priority: intel.pipeline?.scheduleCoverage < 40 ? "Completar" : "Operando",
+      priorityTone: intel.pipeline?.scheduleCoverage < 40 ? "pending" : "live",
+    },
+    {
+      kicker: "Creative",
+      title: "Momentum creativo",
+      value: displayValue(intel.performance?.avgEngagementRate, "%"),
+      body: `${displayValue(intel.performance?.postsAnalyzed)} posts ya permiten leer reach medio de ${displayValue(intel.performance?.avgReach)} y detectar qué formato merece más repetición.`,
+      meta: leadPlatform?.topContentLabel || "Sin top creative claro todavía.",
+      priority: "Optimizar",
+      priorityTone: "live",
+    },
+  ];
+}
+
+function buildSocialBenchmarkRows(social, intel, platformFilter) {
+  const audienceScore = Math.min(100, Math.round((Number(intel.audience?.totalFollowers) || 0) / 1000));
+  const performanceScore = Math.min(100, Math.round((Number(intel.performance?.avgEngagementRate) || 0) * 8));
+  const readinessScore = Number(intel.operations?.publishReadyRate) || 0;
+  const communityScore = Math.max(0, 100 - Math.min(100, ((Number(intel.community?.responsePressure) || 0) * 5) + ((Number(intel.community?.riskAlerts) || 0) * 12)));
+  const pipelineScore = Number(intel.pipeline?.scheduleCoverage) || 0;
+  const leadPlatform = intel.platforms?.[0];
+  return [
+    { kicker: "Audience", label: "Audience scale", score: audienceScore, scoreLabel: displayValue(audienceScore, "%"), note: leadPlatform ? `${capitalize(leadPlatform.platform)} lidera la base social actual.` : "Sin líder claro todavía.", tone: benchmarkTone(audienceScore) },
+    { kicker: "Creative", label: "Content performance", score: performanceScore, scoreLabel: displayValue(performanceScore, "%"), note: `${displayValue(intel.performance?.avgEngagementRate, "%")} ER media · ${displayValue(intel.performance?.avgReach)} reach medio.`, tone: benchmarkTone(performanceScore) },
+    { kicker: "Ops", label: "Publishing readiness", score: readinessScore, scoreLabel: displayValue(readinessScore, "%"), note: `${displayValue(intel.operations?.accountsReady)} cuentas listas para publicar.`, tone: benchmarkTone(readinessScore) },
+    { kicker: "Community", label: "Community stability", score: communityScore, scoreLabel: displayValue(communityScore, "%"), note: `${displayValue(intel.community?.leadSignals)} señales de lead · ${displayValue(intel.community?.riskAlerts)} alertas.`, tone: benchmarkTone(communityScore) },
+    { kicker: "Calendar", label: "Pipeline coverage", score: pipelineScore, scoreLabel: displayValue(pipelineScore, "%"), note: platformFilter ? `${capitalize(platformFilter)} en foco editorial.` : (social?.calendar?.recommendation || "Sin recomendación de calendario todavía."), tone: benchmarkTone(pipelineScore) },
+  ];
+}
+
+function benchmarkTone(score) {
+  if ((Number(score) || 0) >= 75) return "live";
+  if ((Number(score) || 0) >= 45) return "pending";
+  return "error";
 }
 
 function renderMetrics(metrics) {
@@ -1310,6 +1512,8 @@ function updateSectionVisibility() {
   const executiveVisible = state.view !== "variables" && state.view !== "backlog";
   document.querySelector("#executiveDeck")?.classList.toggle("hidden", !executiveVisible);
   document.querySelector("#signalRail")?.classList.toggle("hidden", !executiveVisible);
+  document.querySelector("#insightMatrix")?.classList.toggle("hidden", !executiveVisible);
+  document.querySelector("#benchmarkBoard")?.classList.toggle("hidden", !executiveVisible);
 }
 
 // =====================================================================
