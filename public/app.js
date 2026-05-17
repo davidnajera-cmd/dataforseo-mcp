@@ -86,7 +86,16 @@ navItems.forEach((button) => {
 });
 
 moduleTabs.forEach((button) => {
-  button.addEventListener("click", () => setModule(button.dataset.module));
+  button.addEventListener("click", () => {
+    const nextModule = button.dataset.module;
+    setModule(nextModule);
+    queueMicrotask(() => {
+      if (state.module !== nextModule) return;
+      if (nextModule === "executive") loadExecutiveOverview();
+      else if (nextModule === "social") loadSocialDashboard();
+      else loadDashboard();
+    });
+  });
 });
 
 document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
