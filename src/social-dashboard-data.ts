@@ -104,7 +104,7 @@ type SiteCode = Exclude<CountryCode, "all">;
 
 type SocialSiteConfig = {
   code: SiteCode;
-  profileId: string | null;
+  profileIds: string[];
 };
 
 type SocialData = {
@@ -237,12 +237,12 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
 
 async function getSocialSiteConfig(site: SiteCode): Promise<SocialSiteConfig> {
   if (site === "co") {
-    return { code: "co", profileId: (await getRuntimeVariable("ZERNIO_PROFILE_ID_CO")) ?? (await getRuntimeVariable("ZERNIO_DEFAULT_PROFILE_ID")) ?? null };
+    return { code: "co", profileIds: await getConfiguredProfileIds("ZERNIO_PROFILE_ID_CO") };
   }
   if (site === "mx") {
-    return { code: "mx", profileId: (await getRuntimeVariable("ZERNIO_PROFILE_ID_MX")) ?? (await getRuntimeVariable("ZERNIO_DEFAULT_PROFILE_ID")) ?? null };
+    return { code: "mx", profileIds: await getConfiguredProfileIds("ZERNIO_PROFILE_ID_MX") };
   }
-  return { code: "lta", profileId: (await getRuntimeVariable("ZERNIO_PROFILE_ID_LTA")) ?? (await getRuntimeVariable("ZERNIO_DEFAULT_PROFILE_ID")) ?? null };
+  return { code: "lta", profileIds: await getConfiguredProfileIds("ZERNIO_PROFILE_ID_LTA") };
 }
 
 async function loadSocialDashboard(configs: SocialSiteConfig[], filters: DashboardFilters): Promise<SocialData> {
@@ -250,7 +250,7 @@ async function loadSocialDashboard(configs: SocialSiteConfig[], filters: Dashboa
     return emptySocial("Falta ZERNIO_API_KEY.");
   }
 
-  const profileIds = [...new Set(configs.map((config) => config.profileId).filter(Boolean) as string[])];
+  const profileIds = [...new Set(configs.flatMap((config) => config.profileIds).filter(Boolean))];
   if (!profileIds.length) {
     return emptySocial("Configura ZERNIO_PROFILE_ID_* o ZERNIO_DEFAULT_PROFILE_ID para mapear redes al submódulo.");
   }
@@ -504,6 +504,19 @@ async function loadSocialDashboard(configs: SocialSiteConfig[], filters: Dashboa
       error: true,
     };
   }
+}
+
+async function getConfiguredProfileIds(primaryVariable: "ZERNIO_PROFILE_ID_CO" | "ZERNIO_PROFILE_ID_MX" | "ZERNIO_PROFILE_ID_LTA"): Promise<string[]> {
+  const primary = parseProfileIds(await getRuntimeVariable(primaryVariable));
+  if (primary.length) return primary;
+  return parseProfileIds(await getRuntimeVariable("ZERNIO_DEFAULT_PROFILE_ID"));
+}
+
+function parseProfileIds(raw: string | null | undefined): string[] {
+  return String(raw ?? "")
+    .split(/[,\n]/)
+    .map((value) => value.trim())
+    .filter(Boolean);
 }
 
 function sourceStatus(data: { live: boolean; error?: boolean }): SourceStatus["status"] {
