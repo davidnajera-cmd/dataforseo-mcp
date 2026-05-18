@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getDefaultZernioProfileId, zernioGet, zernioPost } from "./zernio-client.js";
+import { getDefaultZernioProfileId, zernioDelete, zernioGet, zernioPatch, zernioPost, zernioPut } from "./zernio-client.js";
 
 function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
@@ -10,14 +10,17 @@ const zernioPlatform = z.enum([
   "facebook",
   "instagram",
   "linkedin",
+  "linkedinads",
   "twitter",
   "tiktok",
+  "tiktokads",
   "youtube",
   "threads",
   "reddit",
   "pinterest",
   "bluesky",
   "googlebusiness",
+  "googleads",
   "telegram",
   "snapchat",
   "discord",
@@ -29,6 +32,13 @@ const instagramMediaType = z.enum(["image", "video"]);
 const tiktokPrivacyLevel = z.enum(["PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "SELF_ONLY"]);
 const analyticsSource = z.enum(["all", "late", "external"]);
 const analyticsMetricType = z.enum(["time_series", "total_value"]);
+const adTreePlatform = z.enum(["facebook", "instagram", "tiktok", "linkedin", "pinterest", "google", "twitter"]);
+const adTreeStatus = z.enum(["active", "paused", "pending_review", "rejected", "completed", "cancelled", "error"]);
+const adTreeSource = z.enum(["all", "zernio"]);
+const youtubeMetricType = z.enum(["time_series", "total_value"]);
+const gmbMediaCategory = z.enum(["COVER", "PROFILE", "LOGO", "EXTERIOR", "INTERIOR", "FOOD_AND_DRINK", "MENU", "PRODUCT", "TEAMS", "ADDITIONAL"]);
+const gmbPlaceActionType = z.enum(["APPOINTMENT", "ONLINE_APPOINTMENT", "DINING_RESERVATION", "FOOD_ORDERING", "FOOD_DELIVERY", "FOOD_TAKEOUT", "SHOP_ONLINE"]);
+const gmbPostTopicType = z.enum(["STANDARD", "EVENT", "OFFER"]);
 
 const mediaItemSchema = z.object({
   type: mediaType.describe("Media type recognized by Zernio."),
@@ -70,6 +80,7 @@ const tiktokSchedulingShape = {
 };
 
 type ZernioAccount = Record<string, unknown>;
+type CorePublishingPlatform = "instagram" | "tiktok" | "linkedin" | "youtube" | "googlebusiness";
 
 export function registerZernioTools(server: McpServer) {
   server.tool(
@@ -134,7 +145,8 @@ export function registerZernioTools(server: McpServer) {
       if (!resolvedProfileId) {
         throw new Error("profile_id is required unless ZERNIO_DEFAULT_PROFILE_ID is configured.");
       }
-      const result = await zernioGet(`/connect/${platform}`, {
+      const connectPath = resolveConnectPath(platform);
+      const result = await zernioGet(connectPath, {
         profileId: resolvedProfileId,
         redirect_url,
         headless: headless ?? false,
@@ -772,9 +784,880 @@ export function registerZernioTools(server: McpServer) {
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
     }
   );
+
+  server.tool(
+    "zernio_googlebusiness_accounts_list",
+    "Summarize connected Google Business Profile accounts with selected location metadata, publish readiness, and local profile context.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("googlebusiness", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_locations_list",
+    "List all Google Business locations available to one connected GBP account and show which one is currently selected.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ account_id, profile_id }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-locations`);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_location_select",
+    "Switch the selected GBP location on a connected account. Useful when one OAuth connection manages multiple locations.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      selected_location_id: z.string().describe("The location ID that should become the selected/default location for this account."),
+    },
+    async ({ account_id, profile_id, selected_location_id }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPut(`/accounts/${encodeURIComponent(target.accountId)}/gmb-locations`, {
+        selectedLocationId: selected_location_id,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_location_details",
+    "Fetch detailed Google Business Profile location data including hours, phone, website, categories, services, and profile description.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      read_mask: z.array(z.enum(["name", "title", "phoneNumbers", "categories", "storefrontAddress", "websiteUri", "regularHours", "specialHours", "serviceArea", "serviceItems", "profile", "openInfo", "metadata", "moreHours"])).optional().describe("Specific location fields to request from Zernio/Google."),
+    },
+    async ({ account_id, profile_id, location_id, read_mask }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-location-details`, {
+        locationId: location_id,
+        readMask: read_mask?.join(","),
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_location_update",
+    "Update Google Business location details such as hours, special hours, description, website, phone numbers, categories, or service items.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      update_mask: z.array(z.string()).min(1).describe("Google Business fields to patch, e.g. ['regularHours','websiteUri','profile.description']."),
+      payload: z.record(z.string(), z.unknown()).describe("Raw GBP location patch payload. Include only the fields you want to set."),
+    },
+    async ({ account_id, profile_id, location_id, update_mask, payload }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPut(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-location-details`,
+        { ...payload, updateMask: update_mask.join(",") },
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_reviews_list",
+    "List Google Business reviews for one connected location, including ratings, comments, owner replies, and pagination token.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      page_size: z.number().int().min(1).max(50).optional().describe("Reviews per page. Default 50."),
+      page_token: z.string().optional().describe("Pagination token from a previous response."),
+    },
+    async ({ account_id, profile_id, location_id, page_size, page_token }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-reviews`, {
+        locationId: location_id,
+        pageSize: page_size ?? 50,
+        pageToken: page_token,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_reviews_batch",
+    "Fetch reviews across multiple Google Business locations in one request. Best for multi-location monitoring.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_names: z.array(z.string()).describe("Full Google resource names, e.g. accounts/123/locations/456."),
+      page_size: z.number().int().min(1).max(50).optional().describe("Reviews per location. Default 50."),
+      page_token: z.string().optional().describe("Pagination token from a previous response."),
+    },
+    async ({ account_id, profile_id, location_names, page_size, page_token }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPost(`/accounts/${encodeURIComponent(target.accountId)}/gmb-reviews/batch`, {
+        locationNames: location_names,
+        pageSize: page_size ?? 50,
+        pageToken: page_token,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_reviews_inbox",
+    "List Google Business reviews across all connected GBP accounts using Zernio's aggregated inbox endpoint.",
+    {
+      profile_id: z.string().optional().describe("Zernio profile ID filter."),
+      account_id: z.string().optional().describe("Specific GBP account ID filter."),
+      min_rating: z.number().int().min(1).max(5).optional().describe("Minimum rating filter."),
+      max_rating: z.number().int().min(1).max(5).optional().describe("Maximum rating filter."),
+      has_reply: z.boolean().optional().describe("Filter by whether the review already has an owner reply."),
+      sort_by: z.enum(["date", "rating"]).optional(),
+      sort_order: z.enum(["asc", "desc"]).optional(),
+      limit: z.number().int().min(1).max(50).optional(),
+      cursor: z.string().optional().describe("Pagination cursor from a previous response."),
+    },
+    async ({ profile_id, account_id, min_rating, max_rating, has_reply, sort_by, sort_order, limit, cursor }) => {
+      const result = await zernioGet("/inbox/reviews", {
+        profileId: profile_id,
+        platform: "googlebusiness",
+        accountId: account_id,
+        minRating: min_rating,
+        maxRating: max_rating,
+        hasReply: has_reply,
+        sortBy: sort_by ?? "date",
+        sortOrder: sort_order ?? "desc",
+        limit: limit ?? 25,
+        cursor,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_services_get",
+    "Get structured/free-form services configured on a Google Business Profile location.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+    },
+    async ({ account_id, profile_id, location_id }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-services`, {
+        locationId: location_id,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_services_replace",
+    "Replace the full service list for a Google Business location. Google requires full replacement rather than item-by-item mutation.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      service_items: z.array(z.record(z.string(), z.unknown())).describe("Full array of service items, structured or free-form."),
+    },
+    async ({ account_id, profile_id, location_id, service_items }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPut(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-services`,
+        { serviceItems: service_items },
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_attributes_get",
+    "Get GBP location attributes such as amenities, services, and payment-related flags.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+    },
+    async ({ account_id, profile_id, location_id }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-attributes`, {
+        locationId: location_id,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_attributes_update",
+    "Update GBP location attributes. Use attribute_mask to specify which attributes you want to write.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      attribute_mask: z.array(z.string()).min(1).describe("Comma-joined attribute keys to update, e.g. ['has_wifi','takeout']."),
+      attributes: z.record(z.string(), z.unknown()).describe("Attribute payload keyed by attribute name."),
+    },
+    async ({ account_id, profile_id, location_id, attribute_mask, attributes }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPut(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-attributes`,
+        { attributes, attributeMask: attribute_mask.join(",") },
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_media_list",
+    "List Google Business media items (photos) for a location, including source URLs, Google URLs, categories, and pagination.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      page_size: z.number().int().min(1).max(100).optional().describe("Media items per page. Default 100."),
+      page_token: z.string().optional().describe("Pagination token from a previous response."),
+    },
+    async ({ account_id, profile_id, location_id, page_size, page_token }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-media`, {
+        locationId: location_id,
+        pageSize: page_size ?? 100,
+        pageToken: page_token,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_media_upload",
+    "Upload a photo to a Google Business location from a public URL.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      source_url: z.string().describe("Publicly accessible image URL."),
+      description: z.string().optional().describe("Optional media description."),
+      category: gmbMediaCategory.optional().describe("Where the photo should appear on the listing."),
+      media_format: z.enum(["PHOTO", "VIDEO"]).optional().describe("Default PHOTO."),
+    },
+    async ({ account_id, profile_id, location_id, source_url, description, category, media_format }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPost(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-media`,
+        {
+          sourceUrl: source_url,
+          description,
+          category,
+          mediaFormat: media_format ?? "PHOTO",
+        },
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_media_delete",
+    "Delete a Google Business media item (photo/video) from a location.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      media_name: z.string().describe("Full GBP media resource name to delete."),
+    },
+    async ({ account_id, profile_id, location_id, media_name }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioDelete(`/accounts/${encodeURIComponent(target.accountId)}/gmb-media`, {
+        locationId: location_id,
+        name: media_name,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_place_actions_list",
+    "List GBP place action links such as appointment, ordering, delivery, reservation, or shop buttons.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      page_size: z.number().int().min(1).max(100).optional().describe("Items per page. Default 100."),
+      page_token: z.string().optional().describe("Pagination token from a previous response."),
+    },
+    async ({ account_id, profile_id, location_id, page_size, page_token }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-place-actions`, {
+        locationId: location_id,
+        pageSize: page_size ?? 100,
+        pageToken: page_token,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_place_action_create",
+    "Create a GBP place action link like appointment, booking, ordering, delivery, takeout, or shop.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      uri: z.string().describe("Action URL."),
+      place_action_type: gmbPlaceActionType.describe("Type of place action."),
+    },
+    async ({ account_id, profile_id, location_id, uri, place_action_type }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPost(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-place-actions`,
+        {
+          uri,
+          placeActionType: place_action_type,
+        },
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_place_action_update",
+    "Update an existing GBP place action link's URL or type.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      name: z.string().describe("Full resource name of the place action link."),
+      uri: z.string().optional().describe("New action URL."),
+      place_action_type: gmbPlaceActionType.optional().describe("New action type."),
+    },
+    async ({ account_id, profile_id, location_id, name, uri, place_action_type }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPatch(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-place-actions`,
+        compactObject({
+          name,
+          uri,
+          placeActionType: place_action_type,
+        }),
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_place_action_delete",
+    "Delete a GBP place action link from a location.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      name: z.string().describe("Full resource name of the place action link to delete."),
+    },
+    async ({ account_id, profile_id, location_id, name }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioDelete(`/accounts/${encodeURIComponent(target.accountId)}/gmb-place-actions`, {
+        locationId: location_id,
+        name,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_food_menus_get",
+    "Get GBP food menus for locations that support menu management.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+    },
+    async ({ account_id, profile_id, location_id }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/gmb-food-menus`, {
+        locationId: location_id,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_food_menus_update",
+    "Replace the full GBP food menu payload for restaurant/cafe locations that support menus.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Override the selected GBP location ID."),
+      menus: z.array(z.record(z.string(), z.unknown())).describe("Full menus array to write."),
+      update_mask: z.array(z.string()).optional().describe("Optional partial update mask if supported by the location/menu type."),
+    },
+    async ({ account_id, profile_id, location_id, menus, update_mask }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPut(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-food-menus`,
+        compactObject({
+          menus,
+          updateMask: update_mask?.join(","),
+        }),
+        { locationId: location_id }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_post_create",
+    "Create a Google Business post/update, including standard updates plus EVENT and OFFER topic types.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      location_id: z.string().optional().describe("Optional target location ID for multi-location posting."),
+      content: z.string().optional().describe("Post text. Optional if media or custom content is sufficient."),
+      media_url: z.string().optional().describe("Optional public image URL for the GBP post."),
+      topic_type: gmbPostTopicType.optional().describe("STANDARD, EVENT, or OFFER. Defaults to STANDARD."),
+      event: z.record(z.string(), z.unknown()).optional().describe("Event payload when topic_type=EVENT. Include title and schedule.startDate at minimum."),
+      offer: z.record(z.string(), z.unknown()).optional().describe("Offer payload when topic_type=OFFER."),
+      publish_now: z.boolean().optional().describe("Publish immediately."),
+      is_draft: z.boolean().optional().describe("Save as draft."),
+      scheduled_for: z.string().optional().describe("ISO datetime for scheduled publishing."),
+      timezone: z.string().optional().describe("Timezone for scheduled publishing. Default UTC."),
+    },
+    async ({ account_id, profile_id, location_id, content, media_url, topic_type, event, offer, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content,
+        mediaItems: media_url ? [{ type: "image", url: media_url }] : undefined,
+        platforms: [{
+          platform: "googlebusiness",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({
+            locationId: location_id,
+            topicType: topic_type ?? "STANDARD",
+            event,
+            offer,
+          }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_performance",
+    "Get Google Business Profile performance metrics such as calls, website clicks, directions, views, and interactions.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      start_date: z.string().optional().describe("YYYY-MM-DD start date."),
+      end_date: z.string().optional().describe("YYYY-MM-DD end date."),
+      metrics: z.array(z.string()).optional().describe("Optional metric keys if you want a narrower payload."),
+    },
+    async ({ account_id, profile_id, start_date, end_date, metrics }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet("/analytics/googlebusiness/performance", {
+        accountId: target.accountId,
+        startDate: start_date,
+        endDate: end_date,
+        metrics: metrics?.join(","),
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_search_keywords",
+    "Get the Google search queries/keywords that are driving discovery for a Google Business Profile.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      start_date: z.string().optional().describe("YYYY-MM-DD start date."),
+      end_date: z.string().optional().describe("YYYY-MM-DD end date."),
+      start_month: z.string().optional().describe("YYYY-MM month lower bound for the monthly keyword report."),
+      end_month: z.string().optional().describe("YYYY-MM month upper bound for the monthly keyword report."),
+      limit: z.number().int().min(1).max(100).optional().describe("Keyword rows to return. Default 25."),
+    },
+    async ({ account_id, profile_id, start_date, end_date, start_month, end_month, limit }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioGet("/analytics/googlebusiness/search-keywords", {
+        accountId: target.accountId,
+        startMonth: start_month ?? toYearMonth(start_date),
+        endMonth: end_month ?? toYearMonth(end_date),
+        limit: limit ?? 25,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_linkedin_accounts_list",
+    "Summarize connected LinkedIn accounts with account type, publishing readiness, permissions, and token status.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("linkedin", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_linkedin_aggregate_analytics",
+    "Get LinkedIn aggregate analytics and automatically choose the correct endpoint for a personal profile vs. organization page.",
+    {
+      account_id: z.string().optional().describe("LinkedIn account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      aggregation: z.enum(["TOTAL", "DAILY"]).optional().describe("TOTAL for lifetime totals, DAILY for time series."),
+    },
+    async ({ account_id, profile_id, aggregation }) => {
+      const target = await resolvePlatformTarget("linkedin", account_id, profile_id);
+      const accountSummary = summarizeAccount(target.account);
+      const accountType = stringValue(accountSummary.account_type ?? target.account.accountType ?? target.account.displayName).toLowerCase();
+      const isOrg = accountType.includes("org") || accountType.includes("company") || accountType.includes("organization");
+      const result = isOrg
+        ? await zernioGet("/analytics/linkedin/org-aggregate-analytics", {
+            accountId: target.accountId,
+            metricType: aggregation === "DAILY" ? "time_series" : "total_value",
+          })
+        : await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/linkedin-aggregate-analytics`, {
+            aggregation: aggregation ?? "TOTAL",
+          });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_linkedin_post_analytics",
+    "Get analytics for a specific LinkedIn post by URN. Useful when you already know the native LinkedIn post identifier.",
+    {
+      account_id: z.string().optional().describe("LinkedIn account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      urn: z.string().describe("LinkedIn post URN."),
+    },
+    async ({ account_id, profile_id, urn }) => {
+      const target = await resolvePlatformTarget("linkedin", account_id, profile_id);
+      const result = await zernioGet(`/accounts/${encodeURIComponent(target.accountId)}/linkedin-post-analytics`, {
+        urn,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_linkedin_post_text",
+    "Create a LinkedIn text post. Best practice from Zernio docs: keep external URLs in first_comment rather than in the main caption.",
+    {
+      account_id: z.string().optional().describe("LinkedIn account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      content: z.string().describe("Main LinkedIn post text."),
+      first_comment: z.string().optional().describe("Optional first comment. Good place for external links."),
+      publish_now: z.boolean().optional().describe("Publish immediately."),
+      is_draft: z.boolean().optional().describe("Save as draft."),
+      scheduled_for: z.string().optional().describe("ISO datetime for scheduled publishing."),
+      timezone: z.string().optional().describe("Timezone for scheduled publishing. Default UTC."),
+    },
+    async ({ account_id, profile_id, content, first_comment, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("linkedin", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content,
+        platforms: [{
+          platform: "linkedin",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({ firstComment: first_comment }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_linkedin_post_document",
+    "Create a LinkedIn document post. LinkedIn requires a document title.",
+    {
+      account_id: z.string().optional().describe("LinkedIn account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      content: z.string().optional().describe("Optional post text shown above the document."),
+      document_url: z.string().describe("Public URL to the PDF/PPT/PPTX/DOC/DOCX file."),
+      document_title: z.string().describe("Title shown on LinkedIn for the document."),
+      first_comment: z.string().optional().describe("Optional first comment."),
+      publish_now: z.boolean().optional(),
+      is_draft: z.boolean().optional(),
+      scheduled_for: z.string().optional(),
+      timezone: z.string().optional(),
+    },
+    async ({ account_id, profile_id, content, document_url, document_title, first_comment, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("linkedin", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        content,
+        mediaItems: [{ type: "document", url: document_url }],
+        platforms: [{
+          platform: "linkedin",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({
+            firstComment: first_comment,
+            documentTitle: document_title,
+          }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_youtube_accounts_list",
+    "Summarize connected YouTube accounts with publishing readiness, analytics status, permissions, and token expiry.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("youtube", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_youtube_channel_insights",
+    "Get YouTube channel-level insights such as views, watch time, likes, comments, shares, and subscriber deltas.",
+    {
+      account_id: z.string().optional().describe("YouTube account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      since: z.string().optional().describe("Start date YYYY-MM-DD."),
+      until: z.string().optional().describe("End date YYYY-MM-DD."),
+      metric_type: youtubeMetricType.optional().describe("time_series for daily values, total_value for aggregate totals."),
+      metrics: z.array(z.string()).optional().describe("Optional metric keys if you want a narrower payload."),
+    },
+    async ({ account_id, profile_id, since, until, metric_type, metrics }) => {
+      const target = await resolvePlatformTarget("youtube", account_id, profile_id);
+      const result = await zernioGet("/analytics/youtube/channel-insights", {
+        accountId: target.accountId,
+        since,
+        until,
+        metricType: metric_type ?? "total_value",
+        metrics: metrics?.join(","),
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_youtube_video_daily_views",
+    "Get daily YouTube video analytics including views, watch time, average view duration, subscriber changes, likes, comments, and shares.",
+    {
+      account_id: z.string().optional().describe("YouTube account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      video_id: z.string().describe("Native YouTube video ID, e.g. dQw4w9WgXcQ."),
+      start_date: z.string().optional().describe("YYYY-MM-DD start date."),
+      end_date: z.string().optional().describe("YYYY-MM-DD end date."),
+    },
+    async ({ account_id, profile_id, video_id, start_date, end_date }) => {
+      const target = await resolvePlatformTarget("youtube", account_id, profile_id);
+      const result = await zernioGet("/analytics/youtube/daily-views", {
+        accountId: target.accountId,
+        videoId: video_id,
+        startDate: start_date,
+        endDate: end_date,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_youtube_demographics",
+    "Get YouTube audience demographics broken down by age, gender, and/or country.",
+    {
+      account_id: z.string().optional().describe("YouTube account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      dimensions: z.array(z.enum(["age", "gender", "country"])).optional().describe("Dimensions to request. Defaults to all available slices."),
+      start_date: z.string().optional().describe("YYYY-MM-DD start date."),
+      end_date: z.string().optional().describe("YYYY-MM-DD end date."),
+    },
+    async ({ account_id, profile_id, dimensions, start_date, end_date }) => {
+      const target = await resolvePlatformTarget("youtube", account_id, profile_id);
+      const result = await zernioGet("/analytics/youtube/demographics", {
+        accountId: target.accountId,
+        dimensions: dimensions?.join(","),
+        since: start_date,
+        until: end_date,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_youtube_post_video",
+    "Create a YouTube video upload or scheduled publication with title, description, tags, visibility, thumbnail, and COPPA flags.",
+    {
+      account_id: z.string().optional().describe("YouTube account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      title: z.string().describe("YouTube video title."),
+      description: z.string().optional().describe("YouTube description."),
+      video_url: z.string().describe("Public URL to the source video."),
+      thumbnail_url: z.string().optional().describe("Optional custom thumbnail URL."),
+      tags: z.array(z.string()).optional().describe("Optional YouTube tags."),
+      visibility: z.enum(["private", "unlisted", "public"]).optional().describe("Default private for safe upload flows."),
+      is_short: z.boolean().optional().describe("Flag this video as a Short when appropriate."),
+      made_for_kids: z.boolean().optional().describe("COPPA flag."),
+      publish_now: z.boolean().optional().describe("Publish immediately."),
+      is_draft: z.boolean().optional().describe("Save as draft/private in Zernio."),
+      scheduled_for: z.string().optional().describe("ISO datetime for scheduled publishing."),
+      timezone: z.string().optional().describe("Timezone for scheduled publishing. Default UTC."),
+    },
+    async ({ account_id, profile_id, title, description, video_url, thumbnail_url, tags, visibility, is_short, made_for_kids, publish_now, is_draft, scheduled_for, timezone }) => {
+      const target = await resolvePlatformTarget("youtube", account_id, profile_id);
+      const result = await zernioPost("/posts", {
+        title,
+        content: description,
+        mediaItems: [{ type: "video", url: video_url }],
+        tags,
+        platforms: [{
+          platform: "youtube",
+          accountId: target.accountId,
+          profileId: target.profileId,
+          platformSpecificData: compactObject({
+            visibility: visibility ?? "private",
+            thumbnailUrl: thumbnail_url,
+            isShort: is_short,
+            madeForKids: made_for_kids,
+          }),
+        }],
+        publishNow: publish_now ?? false,
+        isDraft: is_draft ?? false,
+        scheduledFor: scheduled_for,
+        timezone: timezone ?? "UTC",
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googleads_accounts_list",
+    "Summarize connected Google Ads accounts with customer IDs, ads status, and operational readiness.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("googleads", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_tiktokads_accounts_list",
+    "Summarize connected TikTok Ads accounts with operational readiness, permissions, and token status.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+    },
+    async ({ profile_id }) => {
+      const result = await summarizePlatformAccounts("tiktokads", profile_id);
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_ads_campaign_tree",
+    "Get the nested paid media hierarchy (campaign > ad set > ad) with rolled-up metrics. Works across Meta, TikTok Ads, LinkedIn Ads, Google Ads, Pinterest, and X.",
+    {
+      page: z.number().int().min(1).optional().describe("Page number. Default 1."),
+      limit: z.number().int().min(1).max(100).optional().describe("Campaigns per page. Default 20."),
+      source: adTreeSource.optional().describe("all includes external platform-managed campaigns; zernio limits to ads created through Zernio."),
+      platform: adTreePlatform.optional().describe("Paid platform family filter."),
+      status: adTreeStatus.optional().describe("Derived campaign status filter."),
+      ad_account_id: z.string().optional().describe("Platform ad account ID filter."),
+      account_id: z.string().optional().describe("Connected Zernio account ID filter."),
+      profile_id: z.string().optional().describe("Zernio profile ID filter."),
+      from_date: z.string().optional().describe("Metrics lower bound YYYY-MM-DD. Defaults to last 90 days."),
+      to_date: z.string().optional().describe("Metrics upper bound YYYY-MM-DD."),
+    },
+    async ({ page, limit, source, platform, status, ad_account_id, account_id, profile_id, from_date, to_date }) => {
+      const result = await zernioGet("/ads/tree", {
+        page: page ?? 1,
+        limit: limit ?? 20,
+        source: source ?? "all",
+        platform,
+        status,
+        adAccountId: ad_account_id,
+        accountId: account_id,
+        profileId: profile_id,
+        fromDate: from_date,
+        toDate: to_date,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_ads_boost_post",
+    "Boost an existing post as an ad. Supports platforms where Zernio exposes ad boosting, including TikTok Ads, LinkedIn Ads, Meta, Pinterest, X, and Google where applicable.",
+    {
+      post_id: z.string().optional().describe("Zernio post ID. Provide this or platform_post_id."),
+      platform_post_id: z.string().optional().describe("Native platform post ID alternative."),
+      account_id: z.string().describe("Connected social/posting account ID."),
+      ad_account_id: z.string().describe("Ad account ID to spend from."),
+      name: z.string().describe("Ad name."),
+      goal: z.enum(["engagement", "traffic", "awareness", "video_views", "lead_generation", "conversions", "app_promotion"]).describe("Campaign objective."),
+      budget_amount: z.number().positive().describe("Budget amount."),
+      budget_type: z.enum(["daily", "lifetime"]).describe("Budget type."),
+      currency: z.string().optional().describe("Optional ISO currency code."),
+      start_date: z.string().optional().describe("ISO start datetime."),
+      end_date: z.string().optional().describe("ISO end datetime."),
+      link_url: z.string().optional().describe("Destination URL when the platform/goal supports it."),
+      call_to_action: z.string().optional().describe("CTA label when supported by the platform."),
+    },
+    async ({ post_id, platform_post_id, account_id, ad_account_id, name, goal, budget_amount, budget_type, currency, start_date, end_date, link_url, call_to_action }) => {
+      if (!post_id && !platform_post_id) {
+        throw new Error("Pass post_id or platform_post_id.");
+      }
+      const result = await zernioPost("/ads/boost", {
+        postId: post_id,
+        platformPostId: platform_post_id,
+        accountId: account_id,
+        adAccountId: ad_account_id,
+        name,
+        goal,
+        budget: {
+          amount: budget_amount,
+          type: budget_type,
+        },
+        currency,
+        schedule: compactObject({
+          startDate: start_date,
+          endDate: end_date,
+        }),
+        creative: compactObject({
+          linkUrl: link_url,
+          callToAction: call_to_action,
+        }),
+      });
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
 }
 
-async function summarizePlatformAccounts(platform: "instagram" | "tiktok", profileId: string | undefined) {
+async function summarizePlatformAccounts(platform: string, profileId: string | undefined) {
   const resolvedProfileId = profileId ?? await getDefaultZernioProfileId();
   const accounts = await fetchPlatformAccounts(platform, resolvedProfileId);
   return {
@@ -785,7 +1668,7 @@ async function summarizePlatformAccounts(platform: "instagram" | "tiktok", profi
   };
 }
 
-async function fetchPlatformAccounts(platform: "instagram" | "tiktok", profileId?: string) {
+async function fetchPlatformAccounts(platform: string, profileId?: string) {
   const response = await zernioGet("/accounts", {
     platform,
     profileId,
@@ -802,7 +1685,7 @@ async function fetchPlatformAccounts(platform: "instagram" | "tiktok", profileId
     });
 }
 
-async function resolvePlatformTarget(platform: "instagram" | "tiktok", accountId?: string, profileId?: string) {
+async function resolvePlatformTarget(platform: CorePublishingPlatform | "googleads" | "tiktokads", accountId?: string, profileId?: string) {
   const resolvedProfileId = profileId ?? await getDefaultZernioProfileId();
   const accounts = await fetchPlatformAccounts(platform, resolvedProfileId);
   if (accountId) {
@@ -838,6 +1721,7 @@ function summarizeAccount(account: ZernioAccount) {
   const extraData = asRecord(profileData.extraData);
   const profileRef = asRecord(account.profileId);
   const profile = asRecord(account.profile);
+  const googleBusinessLocation = asRecord(metadata.googleBusinessLocation);
   return {
     id: stringValue(account._id ?? account.id ?? account.accountId),
     profile_id: stringValue(profileRef._id ?? profileRef.id ?? profile._id ?? profile.id),
@@ -856,7 +1740,25 @@ function summarizeAccount(account: ZernioAccount) {
     platform_status: stringValue(account.platformStatus ?? account.status ?? account.connectionStatus),
     token_expires_at: stringValue(account.tokenExpiresAt),
     ads_status: stringValue(account.adsStatus),
+    external_post_count: numberValue(account.externalPostCount),
+    customer_ids: stringArray(metadata.googleAdsCustomerIds ?? metadata.customerIds),
+    selected_location_id: stringValue(metadata.selectedLocationId ?? googleBusinessLocation.locationId),
+    selected_location_name: stringValue(metadata.selectedLocationName ?? googleBusinessLocation.name),
+    location_address: stringValue(metadata.locationAddress ?? googleBusinessLocation.address),
   };
+}
+
+function resolveConnectPath(platform: z.infer<typeof zernioPlatform>) {
+  if (platform === "googleads") return "/connect/googleads/ads";
+  if (platform === "tiktokads") return "/connect/tiktok/ads";
+  if (platform === "linkedinads") return "/connect/linkedin/ads";
+  return `/connect/${platform}`;
+}
+
+function toYearMonth(value: string | undefined) {
+  if (!value) return undefined;
+  const trimmed = value.trim();
+  return /^\d{4}-\d{2}/.test(trimmed) ? trimmed.slice(0, 7) : undefined;
 }
 
 function getCollection(payload: unknown, keys: string[]) {

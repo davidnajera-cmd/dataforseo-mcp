@@ -47,12 +47,43 @@ export async function zernioGet(path: string, query?: Record<string, unknown>): 
   return parse(res);
 }
 
-export async function zernioPost(path: string, body: unknown): Promise<unknown> {
-  const res = await fetch(withQuery(path), {
+export async function zernioPost(path: string, body: unknown, query?: Record<string, unknown>): Promise<unknown> {
+  const res = await fetch(withQuery(path, query), {
     method: "POST",
     headers: await headers(),
     body: JSON.stringify(body),
   });
+  if (!res.ok) return fail(res);
+  return parse(res);
+}
+
+export async function zernioPut(path: string, body: unknown, query?: Record<string, unknown>): Promise<unknown> {
+  const res = await fetch(withQuery(path, query), {
+    method: "PUT",
+    headers: await headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return fail(res);
+  return parse(res);
+}
+
+export async function zernioPatch(path: string, body: unknown, query?: Record<string, unknown>): Promise<unknown> {
+  const res = await fetch(withQuery(path, query), {
+    method: "PATCH",
+    headers: await headers(),
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) return fail(res);
+  return parse(res);
+}
+
+export async function zernioDelete(path: string, query?: Record<string, unknown>, body?: unknown): Promise<unknown> {
+  const init: RequestInit = {
+    method: "DELETE",
+    headers: await headers(),
+  };
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const res = await fetch(withQuery(path, query), init);
   if (!res.ok) return fail(res);
   return parse(res);
 }
