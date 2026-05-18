@@ -1497,6 +1497,23 @@ select {
   flex-wrap: wrap;
 }
 
+.local-keyword-band {
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  background: #fff;
+  padding: 14px 16px;
+}
+
+.local-keyword-band h3 {
+  margin: 0 0 12px;
+  font-size: var(--text-sm);
+  line-height: 1.35;
+}
+
+.local-history-row {
+  grid-template-columns: minmax(0, 1.4fr) auto auto auto;
+}
+
 .social-post-meta {
   margin-top: 12px;
   color: #69717c;

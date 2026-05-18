@@ -1,6 +1,13 @@
 import { getRuntimeVariable } from "./runtime-config.js";
 import { zernioGet } from "./zernio-client.js";
 import { normalizeFilters, type DashboardFilters, type CountryCode } from "./dashboard-data.js";
+import {
+  listGoogleBusinessAccounts,
+  listGoogleBusinessKeywordHistory,
+  listGoogleBusinessLocationHistory,
+  listGoogleBusinessPerformanceHistory,
+  listGoogleBusinessReviews,
+} from "./google-business-store.js";
 
 type SourceStatus = {
   name: string;
@@ -100,6 +107,64 @@ type SocialCadenceRow = {
   weeksCount: number;
 };
 
+type SocialLocalLocationRow = {
+  locationId: string;
+  accountId: string;
+  locationName: string;
+  city: string | null;
+  category: string | null;
+  websiteUri: string | null;
+  phonePrimary: string | null;
+  reviewUrl: string | null;
+  mapsUri: string | null;
+  averageRating: number | null;
+  totalReviewCount: number | null;
+  unansweredReviews: number;
+  lowRatingReviews: number;
+  recentReviews30d: number;
+  latestReviewAt: string | null;
+  completenessScore: number;
+  topKeyword: string | null;
+  topKeywordImpressions: number | null;
+  websiteClicks: number;
+  callClicks: number;
+  directionRequests: number;
+};
+
+type SocialLocalKeywordRow = {
+  keyword: string;
+  impressions: number;
+  locationName: string;
+};
+
+type SocialLocalTrendPoint = {
+  date: string;
+  websiteClicks: number;
+  callClicks: number;
+  directionRequests: number;
+};
+
+type SocialLocalData = {
+  live: boolean;
+  error?: boolean;
+  message: string;
+  snapshotDate: string | null;
+  accounts: number;
+  locations: number;
+  reviews: number;
+  unansweredReviews: number;
+  avgRating: number | null;
+  coverageScore: number | null;
+  recentReviews30d: number;
+  lowRatingReviews: number;
+  websiteClicks: number;
+  callClicks: number;
+  directionRequests: number;
+  locationsRows: SocialLocalLocationRow[];
+  topKeywords: SocialLocalKeywordRow[];
+  trend: SocialLocalTrendPoint[];
+};
+
 type SiteCode = Exclude<CountryCode, "all">;
 
 type SocialSiteConfig = {
@@ -162,6 +227,24 @@ export type SocialDashboardData = {
     reputation_alerts: SocialAlert[];
     top_posts: SocialTopPost[];
     calendar: SocialData["calendar"];
+    local_presence: {
+      snapshot_date: string | null;
+      accounts: number;
+      locations: number;
+      reviews: number;
+      unanswered_reviews: number;
+      avg_rating: number | null;
+      coverage_score: number | null;
+      recent_reviews_30d: number;
+      low_rating_reviews: number;
+      website_clicks: number;
+      call_clicks: number;
+      direction_requests: number;
+      locations_rows: SocialLocalLocationRow[];
+      top_keywords: SocialLocalKeywordRow[];
+      trend: SocialLocalTrendPoint[];
+      note: string;
+    };
     note: string;
   };
 };
@@ -170,8 +253,14 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
   const filters = normalizeFilters(input);
   const sites = filters.country === "all" ? (["co", "mx", "lta"] as const) : ([filters.country] as const);
   const configs = await Promise.all(sites.map(getSocialSiteConfig));
-  const social = await loadSocialDashboard(configs, filters);
-  const sources: SourceStatus[] = [{ name: "Zernio Social", status: sourceStatus(social), message: social.message }];
+  const [social, localPresence] = await Promise.all([
+    loadSocialDashboard(configs, filters),
+    loadGoogleBusinessLocalPresence(configs),
+  ]);
+  const sources: SourceStatus[] = [
+    { name: "Zernio Social", status: sourceStatus(social), message: social.message },
+    { name: "Google Business History", status: sourceStatus(localPresence), message: localPresence.message },
+  ];
 
   const metrics: Metric[] = [
     {
@@ -230,6 +319,24 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
       reputation_alerts: social.reputationAlerts,
       top_posts: social.topPosts,
       calendar: social.calendar,
+      local_presence: {
+        snapshot_date: localPresence.snapshotDate,
+        accounts: localPresence.accounts,
+        locations: localPresence.locations,
+        reviews: localPresence.reviews,
+        unanswered_reviews: localPresence.unansweredReviews,
+        avg_rating: localPresence.avgRating,
+        coverage_score: localPresence.coverageScore,
+        recent_reviews_30d: localPresence.recentReviews30d,
+        low_rating_reviews: localPresence.lowRatingReviews,
+        website_clicks: localPresence.websiteClicks,
+        call_clicks: localPresence.callClicks,
+        direction_requests: localPresence.directionRequests,
+        locations_rows: localPresence.locationsRows,
+        top_keywords: localPresence.topKeywords,
+        trend: localPresence.trend,
+        note: localPresence.message,
+      },
       note: social.message,
     },
   };
@@ -558,6 +665,285 @@ function emptySocial(message: string): SocialData {
   };
 }
 
+async function loadGoogleBusinessLocalPresence(configs: SocialSiteConfig[]): Promise<SocialLocalData> {
+  const profileIds = new Set(configs.flatMap((config) => config.profileIds).filter(Boolean));
+  if (!profileIds.size) {
+    return emptyLocalPresence("Sin perfiles Zernio mapeados para historizar Google Business en este sitio.");
+  }
+
+  try {
+    const [accountsRaw, locationsRaw, reviewsRaw, performanceRaw, keywordsRaw] = await Promise.all([
+      listGoogleBusinessAccounts(),
+      listGoogleBusinessLocationHistory({ days: 365 }),
+      listGoogleBusinessReviews({ limit: 2000 }),
+      listGoogleBusinessPerformanceHistory({ days: 365 }),
+      listGoogleBusinessKeywordHistory({ days: 365 }),
+    ]);
+
+    const accounts = accountsRaw.filter((row) => profileIds.has(stringValue(row.profile_id)));
+    if (!accounts.length) {
+      return emptyLocalPresence("Todavía no hay cuentas Google Business historizadas para este sitio.");
+    }
+
+    const accountIds = new Set(accounts.map((row) => stringValue(row.account_id)).filter(Boolean));
+    const locationRows = locationsRaw.filter((row) => accountIds.has(stringValue(row.account_id)));
+    const latestLocations = latestLocationsById(locationRows);
+    const reviews = reviewsRaw.filter((row) => accountIds.has(stringValue(row.account_id)));
+    const performanceRows = latestRowsByAccount(performanceRaw.filter((row) => accountIds.has(stringValue(row.account_id))));
+    const keywordRows = latestRowsByAccount(keywordsRaw.filter((row) => accountIds.has(stringValue(row.account_id))));
+
+    const reviewStats = buildReviewStatsByLocation(reviews);
+    const performanceByAccount = new Map(performanceRows.map((row) => [stringValue(row.account_id), row]));
+    const keywordsByAccount = new Map(keywordRows.map((row) => [stringValue(row.account_id), row]));
+
+    const locationsRows = latestLocations.map((row) => {
+      const locationId = stringValue(row.location_id);
+      const accountId = stringValue(row.account_id);
+      const stats = reviewStats.get(locationId);
+      const performance = performanceByAccount.get(accountId);
+      const keywords = keywordsByAccount.get(accountId);
+      const keywordWinner = topKeyword(keywords?.keywords);
+      return {
+        locationId,
+        accountId,
+        locationName: stringValue(row.location_name),
+        city: inferCity(stringValue(row.location_name)),
+        category: nullableString(row.category_primary),
+        websiteUri: nullableString(row.website_uri),
+        phonePrimary: nullableString(row.phone_primary),
+        reviewUrl: nullableString(row.review_url),
+        mapsUri: nullableString(row.maps_uri),
+        averageRating: nullableNumber(row.average_rating) ?? stats?.avgRating ?? null,
+        totalReviewCount: nullableNumber(row.total_review_count) ?? stats?.count ?? null,
+        unansweredReviews: stats?.unanswered ?? 0,
+        lowRatingReviews: stats?.lowRatings ?? 0,
+        recentReviews30d: stats?.recent30d ?? 0,
+        latestReviewAt: stats?.latestReviewAt ?? null,
+        completenessScore: locationCompletenessScore(row),
+        topKeyword: keywordWinner?.keyword ?? null,
+        topKeywordImpressions: keywordWinner?.impressions ?? null,
+        websiteClicks: metricTotal(performance?.metrics, ["WEBSITE_CLICKS"]),
+        callClicks: metricTotal(performance?.metrics, ["CALL_CLICKS"]),
+        directionRequests: metricTotal(performance?.metrics, ["BUSINESS_DIRECTION_REQUESTS", "DIRECTION_REQUESTS"]),
+      };
+    }).sort((a, b) => {
+      const weightA = (a.totalReviewCount ?? 0) + a.recentReviews30d * 2 + a.websiteClicks + a.callClicks;
+      const weightB = (b.totalReviewCount ?? 0) + b.recentReviews30d * 2 + b.websiteClicks + b.callClicks;
+      return weightB - weightA;
+    });
+
+    const topKeywords = keywordRows.flatMap((row) => {
+      const account = accounts.find((item) => stringValue(item.account_id) === stringValue(row.account_id));
+      const locationName = stringValue(account?.selected_location_name ?? account?.display_name ?? "Sede");
+      return getArray(row.keywords).map((keyword) => {
+        const entry = asRecord(keyword);
+        return {
+          keyword: stringValue(entry.keyword),
+          impressions: nullableNumber(entry.impressions) ?? 0,
+          locationName,
+        };
+      });
+    })
+      .filter((row) => row.keyword && row.impressions > 0)
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 12);
+
+    return {
+      live: locationsRows.length > 0,
+      message: locationsRows.length
+        ? `Base GBP historizada: ${formatNumber(locationsRows.length)} sedes, ${formatNumber(reviews.length)} reseñas y señales locales listas para operar.`
+        : "Sin sedes historizadas todavía.",
+      snapshotDate: latestLocations[0] ? stringValue(latestLocations[0].snapshot_date) : null,
+      accounts: accounts.length,
+      locations: locationsRows.length,
+      reviews: reviews.length,
+      unansweredReviews: locationsRows.reduce((sum, row) => sum + row.unansweredReviews, 0),
+      avgRating: average(locationsRows.map((row) => row.averageRating).filter(isFiniteNumber)),
+      coverageScore: average(locationsRows.map((row) => row.completenessScore).filter(isFiniteNumber)),
+      recentReviews30d: locationsRows.reduce((sum, row) => sum + row.recentReviews30d, 0),
+      lowRatingReviews: locationsRows.reduce((sum, row) => sum + row.lowRatingReviews, 0),
+      websiteClicks: locationsRows.reduce((sum, row) => sum + row.websiteClicks, 0),
+      callClicks: locationsRows.reduce((sum, row) => sum + row.callClicks, 0),
+      directionRequests: locationsRows.reduce((sum, row) => sum + row.directionRequests, 0),
+      locationsRows,
+      topKeywords,
+      trend: buildLocalTrend(performanceRows),
+    };
+  } catch (error) {
+    return {
+      ...emptyLocalPresence(error instanceof Error ? error.message : "No se pudo leer el histórico de Google Business."),
+      error: true,
+    };
+  }
+}
+
+function emptyLocalPresence(message: string): SocialLocalData {
+  return {
+    live: false,
+    message,
+    snapshotDate: null,
+    accounts: 0,
+    locations: 0,
+    reviews: 0,
+    unansweredReviews: 0,
+    avgRating: null,
+    coverageScore: null,
+    recentReviews30d: 0,
+    lowRatingReviews: 0,
+    websiteClicks: 0,
+    callClicks: 0,
+    directionRequests: 0,
+    locationsRows: [],
+    topKeywords: [],
+    trend: [],
+  };
+}
+
+function latestLocationsById(rows: Array<Record<string, unknown>>) {
+  const map = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const locationId = stringValue(row.location_id);
+    const current = map.get(locationId);
+    const snapshot = stringValue(row.snapshot_date);
+    if (!current || snapshot > stringValue(current.snapshot_date)) map.set(locationId, row);
+  }
+  return [...map.values()];
+}
+
+function latestRowsByAccount(rows: Array<Record<string, unknown>>) {
+  const map = new Map<string, Record<string, unknown>>();
+  for (const row of rows) {
+    const accountId = stringValue(row.account_id);
+    const current = map.get(accountId);
+    const snapshot = stringValue(row.snapshot_date);
+    if (!current || snapshot > stringValue(current.snapshot_date)) map.set(accountId, row);
+  }
+  return [...map.values()];
+}
+
+function buildReviewStatsByLocation(rows: Array<Record<string, unknown>>) {
+  const map = new Map<string, {
+    count: number;
+    unanswered: number;
+    lowRatings: number;
+    recent30d: number;
+    latestReviewAt: string | null;
+    ratingSum: number;
+    ratingCount: number;
+    avgRating: number | null;
+  }>();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+
+  for (const row of rows) {
+    const locationId = stringValue(row.location_id);
+    const current = map.get(locationId) ?? {
+      count: 0,
+      unanswered: 0,
+      lowRatings: 0,
+      recent30d: 0,
+      latestReviewAt: null,
+      ratingSum: 0,
+      ratingCount: 0,
+      avgRating: null,
+    };
+    current.count += 1;
+    const rating = nullableNumber(row.rating);
+    if (isFiniteNumber(rating)) {
+      current.ratingSum += rating;
+      current.ratingCount += 1;
+      if (rating <= 3) current.lowRatings += 1;
+    }
+    if (!Boolean(row.has_reply)) current.unanswered += 1;
+    const createdAt = nullableString(row.create_time);
+    if (createdAt) {
+      if (!current.latestReviewAt || createdAt > current.latestReviewAt) current.latestReviewAt = createdAt;
+      const date = new Date(createdAt);
+      if (!Number.isNaN(date.getTime()) && date >= cutoff) current.recent30d += 1;
+    }
+    current.avgRating = current.ratingCount ? current.ratingSum / current.ratingCount : null;
+    map.set(locationId, current);
+  }
+  return map;
+}
+
+function locationCompletenessScore(row: Record<string, unknown>) {
+  const checks = [
+    nullableString(row.website_uri),
+    nullableString(row.phone_primary),
+    nullableString(row.category_primary),
+    nullableString(row.review_url),
+    nullableString(row.maps_uri),
+  ];
+  return Math.round((checks.filter(Boolean).length / checks.length) * 100);
+}
+
+function topKeyword(rawKeywords: unknown) {
+  return getArray(rawKeywords)
+    .map((item) => {
+      const row = asRecord(item);
+      return {
+        keyword: stringValue(row.keyword),
+        impressions: nullableNumber(row.impressions) ?? 0,
+      };
+    })
+    .sort((a, b) => b.impressions - a.impressions)[0] ?? null;
+}
+
+function metricTotal(rawMetrics: unknown, metricNames: string[]) {
+  const metrics = asRecord(rawMetrics);
+  for (const name of metricNames) {
+    const total = nullableNumber(asRecord(metrics[name]).total);
+    if (isFiniteNumber(total)) return total;
+  }
+  return 0;
+}
+
+function buildLocalTrend(rows: Array<Record<string, unknown>>): SocialLocalTrendPoint[] {
+  const buckets = new Map<string, SocialLocalTrendPoint>();
+  for (const row of rows) {
+    addMetricTrend(buckets, row.metrics, "WEBSITE_CLICKS", "websiteClicks");
+    addMetricTrend(buckets, row.metrics, "CALL_CLICKS", "callClicks");
+    addMetricTrend(buckets, row.metrics, "BUSINESS_DIRECTION_REQUESTS", "directionRequests");
+    addMetricTrend(buckets, row.metrics, "DIRECTION_REQUESTS", "directionRequests");
+  }
+  return [...buckets.values()].sort((a, b) => a.date.localeCompare(b.date)).slice(-30);
+}
+
+function addMetricTrend(
+  buckets: Map<string, SocialLocalTrendPoint>,
+  rawMetrics: unknown,
+  metricName: string,
+  targetKey: keyof Pick<SocialLocalTrendPoint, "websiteClicks" | "callClicks" | "directionRequests">
+) {
+  const metric = asRecord(asRecord(rawMetrics)[metricName]);
+  for (const point of getArray(metric.values)) {
+    const row = asRecord(point);
+    const date = stringValue(row.date);
+    if (!date) continue;
+    const bucket = buckets.get(date) ?? { date, websiteClicks: 0, callClicks: 0, directionRequests: 0 };
+    bucket[targetKey] += nullableNumber(row.value) ?? 0;
+    buckets.set(date, bucket);
+  }
+}
+
+function inferCity(locationName: string) {
+  if (locationName.trim().toLowerCase() === "dna music") return "Bogotá";
+  const normalized = locationName
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .toLowerCase();
+  const direct = [
+    ["bogota", "Bogotá"],
+    ["medellin", "Medellín"],
+    ["barranquilla", "Barranquilla"],
+    ["cali", "Cali"],
+    ["ibague", "Ibagué"],
+    ["pereira", "Pereira"],
+  ].find(([needle]) => normalized.includes(needle));
+  return direct?.[1] ?? null;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -581,10 +967,12 @@ function stringValue(value: unknown): string {
 }
 
 function nullableString(value: unknown): string | null {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
   return typeof value === "string" && value.trim() ? value : null;
 }
 
 function nullableNumber(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
   const num = Number(value);
   return Number.isFinite(num) ? num : null;
 }
@@ -686,4 +1074,14 @@ function tokenize(text: string) {
     .split(/[^a-z0-9#@]+/i)
     .map((item) => item.trim())
     .filter((item) => item.length > 2 && !stop.has(item));
+}
+
+function average(values: number[]) {
+  const valid = values.filter(isFiniteNumber);
+  if (!valid.length) return null;
+  return valid.reduce((sum, value) => sum + value, 0) / valid.length;
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
 }

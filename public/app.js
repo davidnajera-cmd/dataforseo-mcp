@@ -38,6 +38,7 @@ const modules = {
     defaultView: "social_overview",
     views: {
       social_overview: "Radar social",
+      social_local: "Presencia local",
       social_accounts: "Canales y activos",
       social_publishing: "Pipeline editorial",
       social_instagram: "Instagram intelligence",
@@ -285,6 +286,10 @@ function renderSocialDashboard(data) {
   renderSocialAlerts(data.social.reputation_alerts, data.social.note, platformFilter);
   renderSocialTopPosts(data.social.top_posts, data.social.note, platformFilter);
   renderSocialCalendar(data.social.calendar, data.social.note, platformFilter);
+  renderSocialLocalExecutive(data.social.local_presence);
+  renderSocialLocalLocations(data.social.local_presence);
+  renderSocialLocalReviews(data.social.local_presence);
+  renderSocialLocalKeywords(data.social.local_presence);
   updateSectionVisibility();
 }
 
@@ -1542,6 +1547,135 @@ function renderSocialCalendar(calendar, note, platformFilter = null) {
       <h3>Cadencia observada</h3>
       <div class="calendar-slot-grid">${cadence}</div>
     </div>
+  `;
+}
+
+function renderSocialLocalExecutive(local) {
+  const target = document.querySelector("#socialLocalExecutive");
+  if (!target) return;
+  if (!local?.locations_rows?.length) {
+    target.innerHTML = `<div class="empty-state">${esc(local?.note ?? "Sin histórico local todavía.")}</div>`;
+    return;
+  }
+  const leader = toArray(local.locations_rows)
+    .slice()
+    .sort((a, b) => ((b.totalReviewCount || 0) + (b.websiteClicks || 0)) - ((a.totalReviewCount || 0) + (a.websiteClicks || 0)))[0];
+  target.innerHTML = `
+    <article class="social-exec-card social-exec-primary">
+      <span>Sedes activas</span>
+      <strong>${displayValue(local.locations)}</strong>
+      <small>${displayValue(local.accounts)} cuentas GBP historizadas · snapshot ${esc(formatShortDate(local.snapshot_date) || "actual")}</small>
+    </article>
+    <article class="social-exec-card">
+      <span>Reputación</span>
+      <strong>${displayValue(local.avg_rating)}</strong>
+      <small>${displayValue(local.reviews)} reseñas totales · ${displayValue(local.unanswered_reviews)} sin responder</small>
+    </article>
+    <article class="social-exec-card">
+      <span>Acciones locales</span>
+      <strong>${displayValue(local.website_clicks + local.call_clicks + local.direction_requests)}</strong>
+      <small>${displayValue(local.website_clicks)} web · ${displayValue(local.call_clicks)} llamadas · ${displayValue(local.direction_requests)} rutas</small>
+    </article>
+    <article class="social-exec-card">
+      <span>Salud de ficha</span>
+      <strong>${displayValue(local.coverage_score, "%")}</strong>
+      <small>${displayValue(local.recent_reviews_30d)} reseñas en 30d · ${displayValue(local.low_rating_reviews)} reseñas <= 3 estrellas</small>
+    </article>
+    <article class="social-exec-card social-exec-wide">
+      <span>Lectura local</span>
+      <p>${esc(leader
+        ? `${leader.locationName} hoy concentra la mayor masa local. La prioridad operativa está en responder ${displayValue(local.unanswered_reviews)} reseñas pendientes, sostener una cobertura de ficha de ${displayValue(local.coverage_score, "%")} y convertir mejor las búsquedas locales en visitas web, llamadas y rutas.`
+        : (local.note || "Sin lectura local todavía."))}</p>
+    </article>
+  `;
+}
+
+function renderSocialLocalLocations(local) {
+  const target = document.querySelector("#socialLocalLocations");
+  if (!target) return;
+  const rows = toArray(local?.locations_rows);
+  if (!rows.length) {
+    target.innerHTML = `<div class="empty-state">${esc(local?.note ?? "Sin sedes historizadas todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = rows.map((row) => `
+    <article class="social-account-card">
+      <div class="social-account-top">
+        <div>
+          <strong>${esc(row.locationName)}</strong>
+          <div class="social-account-subtitle">${esc(row.city || "Colombia")} · ${esc(row.category || "Sin categoría")} · ${esc(displayValue(row.completenessScore, "%"))} de completitud</div>
+        </div>
+        <div class="social-account-badges">
+          <span class="badge ${row.unansweredReviews > 0 ? "warn" : ""}">${displayValue(row.unansweredReviews)} sin responder</span>
+          <span class="badge ${row.lowRatingReviews > 0 ? "warn" : ""}">${displayValue(row.averageRating)} rating</span>
+        </div>
+      </div>
+      <div class="social-account-grid">
+        <span><strong>Reseñas</strong>${displayValue(row.totalReviewCount)}</span>
+        <span><strong>Últimos 30d</strong>${displayValue(row.recentReviews30d)}</span>
+        <span><strong>Web clicks</strong>${displayValue(row.websiteClicks)}</span>
+        <span><strong>Llamadas</strong>${displayValue(row.callClicks)}</span>
+        <span><strong>Rutas</strong>${displayValue(row.directionRequests)}</span>
+        <span><strong>Keyword líder</strong>${esc(row.topKeyword || "Sin query líder")}</span>
+        <span><strong>Maps</strong>${row.mapsUri ? `<a href="${esc(row.mapsUri)}" target="_blank" rel="noreferrer">Abrir</a>` : "No disponible"}</span>
+        <span><strong>Reviews</strong>${row.reviewUrl ? `<a href="${esc(row.reviewUrl)}" target="_blank" rel="noreferrer">Abrir</a>` : "No disponible"}</span>
+      </div>
+    </article>
+  `).join("");
+}
+
+function renderSocialLocalReviews(local) {
+  const target = document.querySelector("#socialLocalReviews");
+  if (!target) return;
+  const rows = toArray(local?.locations_rows).slice().sort((a, b) => (b.unansweredReviews + b.lowRatingReviews * 2) - (a.unansweredReviews + a.lowRatingReviews * 2));
+  if (!rows.length) {
+    target.innerHTML = `<div class="empty-state">${esc(local?.note ?? "Sin reseñas historizadas todavía.")}</div>`;
+    return;
+  }
+  target.innerHTML = rows.slice(0, 8).map((row) => `
+    <div class="history-row local-history-row">
+      <div>
+        <strong>${esc(row.locationName)}</strong>
+        <small>${displayValue(row.recentReviews30d)} nuevas en 30d · última ${esc(formatShortDate(row.latestReviewAt) || "sin fecha")}</small>
+      </div>
+      <span>${displayValue(row.totalReviewCount)} total</span>
+      <span>${displayValue(row.unansweredReviews)} pendientes</span>
+      <span class="badge ${row.unansweredReviews > 0 || row.lowRatingReviews > 0 ? "warn" : ""}">${displayValue(row.lowRatingReviews)} críticas</span>
+    </div>
+  `).join("");
+}
+
+function renderSocialLocalKeywords(local) {
+  const target = document.querySelector("#socialLocalKeywords");
+  if (!target) return;
+  const keywords = toArray(local?.top_keywords);
+  const trend = toArray(local?.trend);
+  if (!keywords.length && !trend.length) {
+    target.innerHTML = `<div class="empty-state">${esc(local?.note ?? "Sin señales locales todavía.")}</div>`;
+    return;
+  }
+  const keywordRows = keywords.slice(0, 8).map((row) => `
+    <div class="row">
+      <strong>${esc(row.keyword)}</strong>
+      <span>${displayValue(row.impressions)} imp · ${esc(row.locationName)}</span>
+    </div>
+  `).join("");
+  const trendRows = trend.slice(-8).map((row) => `
+    <div class="executive-trend-row">
+      <span>${esc(formatTrendLabel(row.date.slice(5)))}</span>
+      <div class="bar"><span style="width:${Math.max(6, Math.min(100, Math.round((((row.websiteClicks + row.callClicks + row.directionRequests) || 0) / Math.max(1, ...trend.map((item) => (item.websiteClicks + item.callClicks + item.directionRequests) || 0))) * 100)))}%"></span></div>
+      <small>${displayValue(row.websiteClicks)} web · ${displayValue(row.callClicks)} calls · ${displayValue(row.directionRequests)} rutas</small>
+    </div>
+  `).join("");
+  target.innerHTML = `
+    <article class="local-keyword-band">
+      <h3>Búsquedas locales líderes</h3>
+      <div class="stack">${keywordRows}</div>
+    </article>
+    <article class="local-keyword-band">
+      <h3>Acciones recientes</h3>
+      <div class="stack">${trendRows || `<div class="empty-inline">Sin tendencia reciente.</div>`}</div>
+    </article>
   `;
 }
 
