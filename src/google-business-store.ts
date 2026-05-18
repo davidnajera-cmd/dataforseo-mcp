@@ -557,6 +557,161 @@ export async function backfillGoogleBusinessFromZernio(options: {
   }
 }
 
+export async function listGoogleBusinessBackfillRuns(limit = 20) {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  return await sql`
+    select id, started_at, ended_at, status, stats, errors
+    from gbp_backfill_runs
+    order by started_at desc
+    limit ${limit}
+  ` as Array<Record<string, unknown>>;
+}
+
+export async function listGoogleBusinessAccounts() {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  return await sql`
+    select
+      account_id, profile_id, profile_name, platform, handle, display_name, account_type,
+      selected_location_id, selected_location_name, location_address, platform_status,
+      ads_status, token_expires_at, permissions, updated_at
+    from gbp_accounts
+    order by display_name asc nulls last, account_id asc
+  ` as Array<Record<string, unknown>>;
+}
+
+export async function listGoogleBusinessLocationHistory(options: {
+  location_id?: string;
+  account_id?: string;
+  days?: number;
+}) {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  const start = daysAgoIso(options.days ?? 90);
+  return await sql`
+    select
+      snapshot_date::text,
+      account_id,
+      location_id,
+      location_name,
+      website_uri,
+      phone_primary,
+      category_primary,
+      average_rating,
+      total_review_count,
+      review_url,
+      maps_uri
+    from gbp_location_snapshots
+    where snapshot_date >= ${start}
+      and (${options.location_id ?? null}::text is null or location_id = ${options.location_id ?? null})
+      and (${options.account_id ?? null}::text is null or account_id = ${options.account_id ?? null})
+    order by snapshot_date desc, location_name asc nulls last
+  ` as Array<Record<string, unknown>>;
+}
+
+export async function listGoogleBusinessReviews(options: {
+  location_id?: string;
+  account_id?: string;
+  min_rating?: number;
+  max_rating?: number;
+  replied?: boolean;
+  limit?: number;
+}) {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  return await sql`
+    select
+      review_name,
+      review_id,
+      account_id,
+      location_id,
+      reviewer_name,
+      rating,
+      comment,
+      create_time,
+      has_reply,
+      reply_comment,
+      reply_update_time
+    from gbp_reviews
+    where (${options.location_id ?? null}::text is null or location_id = ${options.location_id ?? null})
+      and (${options.account_id ?? null}::text is null or account_id = ${options.account_id ?? null})
+      and (${options.min_rating ?? null}::int is null or rating >= ${options.min_rating ?? null})
+      and (${options.max_rating ?? null}::int is null or rating <= ${options.max_rating ?? null})
+      and (${options.replied ?? null}::boolean is null or has_reply = ${options.replied ?? null})
+    order by create_time desc nulls last
+    limit ${options.limit ?? 100}
+  ` as Array<Record<string, unknown>>;
+}
+
+export async function listGoogleBusinessPerformanceHistory(options: {
+  account_id?: string;
+  days?: number;
+}) {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  const start = daysAgoIso(options.days ?? 120);
+  return await sql`
+    select
+      snapshot_date::text,
+      account_id,
+      date_start,
+      date_end,
+      metrics
+    from gbp_performance_snapshots
+    where snapshot_date >= ${start}
+      and (${options.account_id ?? null}::text is null or account_id = ${options.account_id ?? null})
+    order by snapshot_date desc, account_id asc
+  ` as Array<Record<string, unknown>>;
+}
+
+export async function listGoogleBusinessKeywordHistory(options: {
+  account_id?: string;
+  days?: number;
+}) {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  const start = daysAgoIso(options.days ?? 120);
+  return await sql`
+    select
+      snapshot_date::text,
+      account_id,
+      month_start,
+      month_end,
+      keywords
+    from gbp_search_keyword_snapshots
+    where snapshot_date >= ${start}
+      and (${options.account_id ?? null}::text is null or account_id = ${options.account_id ?? null})
+    order by snapshot_date desc, account_id asc
+  ` as Array<Record<string, unknown>>;
+}
+
+export async function getGoogleBusinessSnapshotSummary(snapshotDate?: string) {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensureGoogleBusinessSchema();
+  const effectiveDate = snapshotDate ?? new Date().toISOString().slice(0, 10);
+  const rows = await sql`
+    select
+      (select count(*)::int from gbp_accounts) as accounts,
+      (select count(distinct location_id)::int from gbp_location_snapshots where snapshot_date = ${effectiveDate}) as locations,
+      (select count(*)::int from gbp_reviews) as reviews,
+      (select count(*)::int from gbp_media_snapshots where snapshot_date = ${effectiveDate}) as media,
+      (select count(*)::int from gbp_place_action_snapshots where snapshot_date = ${effectiveDate}) as place_actions,
+      (select count(*)::int from gbp_services_snapshots where snapshot_date = ${effectiveDate}) as services,
+      (select count(*)::int from gbp_attributes_snapshots where snapshot_date = ${effectiveDate}) as attributes,
+      (select count(*)::int from gbp_performance_snapshots where snapshot_date = ${effectiveDate}) as performance,
+      (select count(*)::int from gbp_search_keyword_snapshots where snapshot_date = ${effectiveDate}) as keywords
+  ` as Array<Record<string, unknown>>;
+  return { snapshot_date: effectiveDate, ...rows[0] };
+}
+
 async function captureSafe(path: string, query?: Record<string, unknown>) {
   try {
     const data = await zernioGet(path, query);
@@ -659,4 +814,8 @@ function nullableDate(value: unknown) {
 
 function arrayOrEmpty(value: unknown) {
   return Array.isArray(value) ? value : [];
+}
+
+function daysAgoIso(days: number): string {
+  return new Date(Date.now() - days * 86400_000).toISOString().slice(0, 10);
 }
