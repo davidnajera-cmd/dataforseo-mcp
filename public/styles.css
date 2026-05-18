@@ -1431,6 +1431,7 @@ select {
   margin-top: 4px;
   color: #69717c;
   font-size: 12px;
+  line-height: 1.45;
 }
 
 .social-account-badges {
