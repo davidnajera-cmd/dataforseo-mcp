@@ -1304,11 +1304,12 @@ function renderSocialSummary(social, intel) {
     target.innerHTML = `<div class="empty-state">${esc(social?.note ?? "Sin datos sociales todavía.")}</div>`;
     return;
   }
-  target.innerHTML = byPlatform.map((item) => `
+  const grouped = groupPlatformsForRadar(byPlatform);
+  target.innerHTML = grouped.map((item) => `
     <article class="social-stat-card">
-      <span>${esc(capitalize(item.platform))}</span>
-      <strong>${displayValue(item.followers)}</strong>
-      <small>${displayValue(item.avgEngagementRate, "%")} ER media · ${displayValue(item.recentPosts)} posts recientes · ${displayValue(item.publishReady)} / ${displayValue(item.accounts)} publish-ready</small>
+      <span>${esc(item.label)}</span>
+      <strong>${esc(item.value)}</strong>
+      <small>${esc(item.detail)}</small>
     </article>
   `).join("");
 }
@@ -1327,7 +1328,7 @@ function renderSocialAccounts(accounts, note, platformFilter = null) {
       <div class="social-account-top">
         <div>
           <strong>${esc(account.displayName || account.handle || capitalize(account.platform))}</strong>
-          <div class="social-account-subtitle">${esc(capitalize(account.platform))} · ${esc(account.handle || "Sin handle")}</div>
+          <div class="social-account-subtitle">${esc(platformDisplayName(account.platform))} · ${esc(account.handle || "Sin handle")} · ${esc(platformCategoryLabel(account.platform))}</div>
         </div>
         <div class="social-account-badges">
           <span class="badge ${account.publishReady ? "" : "warn"}">${account.publishReady ? "publish-ready" : "revisar"}</span>
@@ -1633,16 +1634,18 @@ function renderSocialPlatformBoard(intel, note) {
     <article class="social-platform-card">
       <header>
         <div>
-          <strong>${esc(capitalize(platform.platform))}</strong>
-          <small>${displayValue(platform.accounts)} cuentas · ${displayValue(platform.followers)} followers</small>
+          <strong>${esc(platformDisplayName(platform.platform))}</strong>
+          <small>${displayValue(platform.accounts)} cuentas · ${esc(platformCategoryLabel(platform.platform))}</small>
         </div>
         <span class="badge ${platform.healthScore < 60 ? "warn" : ""}">${displayValue(platform.healthScore)} health</span>
       </header>
       <div class="social-platform-grid">
+        <span><strong>Followers / audiencia</strong>${displayValue(platform.followers)}</span>
         <span><strong>ER media</strong>${displayValue(platform.avgEngagementRate, "%")}</span>
         <span><strong>Reach medio</strong>${displayValue(platform.avgReach)}</span>
         <span><strong>Programados</strong>${displayValue(platform.scheduled)}</span>
         <span><strong>Publish-ready</strong>${displayValue(platform.publishReady)} / ${displayValue(platform.accounts)}</span>
+        <span><strong>Posts visibles</strong>${displayValue(platform.recentPosts)}</span>
       </div>
       <p>${esc(platform.takeaway)}</p>
     </article>
@@ -1838,9 +1841,74 @@ function buildSocialTrendSeries(posts) {
 function buildPlatformTakeaway(platform, avgEr, publishReady, accounts, topContent) {
   const readiness = accounts ? percentage(publishReady, accounts) : 0;
   const contentHint = topContent?.content ? `Top creativo: ${topContent.content.slice(0, 46)}.` : "Sin top post claro todavía.";
+  if (platform === "googlebusiness") return `Google Business ya opera como capa de presencia local por sede. Vigila consistencia, reseñas y publicaciones locales.`;
+  if (platform === "googleads" || platform === "tiktokads") return `${platformDisplayName(platform)} funciona como superficie de distribución paga. Lo clave aquí es cobertura operativa y medición, más que ER orgánico.`;
+  if (platform === "youtube") return `YouTube queda como superficie editorial de fondo. Conviene conectar frecuencia, títulos y reaprovechamiento desde social corto.`;
   if ((avgEr || 0) >= 8) return `${capitalize(platform)} está respondiendo bien. ${contentHint}`;
   if (readiness < 100) return `${capitalize(platform)} aún tiene fricción operativa (${displayValue(readiness, "%")} listo). ${contentHint}`;
   return `${capitalize(platform)} necesita más experimentación creativa o distribución. ${contentHint}`;
+}
+
+function groupPlatformsForRadar(platforms) {
+  const groups = new Map();
+  for (const platform of toArray(platforms)) {
+    const key = platformCategory(platform.platform);
+    const current = groups.get(key) || {
+      key,
+      label: platformCategoryLabel(platform.platform),
+      accounts: 0,
+      followers: 0,
+      publishReady: 0,
+      recentPosts: 0,
+      engagementRates: [],
+      names: [],
+    };
+    current.accounts += Number(platform.accounts) || 0;
+    current.followers += Number(platform.followers) || 0;
+    current.publishReady += Number(platform.publishReady) || 0;
+    current.recentPosts += Number(platform.recentPosts) || 0;
+    if (isFiniteNumber(platform.avgEngagementRate)) current.engagementRates.push(platform.avgEngagementRate);
+    current.names.push(platformDisplayName(platform.platform));
+    groups.set(key, current);
+  }
+  return [...groups.values()].map((group) => ({
+    label: group.label,
+    value: group.key === "local_presence"
+      ? displayValue(group.accounts)
+      : group.key === "paid_distribution"
+        ? displayValue(group.accounts)
+        : displayValue(group.followers),
+    detail: group.key === "local_presence"
+      ? `${displayValue(group.accounts)} sedes/cuentas locales · ${displayValue(group.publishReady)} listas`
+      : group.key === "paid_distribution"
+        ? `${group.names.join(" · ")} · ${displayValue(group.accounts)} cuentas activas`
+        : `${displayValue(average(group.engagementRates), "%")} ER media · ${displayValue(group.recentPosts)} posts visibles`,
+  }));
+}
+
+function platformCategory(platform) {
+  if (platform === "googlebusiness") return "local_presence";
+  if (platform === "googleads" || platform === "tiktokads") return "paid_distribution";
+  return "social_channel";
+}
+
+function platformCategoryLabel(platform) {
+  const key = platformCategory(platform);
+  if (key === "local_presence") return "Presencia local";
+  if (key === "paid_distribution") return "Distribución paga";
+  return "Canal social";
+}
+
+function platformDisplayName(platform) {
+  return ({
+    googlebusiness: "Google Business",
+    googleads: "Google Ads",
+    tiktokads: "TikTok Ads",
+    instagram: "Instagram",
+    tiktok: "TikTok",
+    linkedin: "LinkedIn",
+    youtube: "YouTube",
+  })[platform] || capitalize(platform);
 }
 
 function buildSocialExecutiveSummary(input) {
