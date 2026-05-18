@@ -942,6 +942,42 @@ export function registerZernioTools(server: McpServer) {
   );
 
   server.tool(
+    "zernio_googlebusiness_review_reply_upsert",
+    "Create or update the owner reply for a Google Business review.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      review_id: z.string().describe("The Google Business review ID."),
+      comment: z.string().describe("Reply text to publish as the owner response."),
+    },
+    async ({ account_id, profile_id, review_id, comment }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioPost(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-reviews/${encodeURIComponent(review_id)}/reply`,
+        { comment }
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_review_reply_delete",
+    "Delete the owner reply from a Google Business review without deleting the review itself.",
+    {
+      account_id: z.string().optional().describe("Google Business account ID. Auto-selects when only one account exists in the target profile."),
+      profile_id: z.string().optional().describe("Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      review_id: z.string().describe("The Google Business review ID."),
+    },
+    async ({ account_id, profile_id, review_id }) => {
+      const target = await resolvePlatformTarget("googlebusiness", account_id, profile_id);
+      const result = await zernioDelete(
+        `/accounts/${encodeURIComponent(target.accountId)}/gmb-reviews/${encodeURIComponent(review_id)}/reply`
+      );
+      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
     "zernio_googlebusiness_services_get",
     "Get structured/free-form services configured on a Google Business Profile location.",
     {
@@ -1254,6 +1290,65 @@ export function registerZernioTools(server: McpServer) {
         timezone: timezone ?? "UTC",
       });
       return { content: [{ type: "text" as const, text: formatResult(result) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_unanswered_reviews_report",
+    "Build an operational queue of Google Business reviews that still need a reply, with ratings, reviewer text, and direct review URLs.",
+    {
+      profile_id: z.string().optional().describe("Zernio profile ID filter."),
+      account_id: z.string().optional().describe("Specific GBP account ID filter."),
+      min_rating: z.number().int().min(1).max(5).optional().describe("Optional lower rating bound."),
+      max_rating: z.number().int().min(1).max(5).optional().describe("Optional upper rating bound."),
+      limit: z.number().int().min(1).max(50).optional().describe("How many reviews to return. Default 25."),
+    },
+    async ({ profile_id, account_id, min_rating, max_rating, limit }) => {
+      const result = await zernioGet("/inbox/reviews", {
+        profileId: profile_id,
+        platform: "googlebusiness",
+        accountId: account_id,
+        minRating: min_rating,
+        maxRating: max_rating,
+        hasReply: false,
+        sortBy: "date",
+        sortOrder: "desc",
+        limit: limit ?? 25,
+      });
+      const rows = getCollection(result, ["data", "reviews", "items"]).map((review) => ({
+        review_id: stringValue(review.id ?? review.reviewId),
+        account_id: stringValue(review.accountId),
+        account_username: stringValue(review.accountUsername),
+        reviewer_name: stringValue(asRecord(review.reviewer).name ?? asRecord(review.reviewer).displayName),
+        rating: numberValue(review.rating),
+        text: stringValue(review.text ?? review.comment),
+        created_at: stringValue(review.created ?? review.createTime),
+        review_url: stringValue(review.reviewUrl),
+        has_reply: Boolean(review.hasReply),
+      }));
+      const summary = {
+        total_unanswered_reviews: rows.length,
+        low_rating_unanswered: rows.filter((row) => typeof row.rating === "number" && row.rating <= 3).length,
+        rows,
+      };
+      return { content: [{ type: "text" as const, text: formatResult(summary) }] };
+    }
+  );
+
+  server.tool(
+    "zernio_googlebusiness_ops_summary",
+    "Produce a management snapshot across connected Google Business locations: selected location, profile completeness signals, recent reviews, media coverage, place actions, and local performance.",
+    {
+      profile_id: z.string().optional().describe("Filter by Zernio profile ID. Uses ZERNIO_DEFAULT_PROFILE_ID if omitted."),
+      include_performance: z.boolean().optional().describe("Include GBP performance metrics. Default true."),
+      include_keywords: z.boolean().optional().describe("Include GBP search keywords. Default true."),
+    },
+    async ({ profile_id, include_performance, include_keywords }) => {
+      const summary = await buildGoogleBusinessOpsSummary(profile_id, {
+        includePerformance: include_performance ?? true,
+        includeKeywords: include_keywords ?? true,
+      });
+      return { content: [{ type: "text" as const, text: formatResult(summary) }] };
     }
   );
 
@@ -1746,6 +1841,119 @@ function summarizeAccount(account: ZernioAccount) {
     selected_location_name: stringValue(metadata.selectedLocationName ?? googleBusinessLocation.name),
     location_address: stringValue(metadata.locationAddress ?? googleBusinessLocation.address),
   };
+}
+
+async function buildGoogleBusinessOpsSummary(
+  profileId: string | undefined,
+  options: { includePerformance: boolean; includeKeywords: boolean }
+) {
+  const resolvedProfileId = profileId ?? await getDefaultZernioProfileId();
+  const accounts = await fetchPlatformAccounts("googlebusiness", resolvedProfileId);
+
+  const locations = await Promise.all(accounts.map(async (account) => {
+    const accountId = stringValue(account._id ?? account.id ?? account.accountId);
+    const base = summarizeAccount(account);
+
+    const [details, reviews, media, placeActions, performance, keywords] = await Promise.all([
+      zernioGet(`/accounts/${encodeURIComponent(accountId)}/gmb-location-details`).catch((error) => ({ error: String(error) })),
+      zernioGet(`/accounts/${encodeURIComponent(accountId)}/gmb-reviews`, { pageSize: 5 }).catch((error) => ({ error: String(error) })),
+      zernioGet(`/accounts/${encodeURIComponent(accountId)}/gmb-media`, { pageSize: 5 }).catch((error) => ({ error: String(error) })),
+      zernioGet(`/accounts/${encodeURIComponent(accountId)}/gmb-place-actions`, { pageSize: 10 }).catch((error) => ({ error: String(error) })),
+      options.includePerformance
+        ? zernioGet("/analytics/googlebusiness/performance", { accountId }).catch((error) => ({ error: String(error) }))
+        : Promise.resolve(null),
+      options.includeKeywords
+        ? zernioGet("/analytics/googlebusiness/search-keywords", { accountId }).catch((error) => ({ error: String(error) }))
+        : Promise.resolve(null),
+    ]);
+
+    const detailsRecord = asRecord(details);
+    const reviewsRecord = asRecord(reviews);
+    const mediaRecord = asRecord(media);
+    const actionsRecord = asRecord(placeActions);
+    const performanceRecord = asRecord(performance);
+    const keywordsRecord = asRecord(keywords);
+
+    const reviewRows = getCollection(reviewsRecord, ["reviews", "data", "items"]);
+    const recentReviews = reviewRows.slice(0, 5).map((review) => ({
+      id: stringValue(review.id),
+      rating: numberValue(review.rating),
+      reviewer: stringValue(asRecord(review.reviewer).displayName ?? asRecord(review.reviewer).name),
+      has_reply: Boolean(review.reviewReply),
+      comment: stringValue(review.comment),
+      created_at: stringValue(review.createTime),
+    }));
+
+    const performanceMetrics = asRecord(performanceRecord.metrics);
+    const keywordRows = getCollection(keywordsRecord, ["keywords", "data", "items"]).slice(0, 5).map((row) => ({
+      keyword: stringValue(row.keyword),
+      impressions: numberValue(row.impressions),
+    }));
+
+    return {
+      account_id: accountId,
+      profile_id: base.profile_id,
+      location_id: stringValue(detailsRecord.locationId ?? base.selected_location_id),
+      location_name: stringValue(detailsRecord.title ?? detailsRecord.location?.name ?? base.selected_location_name ?? base.display_name),
+      website: stringValue(detailsRecord.websiteUri),
+      phone: stringValue(asRecord(detailsRecord.phoneNumbers).primaryPhone),
+      address: stringValue(base.location_address ?? asRecord(detailsRecord.storefrontAddress).addressLines?.join?.(", ")),
+      category: stringValue(asRecord(asRecord(detailsRecord.categories).primaryCategory).displayName),
+      average_rating: numberValue(reviewsRecord.averageRating),
+      total_review_count: numberValue(reviewsRecord.totalReviewCount),
+      unanswered_reviews: reviewRows.filter((review) => !review.reviewReply).length,
+      media_count_visible: numberValue(mediaRecord.totalMediaItemsCount) ?? getCollection(mediaRecord, ["mediaItems", "data", "items"]).length,
+      place_action_count: getCollection(actionsRecord, ["placeActionLinks", "data", "items"]).length,
+      profile_completeness_flags: {
+        has_website: Boolean(stringValue(detailsRecord.websiteUri)),
+        has_phone: Boolean(stringValue(asRecord(detailsRecord.phoneNumbers).primaryPhone)),
+        has_description: Boolean(stringValue(asRecord(detailsRecord.profile).description)),
+        has_media: (numberValue(mediaRecord.totalMediaItemsCount) ?? getCollection(mediaRecord, ["mediaItems", "data", "items"]).length) > 0,
+        has_place_actions: getCollection(actionsRecord, ["placeActionLinks", "data", "items"]).length > 0,
+      },
+      recent_reviews: recentReviews,
+      top_search_keywords: keywordRows,
+      performance_snapshot: options.includePerformance ? summarizeGoogleBusinessPerformanceMetrics(performanceMetrics) : null,
+      raw_errors: compactObject({
+        details: detailsRecord.error,
+        reviews: reviewsRecord.error,
+        media: mediaRecord.error,
+        place_actions: actionsRecord.error,
+        performance: performanceRecord.error,
+        keywords: keywordsRecord.error,
+      }),
+    };
+  }));
+
+  return {
+    profile_id: resolvedProfileId ?? null,
+    total_locations: locations.length,
+    low_coverage_locations: locations.filter((location) => {
+      const flags = asRecord(location.profile_completeness_flags);
+      return !flags.has_description || !flags.has_media || !flags.has_place_actions;
+    }).length,
+    locations_with_unanswered_reviews: locations.filter((location) => (numberValue(location.unanswered_reviews) ?? 0) > 0).length,
+    locations,
+  };
+}
+
+function summarizeGoogleBusinessPerformanceMetrics(metrics: Record<string, any>) {
+  const wanted = [
+    "WEBSITE_CLICKS",
+    "CALL_CLICKS",
+    "BUSINESS_DIRECTION_REQUESTS",
+    "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+    "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
+    "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+    "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
+  ];
+  const snapshot: Record<string, unknown> = {};
+  for (const key of wanted) {
+    const entry = asRecord(metrics[key]);
+    if (!Object.keys(entry).length) continue;
+    snapshot[key] = numberValue(entry.total);
+  }
+  return snapshot;
 }
 
 function resolveConnectPath(platform: z.infer<typeof zernioPlatform>) {
