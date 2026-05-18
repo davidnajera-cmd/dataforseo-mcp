@@ -8,7 +8,8 @@
     "build": "tsc",
     "dev": "tsx watch src/http.ts",
     "dev:mcp": "tsx watch src/server.ts",
-    "start": "node build/src/http.js"
+    "start": "node build/src/http.js",
+    "backfill:google-business": "node --env-file=.env.local --import tsx scripts/backfill-google-business.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.95.1",
