@@ -44,6 +44,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^social_youtube_transcript$/,
     /^social_intel_/,
     /^zernio_/,
+    /^gbp_history_/,
+    /^gbp_backfill_/,
     /^market_news_monitor$/,
     /^market_reddit_intelligence$/,
     // Local + content crawl
@@ -64,6 +66,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
   seo: [
     /^gsc_/,
     /^gbp_/,
+    /^gbp_history_/,
+    /^gbp_backfill_/,
     /^site_verification_/,
     /^gtm_/,
     /^labs_google_/,
@@ -98,6 +102,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^social_youtube_transcript$/,
     /^social_intel_/,
     /^zernio_/,
+    /^gbp_history_/,
     /^ai_optimization_/,
     /^market_news_monitor$/,
     /^local_google_maps_scraper$/,
@@ -118,6 +123,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^keyword_universe_/,
     /^social_intel_/,
     /^zernio_/,
+    /^gbp_history_/,
+    /^gbp_backfill_/,
   ],
 };
 

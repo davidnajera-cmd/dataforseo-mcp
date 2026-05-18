@@ -22,6 +22,7 @@ import { registerMarketResearchTools } from "./tools-market-research.js";
 import { registerLegacyAuditTools } from "./tools-legacy-audit.js";
 import { registerZernioTools } from "./tools-zernio.js";
 import { registerSocialIntelligenceTools } from "./tools-social-intelligence.js";
+import { registerGoogleBusinessHistoryTools } from "./tools-google-business-history.js";
 import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
@@ -120,6 +121,7 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - wayback_* : Wayback Machine snapshots
 - log_file_analyze : web server log parsing
 - history_*, keyword_universe_*, snapshot_* : historical persistence and snapshots
+- gbp_history_*, gbp_backfill_* : persisted Google Business history + backfills
 - backlog_*, agent_runs_* : SEO Agent backlog (DeepSeek + Opus tasks)
 - brand_* : DNA Music academic catalog (Colombia only)
 - zernio_* : social media profiles, connected accounts, comments inbox, analytics, OAuth connect flows, generic publishing, and platform-specific Instagram/TikTok tools via Zernio
@@ -193,6 +195,9 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
 
   // Historical persistence: keyword universe management, time-series queries, snapshot runs
   registerHistoryTools(server);
+
+  // Google Business historical persistence + manual backfill tools
+  registerGoogleBusinessHistoryTools(server);
 
   // SEO Agent: backlog of actionable tasks proposed by DeepSeek + Opus
   registerBacklogTools(server);
