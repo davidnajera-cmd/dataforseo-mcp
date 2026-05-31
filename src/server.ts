@@ -18,6 +18,7 @@ import { registerBrandKnowledgeTools } from "./tools-brand-knowledge.js";
 import { registerPlaybookTools } from "./tools-playbook.js";
 import { registerAdLibTools } from "./tools-adlib.js";
 import { registerApifyResearchTools } from "./tools-apify-research.js";
+import { registerScrapeGraphTools } from "./tools-scrapegraph.js";
 import { registerMarketResearchTools } from "./tools-market-research.js";
 import { registerLegacyAuditTools } from "./tools-legacy-audit.js";
 import { registerZernioTools } from "./tools-zernio.js";
@@ -126,6 +127,7 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - brand_* : DNA Music academic catalog (Colombia only)
 - zernio_* : social media profiles, connected accounts, comments inbox, analytics, OAuth connect flows, generic publishing, and platform-specific Instagram/TikTok tools via Zernio
 - social_* : social intelligence scrapers (TikTok comments/content, Instagram scraping, YouTube transcripts)
+- scrapegraph_* : AI-powered scraping de cualquier URL vía ScrapeGraphAI (smartscraper, searchscraper, markdownify). Requiere SGAI_API_KEY. De pago por créditos; no resuelve anti-bot fuerte por sí solo.
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
 export function createServer(options: { bundle?: BundleName } = {}): McpServer {
@@ -213,6 +215,9 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
 
   // Research/intelligence Apify wrappers (Maps, Web Crawler, Instagram, YouTube)
   registerApifyResearchTools(server);
+
+  // AI-powered scraping via ScrapeGraphAI (structured extraction, search, markdown)
+  registerScrapeGraphTools(server);
 
   // Market research (Reddit voice, news monitoring, Colombia-first)
   registerMarketResearchTools(server);
