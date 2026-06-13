@@ -182,6 +182,7 @@ const LOOKBACK_DEFAULTS_DAYS: Array<{ pattern: RegExp; days: number }> = [
   { pattern: /^market_reddit_intelligence/, days: 30 },
   { pattern: /^keyword_universe_|^brand_/, days: 90 },
   { pattern: /^adlib_|^apify_run_actor/, days: 14 },
+  { pattern: /^apify_google_search_multi_engine|^apify_link_prospecting_tool|^apify_meta_brand_collaboration|^apify_tripadvisor_lead_enrichment/, days: 14 },
 ];
 
 export function lookbackDaysForTool(toolName: string): number {
