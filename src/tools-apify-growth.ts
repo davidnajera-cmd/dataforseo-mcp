@@ -128,10 +128,10 @@ export function registerApifyGrowthTools(server: McpServer) {
       competitor_domains: z.array(z.string()).optional().describe("Known competitor domains."),
       ignore_domains: z.array(z.string()).optional().describe("Domains to exclude from outreach."),
       departments: z.array(z.string()).optional().describe("Department hints for enrichment, e.g. PR, editorial, marketing."),
-      organic_results: z.number().optional().describe("How many organic results to analyze per query. Default 3 for a faster, lighter run."),
+      organic_results: z.number().optional().describe("How many organic results to analyze per query. Default 1 for the fastest practical run."),
       include_chatgpt: z.boolean().optional().describe("Whether to run ChatGPT Search. Default false."),
       include_ai_mode: z.boolean().optional().describe("Whether to run Google AI Mode. Default false."),
-      include_ai_overviews: z.boolean().optional().describe("Whether to analyze Google AI Overviews when present. Default true."),
+      include_ai_overviews: z.boolean().optional().describe("Whether to analyze Google AI Overviews when present. Default false to keep the actor responsive in interactive use."),
       include_perplexity: z.boolean().optional().describe("Whether to run Perplexity. Default false."),
       include_gemini: z.boolean().optional().describe("Whether to run Gemini. Default false."),
       include_copilot: z.boolean().optional().describe("Whether to run Copilot. Default false."),
@@ -168,10 +168,10 @@ export function registerApifyGrowthTools(server: McpServer) {
       const input: Record<string, unknown> = {
         queries: cleanQueries.join("\n"),
         brand: brand.trim(),
-        organicResult: organic_results ?? 3,
+        organicResult: organic_results ?? 1,
         enableChatGpt: include_chatgpt ?? false,
         enableAiMode: include_ai_mode ?? false,
-        enableAiOverviews: include_ai_overviews ?? true,
+        enableAiOverviews: include_ai_overviews ?? false,
         enablePerplexity: include_perplexity ?? false,
         enableGemini: include_gemini ?? false,
         enableCopilot: include_copilot ?? false,
@@ -187,7 +187,7 @@ export function registerApifyGrowthTools(server: McpServer) {
       const items = await runActorSync(actorId, input, {
         max_items: max_items ?? 25,
         max_total_charge_usd: max_total_charge_usd ?? 1,
-        timeout_ms: 240_000,
+        timeout_ms: 300_000,
       });
       return { content: [{ type: "text" as const, text: formatResult({ actor: actorId, items_count: items.length, items }) }] };
     }
