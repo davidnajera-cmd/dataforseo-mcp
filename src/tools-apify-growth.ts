@@ -76,7 +76,7 @@ export function registerApifyGrowthTools(server: McpServer) {
       const input: Record<string, unknown> = {
         queries: cleanQueries.join("\n"),
         maxPagesPerQuery: max_pages_per_query ?? 1,
-        ...(country_code ? { countryCode: country_code.toUpperCase() } : {}),
+        ...(country_code ? { countryCode: country_code.toLowerCase() } : {}),
         ...(language_code ? { languageCode: language_code.toLowerCase() } : {}),
         disableGoogleSearchResults: (include_ai_overview ?? true) === false && (include_ai_mode ?? false) === true,
         aiModeSearch: { enableAiMode: include_ai_mode ?? false },
@@ -128,23 +128,67 @@ export function registerApifyGrowthTools(server: McpServer) {
       competitor_domains: z.array(z.string()).optional().describe("Known competitor domains."),
       ignore_domains: z.array(z.string()).optional().describe("Domains to exclude from outreach."),
       departments: z.array(z.string()).optional().describe("Department hints for enrichment, e.g. PR, editorial, marketing."),
+      organic_results: z.number().optional().describe("How many organic results to analyze per query. Default 3 for a faster, lighter run."),
+      include_chatgpt: z.boolean().optional().describe("Whether to run ChatGPT Search. Default false."),
+      include_ai_mode: z.boolean().optional().describe("Whether to run Google AI Mode. Default false."),
+      include_ai_overviews: z.boolean().optional().describe("Whether to analyze Google AI Overviews when present. Default true."),
+      include_perplexity: z.boolean().optional().describe("Whether to run Perplexity. Default false."),
+      include_gemini: z.boolean().optional().describe("Whether to run Gemini. Default false."),
+      include_copilot: z.boolean().optional().describe("Whether to run Copilot. Default false."),
+      max_contacts_per_domain: z.number().optional().describe("Max leads scraped per source domain. Default 1."),
+      enable_email_verification: z.boolean().optional().describe("Whether to verify enriched emails. Default false."),
+      search_author_name: z.boolean().optional().describe("Whether to use AI to identify article authors. Default false."),
       max_items: z.number().optional().describe("Dataset cap returned by Apify. Default 25."),
       max_total_charge_usd: z.number().optional().describe("Optional pay-per-event cap for Apify if this actor pricing requires it."),
       actor_input_overrides: z.record(z.string(), z.unknown()).optional(),
     },
-    async ({ queries, brand, own_domains, competitor_domains, ignore_domains, departments, max_items, max_total_charge_usd, actor_input_overrides }) => {
+    async ({
+      queries,
+      brand,
+      own_domains,
+      competitor_domains,
+      ignore_domains,
+      departments,
+      organic_results,
+      include_chatgpt,
+      include_ai_mode,
+      include_ai_overviews,
+      include_perplexity,
+      include_gemini,
+      include_copilot,
+      max_contacts_per_domain,
+      enable_email_verification,
+      search_author_name,
+      max_items,
+      max_total_charge_usd,
+      actor_input_overrides,
+    }) => {
       const actorId = await getConfiguredActor("link_prospecting");
       const cleanQueries = normalizeStringList(queries);
       const input: Record<string, unknown> = {
         queries: cleanQueries.join("\n"),
         brand: brand.trim(),
+        organicResult: organic_results ?? 3,
+        enableChatGpt: include_chatgpt ?? false,
+        enableAiMode: include_ai_mode ?? false,
+        enableAiOverviews: include_ai_overviews ?? true,
+        enablePerplexity: include_perplexity ?? false,
+        enableGemini: include_gemini ?? false,
+        enableCopilot: include_copilot ?? false,
         ownDomains: unique(normalizeStringList(own_domains)),
         ...(competitor_domains?.length ? { competitorDomains: unique(normalizeStringList(competitor_domains)) } : {}),
         ...(ignore_domains?.length ? { ignoreDomains: unique(normalizeStringList(ignore_domains)) } : {}),
         ...(departments?.length ? { department: unique(normalizeStringList(departments)) } : {}),
+        maxContactsPerDomain: max_contacts_per_domain ?? 1,
+        enableEmailVerification: enable_email_verification ?? false,
+        searchAuthorName: search_author_name ?? false,
         ...(actor_input_overrides ?? {}),
       };
-      const items = await runActorSync(actorId, input, { max_items: max_items ?? 25, max_total_charge_usd });
+      const items = await runActorSync(actorId, input, {
+        max_items: max_items ?? 25,
+        max_total_charge_usd: max_total_charge_usd ?? 1,
+        timeout_ms: 240_000,
+      });
       return { content: [{ type: "text" as const, text: formatResult({ actor: actorId, items_count: items.length, items }) }] };
     }
   );
