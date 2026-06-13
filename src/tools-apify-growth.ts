@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { getConfiguredActor, runActorSync } from "./apify-client.js";
+import { getActorRun, getConfiguredActor, getDatasetItems, runActorSync, startActorRun } from "./apify-client.js";
 
 function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
@@ -33,6 +33,44 @@ function buildBrandCollaborationUrl(args: {
 function baseUrl(bundle?: "research" | "seo" | "pauta" | "agent" | "full") {
   const root = process.env.DASHBOARD_URL?.trim() || "https://dataforseo-mcp-three.vercel.app";
   return bundle ? `${root}/mcp?bundle=${bundle}` : `${root}/mcp`;
+}
+
+function buildLinkProspectingInput(args: {
+  queries: string[];
+  brand: string;
+  own_domains: string[];
+  competitor_domains?: string[];
+  ignore_domains?: string[];
+  organic_results?: number;
+  include_chatgpt?: boolean;
+  include_ai_mode?: boolean;
+  include_ai_overviews?: boolean;
+  include_perplexity?: boolean;
+  include_gemini?: boolean;
+  include_copilot?: boolean;
+  max_contacts_per_domain?: number;
+  enable_email_verification?: boolean;
+  search_author_name?: boolean;
+  actor_input_overrides?: Record<string, unknown>;
+}) {
+  return {
+    queries: normalizeStringList(args.queries).join("\n"),
+    brand: args.brand.trim(),
+    organicResult: args.organic_results ?? 1,
+    enableChatGpt: args.include_chatgpt ?? false,
+    enableAiMode: args.include_ai_mode ?? false,
+    enableAiOverviews: args.include_ai_overviews ?? false,
+    enablePerplexity: args.include_perplexity ?? false,
+    enableGemini: args.include_gemini ?? false,
+    enableCopilot: args.include_copilot ?? false,
+    ownDomains: unique(normalizeStringList(args.own_domains)),
+    ...(args.competitor_domains?.length ? { competitorDomains: unique(normalizeStringList(args.competitor_domains)) } : {}),
+    ...(args.ignore_domains?.length ? { ignoreDomains: unique(normalizeStringList(args.ignore_domains)) } : {}),
+    maxContactsPerDomain: args.max_contacts_per_domain ?? 1,
+    enableEmailVerification: args.enable_email_verification ?? false,
+    searchAuthorName: args.search_author_name ?? false,
+    ...(args.actor_input_overrides ?? {}),
+  };
 }
 
 export function registerApifyGrowthTools(server: McpServer) {
@@ -163,31 +201,150 @@ export function registerApifyGrowthTools(server: McpServer) {
       actor_input_overrides,
     }) => {
       const actorId = await getConfiguredActor("link_prospecting");
-      const cleanQueries = normalizeStringList(queries);
-      const input: Record<string, unknown> = {
-        queries: cleanQueries.join("\n"),
-        brand: brand.trim(),
-        organicResult: organic_results ?? 1,
-        enableChatGpt: include_chatgpt ?? false,
-        enableAiMode: include_ai_mode ?? false,
-        enableAiOverviews: include_ai_overviews ?? false,
-        enablePerplexity: include_perplexity ?? false,
-        enableGemini: include_gemini ?? false,
-        enableCopilot: include_copilot ?? false,
-        ownDomains: unique(normalizeStringList(own_domains)),
-        ...(competitor_domains?.length ? { competitorDomains: unique(normalizeStringList(competitor_domains)) } : {}),
-        ...(ignore_domains?.length ? { ignoreDomains: unique(normalizeStringList(ignore_domains)) } : {}),
-        maxContactsPerDomain: max_contacts_per_domain ?? 1,
-        enableEmailVerification: enable_email_verification ?? false,
-        searchAuthorName: search_author_name ?? false,
-        ...(actor_input_overrides ?? {}),
-      };
+      const input = buildLinkProspectingInput({
+        queries,
+        brand,
+        own_domains,
+        competitor_domains,
+        ignore_domains,
+        organic_results,
+        include_chatgpt,
+        include_ai_mode,
+        include_ai_overviews,
+        include_perplexity,
+        include_gemini,
+        include_copilot,
+        max_contacts_per_domain,
+        enable_email_verification,
+        search_author_name,
+        actor_input_overrides,
+      });
       const items = await runActorSync(actorId, input, {
         max_items: max_items ?? 25,
         max_total_charge_usd: max_total_charge_usd ?? 1,
         timeout_ms: 300_000,
       });
       return { content: [{ type: "text" as const, text: formatResult({ actor: actorId, items_count: items.length, items }) }] };
+    }
+  );
+
+  server.tool(
+    "apify_link_prospecting_start",
+    "Start Apify Link Prospecting asynchronously and return a run id immediately. Use this when the synchronous wrapper is too slow for Vercel or an interactive client. Then poll with apify_link_prospecting_status until the run finishes and returns dataset items.",
+    {
+      queries: z.array(z.string()).min(1).describe("Prospecting queries."),
+      brand: z.string().describe("Your brand name."),
+      own_domains: z.array(z.string()).min(1).describe("Domains owned by your brand."),
+      competitor_domains: z.array(z.string()).optional().describe("Optional competitor domains."),
+      ignore_domains: z.array(z.string()).optional().describe("Domains to exclude."),
+      departments: z.array(z.string()).optional().describe("Accepted for interface compatibility but currently ignored because the upstream actor rejects the stale field mapping."),
+      organic_results: z.number().optional().describe("Default 1."),
+      include_chatgpt: z.boolean().optional().describe("Default false."),
+      include_ai_mode: z.boolean().optional().describe("Default false."),
+      include_ai_overviews: z.boolean().optional().describe("Default false."),
+      include_perplexity: z.boolean().optional().describe("Default false."),
+      include_gemini: z.boolean().optional().describe("Default false."),
+      include_copilot: z.boolean().optional().describe("Default false."),
+      max_contacts_per_domain: z.number().optional().describe("Default 1."),
+      enable_email_verification: z.boolean().optional().describe("Default false."),
+      search_author_name: z.boolean().optional().describe("Default false."),
+      max_items: z.number().optional().describe("Dataset limit to read back later. Saved only as guidance in the response."),
+      max_total_charge_usd: z.number().optional().describe("Default 1."),
+      actor_input_overrides: z.record(z.string(), z.unknown()).optional(),
+    },
+    async ({
+      queries,
+      brand,
+      own_domains,
+      competitor_domains,
+      ignore_domains,
+      organic_results,
+      include_chatgpt,
+      include_ai_mode,
+      include_ai_overviews,
+      include_perplexity,
+      include_gemini,
+      include_copilot,
+      max_contacts_per_domain,
+      enable_email_verification,
+      search_author_name,
+      max_items,
+      max_total_charge_usd,
+      actor_input_overrides,
+    }) => {
+      const actorId = await getConfiguredActor("link_prospecting");
+      const input = buildLinkProspectingInput({
+        queries,
+        brand,
+        own_domains,
+        competitor_domains,
+        ignore_domains,
+        organic_results,
+        include_chatgpt,
+        include_ai_mode,
+        include_ai_overviews,
+        include_perplexity,
+        include_gemini,
+        include_copilot,
+        max_contacts_per_domain,
+        enable_email_verification,
+        search_author_name,
+        actor_input_overrides,
+      });
+      const run = await startActorRun(actorId, input, {
+        max_items: max_items ?? 25,
+        max_total_charge_usd: max_total_charge_usd ?? 1,
+      });
+      return {
+        content: [{
+          type: "text" as const,
+          text: formatResult({
+            actor: actorId,
+            run_id: run.id,
+            status: run.status,
+            started_at: run.startedAt,
+            max_items: max_items ?? 25,
+            next_step: {
+              tool: "apify_link_prospecting_status",
+              args: { run_id: run.id, max_items: max_items ?? 25, wait_for_finish_seconds: 0 },
+            },
+          }),
+        }],
+      };
+    }
+  );
+
+  server.tool(
+    "apify_link_prospecting_status",
+    "Check an asynchronous Apify Link Prospecting run by run_id. If the run finished and has a dataset, this tool also returns the dataset items. Use together with apify_link_prospecting_start to avoid Vercel timeout limits.",
+    {
+      run_id: z.string().min(1).describe("Apify actor run id returned by apify_link_prospecting_start."),
+      max_items: z.number().optional().describe("How many dataset items to fetch once finished. Default 25."),
+      wait_for_finish_seconds: z.number().optional().describe("Optional Apify-side wait before returning run status. Default 0. Use 30-120 when you want a long poll."),
+    },
+    async ({ run_id, max_items, wait_for_finish_seconds }) => {
+      const run = await getActorRun(run_id, { wait_for_finish_seconds: wait_for_finish_seconds ?? 0 });
+      const finished = ["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes((run.status ?? "").toUpperCase());
+      let items: unknown[] = [];
+      if ((run.status ?? "").toUpperCase() === "SUCCEEDED" && run.defaultDatasetId) {
+        items = await getDatasetItems(run.defaultDatasetId, { limit: max_items ?? 25 });
+      }
+      return {
+        content: [{
+          type: "text" as const,
+          text: formatResult({
+            run_id: run.id,
+            status: run.status,
+            status_message: run.statusMessage,
+            started_at: run.startedAt,
+            finished_at: run.finishedAt,
+            dataset_id: run.defaultDatasetId,
+            finished,
+            items_count: items.length,
+            items,
+          }),
+        }],
+      };
     }
   );
 

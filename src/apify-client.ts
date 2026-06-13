@@ -34,6 +34,23 @@ export async function getApifyToken(): Promise<string> {
   return token;
 }
 
+type ApifyRunOptions = {
+  max_items?: number;
+  max_total_charge_usd?: number;
+  timeout_ms?: number;
+};
+
+function actorApiPath(actorId: string): string {
+  return actorId.includes("/") ? actorId.replace("/", "~") : actorId;
+}
+
+function buildRunQuery(options: ApifyRunOptions = {}): URLSearchParams {
+  const params = new URLSearchParams();
+  if (options.max_items !== undefined) params.set("maxItems", String(options.max_items));
+  if (options.max_total_charge_usd !== undefined) params.set("maxTotalChargeUsd", String(options.max_total_charge_usd));
+  return params;
+}
+
 // Run an actor synchronously and return only the dataset items (the actual
 // scraped data). Apify queues the run, executes it, and streams the result
 // back when complete. If it doesn't finish within the timeout, Apify returns
@@ -47,13 +64,11 @@ export async function runActorSync<T = unknown>(
     throw new Error(`Apify actor ID is empty. Configure the runtime variable that points to the actor you want to run.`);
   }
   const token = await getApifyToken();
-  const params = new URLSearchParams();
+  const params = buildRunQuery(options);
   params.set("token", token);
-  if (options.max_items !== undefined) params.set("maxItems", String(options.max_items));
-  if (options.max_total_charge_usd !== undefined) params.set("maxTotalChargeUsd", String(options.max_total_charge_usd));
   // The actor ID can be either "owner/name" or a 17-char hash. The endpoint
   // accepts both, but slashes need URL encoding.
-  const encodedActor = actorId.includes("/") ? actorId.replace("/", "~") : actorId;
+  const encodedActor = actorApiPath(actorId);
   const url = `${APIFY_BASE}/acts/${encodedActor}/run-sync-get-dataset-items?${params.toString()}`;
 
   const controller = new AbortController();
@@ -96,6 +111,75 @@ export async function runActorSync<T = unknown>(
   } finally {
     clearTimeout(timer);
   }
+}
+
+export type ApifyRunInfo = {
+  id: string;
+  actId?: string | null;
+  status?: string | null;
+  statusMessage?: string | null;
+  defaultDatasetId?: string | null;
+  startedAt?: string | null;
+  finishedAt?: string | null;
+  usageTotalUsd?: number | null;
+};
+
+export async function startActorRun(
+  actorId: string,
+  input: unknown,
+  options: ApifyRunOptions = {},
+): Promise<ApifyRunInfo> {
+  if (!actorId || actorId.trim() === "") {
+    throw new Error("Apify actor ID is empty. Configure the runtime variable that points to the actor you want to run.");
+  }
+  const token = await getApifyToken();
+  const params = buildRunQuery(options);
+  params.set("token", token);
+  const encodedActor = actorApiPath(actorId);
+  const url = `${APIFY_BASE}/acts/${encodedActor}/runs?${params.toString()}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(input ?? {}),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new ApifyError(`Apify ${res.status} when starting actor ${actorId}`, res.status, body.slice(0, 1500));
+  }
+  const json = await res.json() as { data?: ApifyRunInfo };
+  if (!json.data?.id) throw new Error(`Apify startActorRun did not return a run id for actor ${actorId}`);
+  return json.data;
+}
+
+export async function getActorRun(runId: string, options: { wait_for_finish_seconds?: number } = {}): Promise<ApifyRunInfo> {
+  const token = await getApifyToken();
+  const params = new URLSearchParams();
+  params.set("token", token);
+  if (options.wait_for_finish_seconds !== undefined) params.set("waitForFinish", String(options.wait_for_finish_seconds));
+  const url = `${APIFY_BASE}/actor-runs/${runId}?${params.toString()}`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new ApifyError(`Apify ${res.status} when reading run ${runId}`, res.status, body.slice(0, 1500));
+  }
+  const json = await res.json() as { data?: ApifyRunInfo };
+  if (!json.data?.id) throw new Error(`Apify getActorRun did not return run data for ${runId}`);
+  return json.data;
+}
+
+export async function getDatasetItems<T = unknown>(datasetId: string, options: { limit?: number } = {}): Promise<T[]> {
+  const token = await getApifyToken();
+  const params = new URLSearchParams();
+  params.set("token", token);
+  if (options.limit !== undefined) params.set("limit", String(options.limit));
+  const url = `${APIFY_BASE}/datasets/${datasetId}/items?${params.toString()}`;
+  const res = await fetch(url, { headers: { Accept: "application/json" } });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new ApifyError(`Apify ${res.status} when reading dataset ${datasetId}`, res.status, body.slice(0, 1500));
+  }
+  const items = await res.json();
+  return Array.isArray(items) ? (items as T[]) : [items as T];
 }
 
 export type ApifyActorKind =
