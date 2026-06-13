@@ -2,6 +2,9 @@ import express from "express";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import backlogHandler from "../api/backlog.js";
+import executiveOverviewHandler from "../api/executive-overview.js";
+import mcpHandler from "../api/mcp.js";
 import { collectSeoDashboardData } from "./dashboard-data.js";
 import { collectSocialDashboardData } from "./social-dashboard-data.js";
 import { listDashboardSnapshots, saveDashboardSnapshot } from "./dashboard-store.js";
@@ -71,6 +74,22 @@ app.get("/api/social-dashboard", async (req, res) => {
       message: error instanceof Error ? error.message : "Unexpected social dashboard error",
     });
   }
+});
+
+app.all("/api/executive-overview", async (req, res) => {
+  await executiveOverviewHandler(req as never, res as never);
+});
+
+app.all("/api/backlog", async (req, res) => {
+  await backlogHandler(req as never, res as never);
+});
+
+app.all("/api/mcp", async (req, res) => {
+  await mcpHandler(req as never, res as never);
+});
+
+app.all("/mcp", async (req, res) => {
+  await mcpHandler(req as never, res as never);
 });
 
 app.get("/health", (_req, res) => {
