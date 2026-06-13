@@ -186,11 +186,13 @@ export function registerAdLibTools(server: McpServer) {
       actor_id: z.string().describe("Apify actor ID, formatted 'owner/name' (e.g. 'apify/web-scraper') or the 17-char internal ID."),
       actor_input: z.record(z.string(), z.unknown()).describe("Input object matching the actor's schema. See its page on apify.com/store."),
       max_items: z.number().optional().describe("Hard cap on dataset items returned. Default 50."),
+      max_total_charge_usd: z.number().optional().describe("Optional Apify pay-per-event cap. Useful for Actors that require a minimum maxTotalChargeUsd to run."),
       timeout_ms: z.number().optional().describe("Max wait for the actor to finish. Default 240000 (4 min). Vercel kills functions at 300s."),
     },
-    async ({ actor_id, actor_input, max_items, timeout_ms }) => {
+    async ({ actor_id, actor_input, max_items, max_total_charge_usd, timeout_ms }) => {
       const items = await runActorSync(actor_id, actor_input, {
         max_items: max_items ?? 50,
+        max_total_charge_usd,
         timeout_ms,
       });
       return { content: [{ type: "text" as const, text: formatResult({ actor: actor_id, items_count: items.length, items }) }] };

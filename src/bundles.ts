@@ -52,6 +52,11 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     // Local + content crawl
     /^local_google_maps_scraper$/,
     /^web_content_crawler$/,
+    /^apify_google_search_multi_engine$/,
+    /^apify_link_prospecting_tool$/,
+    /^apify_meta_brand_collaboration$/,
+    /^apify_tripadvisor_lead_enrichment$/,
+    /^apify_mcp_connector_/,
     // Ad library (creative intel useful for research)
     /^adlib_meta_search$/,
     /^adlib_google_search$/,
@@ -90,6 +95,9 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^web_content_crawler$/,
     /^seo_workflow_playbook$/,
     /^seo_legacy_redirect_audit$/,
+    /^apify_google_search_multi_engine$/,
+    /^apify_link_prospecting_tool$/,
+    /^apify_tripadvisor_lead_enrichment$/,
   ],
 
   // Competitive ads intelligence — for Maestro Pauta + research overlap
@@ -111,6 +119,10 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^labs_google_competitors_domain$/,
     /^labs_google_serp_competitors$/,
     /^seo_workflow_playbook$/,
+    /^apify_google_search_multi_engine$/,
+    /^apify_link_prospecting_tool$/,
+    /^apify_meta_brand_collaboration$/,
+    /^apify_mcp_connector_/,
   ],
 
   // Agent operation: backlog, research briefs, agent runs, schemas, playbooks
@@ -128,6 +140,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^zernio_/,
     /^gbp_history_/,
     /^gbp_backfill_/,
+    /^apify_mcp_connector_/,
   ],
 };
 

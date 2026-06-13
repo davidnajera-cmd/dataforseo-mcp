@@ -247,6 +247,12 @@ const TOOL_DEFAULTS = {
   web_content_crawler: { start_urls: ["https://dnamusic.edu.co/"], max_items: 1, max_depth: 0 },
   social_instagram_scraper: { search: "dnamusicofficial", search_type: "user", results_type: "details", results_limit: 3, max_items: 3 },
   social_youtube_transcript: { video_urls: ["https://www.youtube.com/watch?v=dQw4w9WgXcQ"], max_items: 1 },
+  apify_google_search_multi_engine: { queries: ["dna music"], country_code: "co", language_code: "es", max_pages_per_query: 1, include_ai_overview: true, include_chatgpt: false, include_perplexity: false, include_copilot: false, include_gemini: false, max_items: 3 },
+  apify_link_prospecting_tool: { queries: ["academia dj bogota"], brand: "DNA Music", own_domains: ["dnamusic.edu.co"], max_items: 3 },
+  apify_meta_brand_collaboration: { brand_query: "Nike", target: "instagram", start_date: "2026-02-01", end_date: "2026-04-02", results_limit: 2, max_items: 2 },
+  apify_tripadvisor_lead_enrichment: { search: "music school bogota", item_types: ["attractions"], max_items: 2, maximum_leads_enrichment_records: 0, verify_leads_enrichment_emails: false },
+  apify_mcp_connector_blueprint: { bundle: "research" },
+  apify_mcp_connector_actor_schema: { connector_label: "DNA Music Research MCP", bundle: "research" },
 
   // Market research
   market_reddit_intelligence: { search_terms: ["dna music"], time_range: "month", max_items: 3, include_comments: false },

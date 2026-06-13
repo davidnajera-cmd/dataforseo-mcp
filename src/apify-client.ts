@@ -41,7 +41,7 @@ export async function getApifyToken(): Promise<string> {
 export async function runActorSync<T = unknown>(
   actorId: string,
   input: unknown,
-  options: { timeout_ms?: number; max_items?: number } = {},
+  options: { timeout_ms?: number; max_items?: number; max_total_charge_usd?: number } = {},
 ): Promise<T[]> {
   if (!actorId || actorId.trim() === "") {
     throw new Error(`Apify actor ID is empty. Configure the runtime variable that points to the actor you want to run.`);
@@ -50,6 +50,7 @@ export async function runActorSync<T = unknown>(
   const params = new URLSearchParams();
   params.set("token", token);
   if (options.max_items !== undefined) params.set("maxItems", String(options.max_items));
+  if (options.max_total_charge_usd !== undefined) params.set("maxTotalChargeUsd", String(options.max_total_charge_usd));
   // The actor ID can be either "owner/name" or a 17-char hash. The endpoint
   // accepts both, but slashes need URL encoding.
   const encodedActor = actorId.includes("/") ? actorId.replace("/", "~") : actorId;
@@ -97,7 +98,22 @@ export async function runActorSync<T = unknown>(
   }
 }
 
-export type ApifyActorKind = "meta" | "google" | "tiktok" | "google_maps" | "web_crawler" | "instagram" | "youtube" | "reddit" | "news" | "tiktok_content" | "tiktok_comments";
+export type ApifyActorKind =
+  | "meta"
+  | "google"
+  | "tiktok"
+  | "google_maps"
+  | "web_crawler"
+  | "instagram"
+  | "youtube"
+  | "reddit"
+  | "news"
+  | "tiktok_content"
+  | "tiktok_comments"
+  | "google_search"
+  | "link_prospecting"
+  | "brand_collaboration"
+  | "tripadvisor";
 
 export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> {
   const map: Record<ApifyActorKind, { var: string; fallback: string }> = {
@@ -116,6 +132,10 @@ export async function getConfiguredActor(kind: ApifyActorKind): Promise<string> 
     news: { var: "APIFY_ACTOR_NEWS", fallback: "data_xplorer/google-news-scraper-fast" },
     tiktok_content: { var: "APIFY_ACTOR_TIKTOK_CONTENT", fallback: "clockworks/tiktok-scraper" },
     tiktok_comments: { var: "APIFY_ACTOR_TIKTOK_COMMENTS", fallback: "apidojo/tiktok-comments-scraper" },
+    google_search: { var: "APIFY_ACTOR_GOOGLE_SEARCH", fallback: "apify/google-search-scraper" },
+    link_prospecting: { var: "APIFY_ACTOR_LINK_PROSPECTING", fallback: "apify/link-prospecting-tool" },
+    brand_collaboration: { var: "APIFY_ACTOR_META_BRAND_COLLAB", fallback: "apify/brand-collaboration-scraper" },
+    tripadvisor: { var: "APIFY_ACTOR_TRIPADVISOR", fallback: "maxcopell/tripadvisor" },
   };
   const entry = map[kind];
   const configured = await getRuntimeVariable(entry.var);
