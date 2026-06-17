@@ -1,11 +1,41 @@
 // Tool bundle definitions for the MCP. Each bundle exposes a curated subset
-// of the 242 tools so ChatGPT (and other clients with practical tool-count
-// limits) can connect to a focused workflow without overwhelming the model.
+// of the tools so clients with practical tool-count limits can connect to a
+// focused workflow without overwhelming the model.
+//
+// Architectural note:
+// - Some bundles include provider-shaped SEO data ("vendor base"), especially
+//   SERP/Labs/Backlinks/OnPage families.
+// - The differentiator of this repository is the business layer around those
+//   sources: GSC, history, dashboards, backlog, social, brand, and workflow
+//   logic specific to DNA Music.
 //
 // A tool can be in multiple bundles. The matcher uses regex prefix or exact
 // name match. The 'full' bundle is the escape hatch — exposes everything.
 
 export type BundleName = "research" | "seo" | "pauta" | "agent" | "full";
+
+export const BUNDLE_POSITIONING: Record<BundleName, { primaryLayer: "vendor-base" | "business-layer" | "mixed"; note: string }> = {
+  research: {
+    primaryLayer: "mixed",
+    note: "Research, voice-of-customer, AI visibility, ads, and social signals. Good bridge between commodity data and business insight.",
+  },
+  seo: {
+    primaryLayer: "mixed",
+    note: "Technical SEO plus historical persistence and GSC. Main migration-watch bundle because it mixes vendor-base and business-layer tools.",
+  },
+  pauta: {
+    primaryLayer: "business-layer",
+    note: "Competitive ads and audience-intelligence bundle for decision-making workflows.",
+  },
+  agent: {
+    primaryLayer: "business-layer",
+    note: "Automation bundle centered on backlog, history, brand knowledge, snapshots, and social inputs.",
+  },
+  full: {
+    primaryLayer: "mixed",
+    note: "Everything. Internal power bundle, not the default recommendation for constrained clients.",
+  },
+};
 
 const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string>> = {
   // Market research + customer voice + AI visibility — the strategist toolkit

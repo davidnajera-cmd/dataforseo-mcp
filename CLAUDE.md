@@ -1,4 +1,18 @@
-# SEO MCP Server - Documentation
+# DNA Music Growth Intelligence MCP - Documentation
+
+## Positioning
+
+This repository is **not just a thin wrapper around DataForSEO**.
+
+It is DNA Music's integrated growth intelligence layer:
+
+- **Vendor base layer** for commodity SEO/search data, where DataForSEO is the primary provider and the official DataForSEO MCP can increasingly cover generic capability.
+- **Business layer** for the workflows that actually compound value for DNA Music: GSC access, GA4, Clarity, Bing, social intelligence, executive dashboards, historical persistence, backlog automation, Google Business history, and brand-specific playbooks.
+
+Practical rule:
+
+- When a capability is generic and mostly provider-shaped, prefer migration-ready abstractions and parity checks.
+- When a capability mixes multiple signals, historical state, or DNA Music operating logic, keep it in this repo and strengthen it here.
 
 ## Connection
 
@@ -9,11 +23,11 @@
   - Default `/mcp` (no `?bundle=`): open, no auth — for Claude.ai backwards compat
   - `/mcp?bundle=<name>`: requires API key via `x-api-key` header or `Authorization: Bearer <key>`
 - **Bundles** (curated tool subsets so clients with tool-count limits like ChatGPT can connect to a focused workflow):
-  - `?bundle=research` — 48 tools: market research, customer voice (TikTok/IG/Reddit), AI visibility, ad library
-  - `?bundle=seo` — 112 tools: GSC, Labs, backlinks, schema, http utils, on-page, performance, history
-  - `?bundle=pauta` — 21 tools: ad library + competitive ads intel
-  - `?bundle=agent` — 26 tools: backlog operations, brand catalog, history
-  - `?bundle=full` — 242 tools: everything (likely too many for ChatGPT but works for power clients)
+  - `?bundle=research` — market research, customer voice, AI visibility, ad library, social signals. Mix of vendor base + business synthesis.
+  - `?bundle=seo` — technical SEO, GSC, history, schema, on-page, backlinks, crawl, indexing. Heaviest mix of commodity SEO tools plus DNA Music persistence.
+  - `?bundle=pauta` — competitive ads intel and audience research. Business-facing decision bundle.
+  - `?bundle=agent` — backlog operations, history, brand catalog, snapshots, social inputs. Strongly business-layer and automation-oriented.
+  - `?bundle=full` — everything. Use for power clients and internal analysis only.
 
 ### Connecting from ChatGPT (Custom Connector)
 
@@ -83,6 +97,30 @@ This MCP server provides **190+ SEO and search tools** across 10 APIs:
 10. **Historical persistence** (12 tools) — Daily cron captures rankings, traffic, backlinks (weekly), LLM mentions (weekly) into Neon Postgres. Time-series tools for trend analysis.
 
 Plus a synchronous OnPage crawl wrapper (`onpage_full_crawl_sync`) that orchestrates `task_post` → poll → `summary` + `pages` in one call.
+
+## Architectural stance
+
+Think about the stack in two layers:
+
+1. **Vendor base**
+   - DataForSEO SERP, Labs, Backlinks, OnPage, Content Analysis, Domain Analytics, AI Optimization
+   - SerpAPI and other provider-shaped search datasets
+   - Candidate area for parity checks and gradual migration to the official DataForSEO MCP where it reduces maintenance cost
+
+2. **Business layer**
+   - GSC, GA4, Clarity, Bing, Google Business history/backfills
+   - historical persistence in Postgres (`history_*`, `snapshot_*`, `keyword_universe_*`)
+   - executive dashboards, social dashboards, backlog/agent workflows, DNA Music brand knowledge
+   - cross-source synthesis that the official DataForSEO MCP does not provide out of the box
+
+The repo should be evaluated by how well it answers decisions like:
+
+- What should the team do next?
+- Where are we losing visibility?
+- Which channels are compounding?
+- What content or UX issue is blocking growth?
+
+Not by how many raw provider endpoints it wraps.
 
 ---
 
