@@ -4,6 +4,7 @@ const state = {
   data: null,
   socialData: null,
   executiveData: null,
+  requestCounter: 0,
 };
 
 const modules = {
@@ -81,21 +82,14 @@ document.querySelector("#sidebarToggle").addEventListener("click", () => {
 
 navItems.forEach((button) => {
   button.addEventListener("click", () => {
-    if (button.dataset.module !== state.module) setModule(button.dataset.module);
+    if (button.dataset.module !== state.module) setModule(button.dataset.module, { skipDefaultView: true });
     setView(button.dataset.view);
   });
 });
 
 moduleTabs.forEach((button) => {
   button.addEventListener("click", () => {
-    const nextModule = button.dataset.module;
-    setModule(nextModule);
-    queueMicrotask(() => {
-      if (state.module !== nextModule) return;
-      if (nextModule === "executive") loadExecutiveOverview();
-      else if (nextModule === "social") loadSocialDashboard();
-      else loadDashboard();
-    });
+    setModule(button.dataset.module);
   });
 });
 
@@ -113,7 +107,8 @@ document.querySelector("#adminToken")?.addEventListener("change", (event) => {
   localStorage.setItem("seoVariablesAdminToken", event.target.value);
 });
 
-function setModule(module) {
+function setModule(module, options = {}) {
+  const { skipDefaultView = false } = options;
   state.module = module;
   shell.dataset.module = module;
   moduleTabs.forEach((button) => {
@@ -123,7 +118,22 @@ function setModule(module) {
   });
   navGroups.forEach((group) => group.classList.toggle("hidden", group.dataset.navModule !== module));
   document.querySelector("#moduleEyebrow").textContent = modules[module].eyebrow;
-  setView(modules[module].defaultView);
+  if (!skipDefaultView) setView(modules[module].defaultView);
+}
+
+function createRequestToken() {
+  state.requestCounter += 1;
+  return {
+    id: state.requestCounter,
+    module: state.module,
+    view: state.view,
+  };
+}
+
+function isRequestCurrent(token) {
+  return token.id === state.requestCounter
+    && token.module === state.module
+    && token.view === state.view;
 }
 
 function setView(view) {
@@ -159,49 +169,60 @@ function setView(view) {
 
 async function loadDashboard() {
   const params = new URLSearchParams(new FormData(filters));
+  const requestToken = createRequestToken();
   setLoading(true);
   try {
     const response = await fetch(`/api/seo-dashboard?${params}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.data = await response.json();
+    const nextData = await response.json();
+    if (!isRequestCurrent(requestToken)) return;
+    state.data = nextData;
     render(state.data);
   } catch (error) {
+    if (!isRequestCurrent(requestToken)) return;
     document.querySelector("#summary").textContent = `No se pudo cargar el tablero: ${error.message}`;
   } finally {
-    setLoading(false);
+    if (isRequestCurrent(requestToken)) setLoading(false);
   }
 }
 
 async function loadSocialDashboard() {
   const params = new URLSearchParams(new FormData(filters));
+  const requestToken = createRequestToken();
   setLoading(true);
   try {
     const response = await fetch(`/api/social-dashboard?${params}`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    state.socialData = await response.json();
+    const nextData = await response.json();
+    if (!isRequestCurrent(requestToken)) return;
+    state.socialData = nextData;
     renderSocialDashboard(state.socialData);
   } catch (error) {
+    if (!isRequestCurrent(requestToken)) return;
     document.querySelector("#summary").textContent = `No se pudo cargar el submódulo social: ${error.message}`;
   } finally {
-    setLoading(false);
+    if (isRequestCurrent(requestToken)) setLoading(false);
   }
 }
 
 async function loadExecutiveOverview() {
   const params = new URLSearchParams(new FormData(filters));
+  const requestToken = createRequestToken();
   setLoading(true);
   try {
     const response = await fetch(`/api/executive-overview?${params}`);
     if (!response.ok) throw new Error(`Executive HTTP ${response.status}`);
     const bundle = await response.json();
+    if (!isRequestCurrent(requestToken)) return;
     state.data = bundle.seo;
     state.socialData = bundle.social;
     state.executiveData = bundle;
     renderExecutiveOverview(state.executiveData);
   } catch (error) {
+    if (!isRequestCurrent(requestToken)) return;
     document.querySelector("#summary").textContent = `No se pudo cargar el executive overview: ${error.message}`;
   } finally {
-    setLoading(false);
+    if (isRequestCurrent(requestToken)) setLoading(false);
   }
 }
 
