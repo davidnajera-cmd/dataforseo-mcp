@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { getActorRun, getConfiguredActor, getDatasetItems, runActorSync, startActorRun } from "./apify-client.js";
 
+const INTERACTIVE_APIFY_TIMEOUT_MS = 45_000;
+
 function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
 }
@@ -12,6 +14,52 @@ function normalizeStringList(values: string[] | undefined): string[] {
 
 function unique(values: string[]): string[] {
   return Array.from(new Set(values));
+}
+
+function isApifySyncTimeout(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("did not finish within");
+}
+
+async function runSyncOrDegradeToAsync(args: {
+  actorId: string;
+  input: Record<string, unknown>;
+  syncOptions: { max_items?: number; max_total_charge_usd?: number; timeout_ms?: number };
+  asyncOptions: { max_items?: number; max_total_charge_usd?: number };
+  nextTool: string;
+  nextArgs: Record<string, unknown>;
+  summary?: Record<string, unknown>;
+}) {
+  try {
+    const items = await runActorSync(args.actorId, args.input, args.syncOptions);
+    return {
+      mode: "sync" as const,
+      response: {
+        actor: args.actorId,
+        items_count: items.length,
+        items,
+        ...(args.summary ?? {}),
+      },
+    };
+  } catch (error) {
+    if (!isApifySyncTimeout(error)) throw error;
+    const run = await startActorRun(args.actorId, args.input, args.asyncOptions);
+    return {
+      mode: "async" as const,
+      response: {
+        actor: args.actorId,
+        status: "pending_async_run",
+        reason: "The actor did not finish within the interactive timeout window, so the run was switched to async mode.",
+        run_id: run.id,
+        started_at: run.startedAt,
+        max_items: args.asyncOptions.max_items ?? args.syncOptions.max_items ?? 25,
+        next_step: {
+          tool: args.nextTool,
+          args: args.nextArgs,
+        },
+        ...(args.summary ?? {}),
+      },
+    };
+  }
 }
 
 function buildBrandCollaborationUrl(args: {
@@ -219,12 +267,29 @@ export function registerApifyGrowthTools(server: McpServer) {
         search_author_name,
         actor_input_overrides,
       });
-      const items = await runActorSync(actorId, input, {
-        max_items: max_items ?? 25,
-        max_total_charge_usd: max_total_charge_usd ?? 1,
-        timeout_ms: 300_000,
+      const result = await runSyncOrDegradeToAsync({
+        actorId,
+        input,
+        syncOptions: {
+          max_items: max_items ?? 25,
+          max_total_charge_usd: max_total_charge_usd ?? 1,
+          timeout_ms: INTERACTIVE_APIFY_TIMEOUT_MS,
+        },
+        asyncOptions: {
+          max_items: max_items ?? 25,
+          max_total_charge_usd: max_total_charge_usd ?? 1,
+        },
+        nextTool: "apify_link_prospecting_status",
+        nextArgs: { run_id: "__filled_by_tool__", max_items: max_items ?? 25, wait_for_finish_seconds: 120 },
+        summary: {
+          queries: normalizeStringList(queries),
+          brand: brand.trim(),
+        },
       });
-      return { content: [{ type: "text" as const, text: formatResult({ actor: actorId, items_count: items.length, items }) }] };
+      if (result.mode === "async") {
+        result.response.next_step.args.run_id = result.response.run_id;
+      }
+      return { content: [{ type: "text" as const, text: formatResult(result.response) }] };
     }
   );
 
@@ -380,7 +445,70 @@ export function registerApifyGrowthTools(server: McpServer) {
         resultsLimit: results_limit ?? 10,
         ...(actor_input_overrides ?? {}),
       };
-      const items = await runActorSync(actorId, input, {
+      const result = await runSyncOrDegradeToAsync({
+        actorId,
+        input,
+        syncOptions: {
+          max_items: max_items ?? 25,
+          max_total_charge_usd: max_total_charge_usd ?? 0.02,
+          timeout_ms: INTERACTIVE_APIFY_TIMEOUT_MS,
+        },
+        asyncOptions: {
+          max_items: max_items ?? 25,
+          max_total_charge_usd: max_total_charge_usd ?? 0.02,
+        },
+        nextTool: "apify_meta_brand_collaboration_status",
+        nextArgs: { run_id: "__filled_by_tool__", max_items: max_items ?? 25, wait_for_finish_seconds: 120 },
+        summary: {
+          search_url: urls.length ? undefined : builtUrl,
+          start_urls: urls.length ? urls : undefined,
+        },
+      });
+      if (result.mode === "async") {
+        result.response.next_step.args.run_id = result.response.run_id;
+      }
+      return {
+        content: [{
+          type: "text" as const,
+          text: formatResult(result.response),
+        }],
+      };
+    }
+  );
+
+  server.tool(
+    "apify_meta_brand_collaboration_start",
+    "Start Apify Meta Brand Collaboration Scraper asynchronously and return a run id immediately. Poll with apify_meta_brand_collaboration_status until the dataset is ready.",
+    {
+      brand_query: z.string().optional().describe("Brand query used in Meta branded content search, e.g. 'Nike'."),
+      creator_or_page_id: z.string().optional().describe("Optional page or creator id used by Meta branded content URLs."),
+      target: z.enum(["instagram", "facebook", "all"]).optional().describe("Which platform inside Meta branded content search. Default instagram."),
+      start_date: z.string().optional().describe("YYYY-MM-DD."),
+      end_date: z.string().optional().describe("YYYY-MM-DD."),
+      results_limit: z.number().optional().describe("Results limit for the actor. Default 10."),
+      start_urls: z.array(z.string()).optional().describe("Raw branded-content URLs."),
+      max_items: z.number().optional().describe("Dataset cap to read back later. Default 25."),
+      max_total_charge_usd: z.number().optional().describe("Optional pay-per-event cap for Apify. Default 0.02."),
+      actor_input_overrides: z.record(z.string(), z.unknown()).optional(),
+    },
+    async ({ brand_query, creator_or_page_id, target, start_date, end_date, results_limit, start_urls, max_items, max_total_charge_usd, actor_input_overrides }) => {
+      const actorId = await getConfiguredActor("brand_collaboration");
+      const urls = normalizeStringList(start_urls);
+      if (urls.length === 0 && !brand_query && !creator_or_page_id) {
+        return {
+          content: [{
+            type: "text" as const,
+            text: formatResult({ error: "missing_input", hint: "Provide start_urls or at least brand_query / creator_or_page_id." }),
+          }],
+        };
+      }
+      const builtUrl = buildBrandCollaborationUrl({ brand_query, creator_or_page_id, target, start_date, end_date });
+      const input: Record<string, unknown> = {
+        startUrls: urls.length ? urls : [builtUrl],
+        resultsLimit: results_limit ?? 10,
+        ...(actor_input_overrides ?? {}),
+      };
+      const run = await startActorRun(actorId, input, {
         max_items: max_items ?? 25,
         max_total_charge_usd: max_total_charge_usd ?? 0.02,
       });
@@ -389,7 +517,46 @@ export function registerApifyGrowthTools(server: McpServer) {
           type: "text" as const,
           text: formatResult({
             actor: actorId,
+            run_id: run.id,
+            status: run.status,
+            started_at: run.startedAt,
             search_url: urls.length ? undefined : builtUrl,
+            next_step: {
+              tool: "apify_meta_brand_collaboration_status",
+              args: { run_id: run.id, max_items: max_items ?? 25, wait_for_finish_seconds: 120 },
+            },
+          }),
+        }],
+      };
+    }
+  );
+
+  server.tool(
+    "apify_meta_brand_collaboration_status",
+    "Check an asynchronous Apify Meta Brand Collaboration run by run_id. If the run finished and has a dataset, this tool also returns the dataset items.",
+    {
+      run_id: z.string().min(1).describe("Apify actor run id returned by apify_meta_brand_collaboration_start."),
+      max_items: z.number().optional().describe("How many dataset items to fetch once finished. Default 25."),
+      wait_for_finish_seconds: z.number().optional().describe("Optional Apify-side wait before returning run status. Default 0. Use 30-120 when you want a long poll."),
+    },
+    async ({ run_id, max_items, wait_for_finish_seconds }) => {
+      const run = await getActorRun(run_id, { wait_for_finish_seconds: wait_for_finish_seconds ?? 0 });
+      const finished = ["SUCCEEDED", "FAILED", "ABORTED", "TIMED-OUT"].includes((run.status ?? "").toUpperCase());
+      let items: unknown[] = [];
+      if ((run.status ?? "").toUpperCase() === "SUCCEEDED" && run.defaultDatasetId) {
+        items = await getDatasetItems(run.defaultDatasetId, { limit: max_items ?? 25 });
+      }
+      return {
+        content: [{
+          type: "text" as const,
+          text: formatResult({
+            run_id: run.id,
+            status: run.status,
+            status_message: run.statusMessage,
+            started_at: run.startedAt,
+            finished_at: run.finishedAt,
+            dataset_id: run.defaultDatasetId,
+            finished,
             items_count: items.length,
             items,
           }),
