@@ -11,6 +11,11 @@ const ENDPOINT = "https://dataforseo-mcp-three.vercel.app/mcp";
 const BASELINE_ENDPOINT = "https://dataforseo-mcp-three.vercel.app/api/research?action=baseline_persist";
 const ADMIN_TOKEN = process.env.ADMIN_TOKEN ?? "RZaP1E7hIzxBSMfNLzsFyRnLKhi1-bLX";
 const RESULTS_PATH = "/tmp/validate-results.json";
+const TOOL_INVENTORY_PATH = "/tmp/tool_inventory.json";
+const API_KEYS_ENDPOINT = "https://dataforseo-mcp-three.vercel.app/api/api-keys";
+const VARIABLES_ADMIN_TOKEN = process.env.SEO_VARIABLES_ADMIN_TOKEN ?? process.env.ADMIN_TOKEN;
+
+let ephemeralApiKey = null;
 
 // ============================================================================
 // DEFAULT ARGS REGISTRY
@@ -250,6 +255,7 @@ const TOOL_DEFAULTS = {
   apify_google_search_multi_engine: { queries: ["dna music"], country_code: "co", language_code: "es", max_pages_per_query: 1, include_ai_overview: true, include_chatgpt: false, include_perplexity: false, include_copilot: false, include_gemini: false, max_items: 3 },
   apify_link_prospecting_tool: { queries: ["academia dj bogota"], brand: "DNA Music", own_domains: ["dnamusic.edu.co"], max_items: 3 },
   apify_meta_brand_collaboration: { brand_query: "Nike", target: "instagram", start_date: "2026-02-01", end_date: "2026-04-02", results_limit: 2, max_items: 2 },
+  apify_meta_brand_collaboration_start: { brand_query: "Nike", target: "instagram", start_date: "2026-02-01", end_date: "2026-04-02", results_limit: 2, max_items: 2 },
   apify_tripadvisor_lead_enrichment: { search: "music school bogota", item_types: ["attractions"], max_items: 2, maximum_leads_enrichment_records: 0, verify_leads_enrichment_emails: false },
   apify_mcp_connector_blueprint: { bundle: "research" },
   apify_mcp_connector_actor_schema: { connector_label: "DNA Music Research MCP", bundle: "research" },
@@ -309,6 +315,7 @@ const SKIP_LIVE = new Set([
   "gsc_sitemaps_get",
   "agent_runs_get",
   "backlog_get",
+  "apify_meta_brand_collaboration_status",
   "serpapi_amazon_product",
   "serpapi_apple_app_store",
   "serpapi_google_lens",
@@ -351,7 +358,7 @@ async function mcpCall(toolName, args, timeoutMs = 60000) {
   try {
     const res = await fetch(ENDPOINT, {
       method: "POST",
-      headers: { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" },
+      headers: mcpHeaders(),
       body: JSON.stringify({
         jsonrpc: "2.0",
         id: 1,
@@ -390,82 +397,146 @@ async function mcpCall(toolName, args, timeoutMs = 60000) {
   }
 }
 
+function mcpHeaders() {
+  const headers = { "Content-Type": "application/json", "Accept": "application/json, text/event-stream" };
+  if (ephemeralApiKey) headers["x-api-key"] = ephemeralApiKey;
+  return headers;
+}
+
+function parseSsePayload(text) {
+  const match = text.match(/data: (\{[\s\S]*\})/);
+  if (!match) return null;
+  return JSON.parse(match[1]);
+}
+
+async function createEphemeralApiKey() {
+  if (!VARIABLES_ADMIN_TOKEN) throw new Error("SEO_VARIABLES_ADMIN_TOKEN is required to validate the protected MCP endpoint");
+  const res = await fetch(`${API_KEYS_ENDPOINT}?action=create`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-token": VARIABLES_ADMIN_TOKEN },
+    body: JSON.stringify({ name: `validate-mcp-tools-${Date.now()}`, bundle_scope: ["full"] }),
+  });
+  const json = await res.json();
+  if (!res.ok || !json.key) {
+    throw new Error(`api_key_create_failed: ${JSON.stringify(json)}`);
+  }
+  return json;
+}
+
+async function revokeEphemeralApiKey(id) {
+  if (!id || !VARIABLES_ADMIN_TOKEN) return;
+  await fetch(`${API_KEYS_ENDPOINT}?action=revoke`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "x-admin-token": VARIABLES_ADMIN_TOKEN },
+    body: JSON.stringify({ id }),
+  }).catch(() => {});
+}
+
+async function fetchToolInventory() {
+  const res = await fetch(ENDPOINT, {
+    method: "POST",
+    headers: mcpHeaders(),
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/list",
+      params: {},
+    }),
+  });
+  const text = await res.text();
+  const payload = parseSsePayload(text);
+  const tools = payload?.result?.tools;
+  if (!Array.isArray(tools)) {
+    throw new Error(`tool_inventory_failed: ${text.slice(0, 300)}`);
+  }
+  writeFileSync(TOOL_INVENTORY_PATH, JSON.stringify(tools, null, 2));
+  return tools;
+}
+
 // ============================================================================
 // MAIN
 // ============================================================================
 
 async function main() {
-  const tools = JSON.parse(readFileSync("/tmp/tool_inventory.json", "utf8"));
-  const existing = existsSync(RESULTS_PATH) ? JSON.parse(readFileSync(RESULTS_PATH, "utf8")) : { results: {}, started_at: new Date().toISOString() };
+  const created = await createEphemeralApiKey();
+  ephemeralApiKey = created.key;
+  try {
+    const tools = existsSync(TOOL_INVENTORY_PATH)
+      ? JSON.parse(readFileSync(TOOL_INVENTORY_PATH, "utf8"))
+      : await fetchToolInventory();
+    const existing = existsSync(RESULTS_PATH) ? JSON.parse(readFileSync(RESULTS_PATH, "utf8")) : { results: {}, started_at: new Date().toISOString() };
 
-  const total = tools.length;
-  let done = 0;
-  let pass = 0;
-  let fail = 0;
-  let skipped = 0;
+    const total = tools.length;
+    let done = 0;
+    let pass = 0;
+    let fail = 0;
+    let skipped = 0;
 
-  for (const tool of tools) {
-    done++;
-    const name = tool.name;
-    if (existing.results[name]) {
-      const prior = existing.results[name];
-      if (prior.ok) pass++; else if (prior.skipped) skipped++; else fail++;
-      continue;
-    }
+    for (const tool of tools) {
+      done++;
+      const name = tool.name;
+      if (existing.results[name]) {
+        const prior = existing.results[name];
+        if (prior.ok) pass++; else if (prior.skipped) skipped++; else fail++;
+        continue;
+      }
 
-    if (SKIP_LIVE.has(name)) {
-      existing.results[name] = { skipped: true, reason: "mutation_or_needs_input_or_quota", schema_ok: !!tool.inputSchema };
-      skipped++;
+      if (SKIP_LIVE.has(name)) {
+        existing.results[name] = { skipped: true, reason: "mutation_or_needs_input_or_quota", schema_ok: !!tool.inputSchema };
+        skipped++;
+        writeFileSync(RESULTS_PATH, JSON.stringify(existing, null, 2));
+        continue;
+      }
+
+      const args = TOOL_DEFAULTS[name] ?? {};
+      process.stderr.write(`[${done}/${total}] ${name} ... `);
+      const result = await mcpCall(name, args);
+      // Persist as baseline observation if successful (best-effort, doesn't block)
+      let baselineId = null;
+      if (result.ok && result.payload !== undefined) {
+        try {
+          const persistRes = await fetch(BASELINE_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", "x-admin-token": ADMIN_TOKEN },
+            body: JSON.stringify({ tool_name: name, args, result: result.payload }),
+          });
+          if (persistRes.ok) {
+            const j = await persistRes.json();
+            baselineId = j.observation_id;
+          }
+        } catch { /* non-fatal */ }
+      }
+      // Don't store the full payload in results.json (would be huge); just record metadata
+      existing.results[name] = {
+        ok: result.ok,
+        error: result.error,
+        duration_ms: result.duration_ms,
+        response_size: result.response_size,
+        baseline_observation_id: baselineId,
+      };
+      if (result.ok) {
+        pass++;
+        process.stderr.write(`OK (${result.duration_ms}ms)${baselineId ? ` obs#${baselineId}` : ""}\n`);
+      } else {
+        fail++;
+        process.stderr.write(`FAIL: ${result.error}\n`);
+      }
       writeFileSync(RESULTS_PATH, JSON.stringify(existing, null, 2));
-      continue;
     }
 
-    const args = TOOL_DEFAULTS[name] ?? {};
-    process.stderr.write(`[${done}/${total}] ${name} ... `);
-    const result = await mcpCall(name, args);
-    // Persist as baseline observation if successful (best-effort, doesn't block)
-    let baselineId = null;
-    if (result.ok && result.payload !== undefined) {
-      try {
-        const persistRes = await fetch(BASELINE_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json", "x-admin-token": ADMIN_TOKEN },
-          body: JSON.stringify({ tool_name: name, args, result: result.payload }),
-        });
-        if (persistRes.ok) {
-          const j = await persistRes.json();
-          baselineId = j.observation_id;
-        }
-      } catch { /* non-fatal */ }
+    console.log("\n=== SUMMARY ===");
+    console.log(`Total tools:  ${total}`);
+    console.log(`Pass:         ${pass}`);
+    console.log(`Fail:         ${fail}`);
+    console.log(`Skipped:      ${skipped}`);
+    if (fail > 0) {
+      console.log("\n=== FAILURES ===");
+      for (const [name, r] of Object.entries(existing.results)) {
+        if (!r.ok && !r.skipped) console.log(`  ${name}: ${r.error}`);
+      }
     }
-    // Don't store the full payload in results.json (would be huge); just record metadata
-    existing.results[name] = {
-      ok: result.ok,
-      error: result.error,
-      duration_ms: result.duration_ms,
-      response_size: result.response_size,
-      baseline_observation_id: baselineId,
-    };
-    if (result.ok) {
-      pass++;
-      process.stderr.write(`OK (${result.duration_ms}ms)${baselineId ? ` obs#${baselineId}` : ""}\n`);
-    } else {
-      fail++;
-      process.stderr.write(`FAIL: ${result.error}\n`);
-    }
-    writeFileSync(RESULTS_PATH, JSON.stringify(existing, null, 2));
-  }
-
-  console.log("\n=== SUMMARY ===");
-  console.log(`Total tools:  ${total}`);
-  console.log(`Pass:         ${pass}`);
-  console.log(`Fail:         ${fail}`);
-  console.log(`Skipped:      ${skipped}`);
-  if (fail > 0) {
-    console.log("\n=== FAILURES ===");
-    for (const [name, r] of Object.entries(existing.results)) {
-      if (!r.ok && !r.skipped) console.log(`  ${name}: ${r.error}`);
-    }
+  } finally {
+    await revokeEphemeralApiKey(created?.id);
   }
 }
 
