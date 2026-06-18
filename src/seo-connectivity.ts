@@ -25,7 +25,8 @@ export async function runSeoConnectivityChecks(): Promise<ConnectivityCheck[]> {
 }
 
 async function checkGa4(): Promise<ConnectivityCheck> {
-  if (!await getRuntimeVariable("GA4_PROPERTY_ID")) {
+  const configuredProperty = (await getRuntimeVariable("GA4_PROPERTY_ID_CO")) ?? (await getRuntimeVariable("GA4_PROPERTY_ID"));
+  if (!configuredProperty) {
     try {
       const summaries = await ga4Get("/accountSummaries");
       return {
@@ -44,7 +45,7 @@ async function checkGa4(): Promise<ConnectivityCheck> {
   }
 
   try {
-    const property = await resolvePropertyId();
+    const property = await resolvePropertyId(configuredProperty);
     const details = await ga4Get(`/${property}`);
     return { name: "GA4", status: "ok", message: "GA4 Admin API responded.", sample: pick(details, ["name", "displayName", "timeZone", "currencyCode"]) };
   } catch (error) {
