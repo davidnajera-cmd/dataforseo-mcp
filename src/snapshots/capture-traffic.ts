@@ -1,5 +1,6 @@
 import { gscPost } from "../gsc-client.js";
 import { ga4Post } from "../ga4-client.js";
+import { GA4_CONVERSION_EVENT_NAMES, ga4AndExpression, ga4ExactStringExpression, ga4HostNameExpression, ga4InListExpression } from "../ga4-site-filters.js";
 import { getPersistenceSql, ensurePersistenceSchema } from "../persistence-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
 
@@ -35,11 +36,7 @@ function shiftDate(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-// GSC has 2-3 day data lag, so querying "today" returns nothing. We query
-// 3 days back by default and store the data under that older date — what we
-// care about is the date the data is from, not the date the snapshot ran.
-async function captureGscDay(site: SiteConfig, date: string): Promise<{ effective_date: string; clicks: number; impressions: number; ctr: number; position: number } | null> {
-  const effective_date = shiftDate(date, -3);
+async function fetchGscDay(site: SiteConfig, effective_date: string): Promise<{ effective_date: string; clicks: number; impressions: number; ctr: number; position: number } | null> {
   const result = await gscPost(`/sites/${encodeURIComponent(site.gscProperty)}/searchAnalytics/query`, {
     startDate: effective_date,
     endDate: effective_date,
@@ -50,13 +47,13 @@ async function captureGscDay(site: SiteConfig, date: string): Promise<{ effectiv
   return row ? { effective_date, ...row } : null;
 }
 
-// GA4 today is incomplete; query yesterday and store under that date.
-async function captureGa4Day(propertyId: string, date: string): Promise<{ effective_date: string; sessions: number; organic_sessions: number; conversions: number } | null> {
-  const effective_date = shiftDate(date, -1);
+async function fetchGa4Day(domain: string, propertyId: string, effective_date: string): Promise<{ effective_date: string; sessions: number; organic_sessions: number; conversions: number } | null> {
   const property = propertyId.startsWith("properties/") ? propertyId : `properties/${propertyId}`;
+  const hostExpression = ga4HostNameExpression(domain);
   const totalRes = await ga4Post(`/${property}:runReport`, {
     dateRanges: [{ startDate: effective_date, endDate: effective_date }],
-    metrics: [{ name: "sessions" }, { name: "conversions" }],
+    metrics: [{ name: "sessions" }],
+    dimensionFilter: hostExpression,
   }) as { rows?: Array<{ metricValues?: Array<{ value: string }> }> };
   const total = totalRes.rows?.[0]?.metricValues;
   if (!total) return null;
@@ -64,31 +61,45 @@ async function captureGa4Day(propertyId: string, date: string): Promise<{ effect
   const organicRes = await ga4Post(`/${property}:runReport`, {
     dateRanges: [{ startDate: effective_date, endDate: effective_date }],
     metrics: [{ name: "sessions" }],
-    dimensions: [{ name: "sessionDefaultChannelGroup" }],
-    dimensionFilter: { filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { value: "Organic Search", matchType: "EXACT" } } },
+    dimensionFilter: ga4AndExpression(
+      hostExpression,
+      ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")
+    ),
   }) as { rows?: Array<{ metricValues?: Array<{ value: string }> }> };
   const organic = organicRes.rows?.[0]?.metricValues?.[0]?.value;
+
+  const conversionsRes = await ga4Post(`/${property}:runReport`, {
+    dateRanges: [{ startDate: effective_date, endDate: effective_date }],
+    metrics: [{ name: "eventCount" }],
+    dimensionFilter: ga4AndExpression(
+      hostExpression,
+      ga4InListExpression("eventName", GA4_CONVERSION_EVENT_NAMES)
+    ),
+  }) as { rows?: Array<{ metricValues?: Array<{ value: string }> }> };
+  const conversions = conversionsRes.rows?.[0]?.metricValues?.[0]?.value;
 
   return {
     effective_date,
     sessions: Number(total[0]?.value ?? 0),
     organic_sessions: organic ? Number(organic) : 0,
-    conversions: Number(total[1]?.value ?? 0),
+    conversions: conversions ? Number(conversions) : 0,
   };
 }
 
-export async function captureTraffic(snapshotDate: string): Promise<{ ok: number; failed: number; errors: Array<{ domain: string; source: string; error: string }> }> {
+async function persistTrafficDate(
+  sites: SiteConfig[],
+  gscDate: string,
+  ga4Date: string
+): Promise<{ ok: number; failed: number; errors: Array<{ domain: string; source: string; error: string }> }> {
   const sql = getPersistenceSql();
   if (!sql) throw new Error("DATABASE_URL not configured");
   await ensurePersistenceSchema();
-
-  const sites = await loadSiteConfigs();
   let ok = 0;
   const errors: Array<{ domain: string; source: string; error: string }> = [];
 
   for (const site of sites) {
     try {
-      const gsc = await captureGscDay(site, snapshotDate);
+      const gsc = await fetchGscDay(site, gscDate);
       if (gsc) {
         await sql`
           insert into seo_traffic_daily (date, domain, source, clicks, impressions, ctr, position)
@@ -105,7 +116,7 @@ export async function captureTraffic(snapshotDate: string): Promise<{ ok: number
 
     if (site.ga4PropertyId) {
       try {
-        const ga4 = await captureGa4Day(site.ga4PropertyId, snapshotDate);
+        const ga4 = await fetchGa4Day(site.domain, site.ga4PropertyId, ga4Date);
         if (ga4) {
           await sql`
             insert into seo_traffic_daily (date, domain, source, sessions, organic_sessions, conversions)
@@ -123,6 +134,24 @@ export async function captureTraffic(snapshotDate: string): Promise<{ ok: number
   }
 
   return { ok, failed: errors.length, errors };
+}
+
+// GSC has 2-3 day data lag, so querying "today" returns nothing. We query
+// 3 days back by default and store the data under that older date — what we
+// care about is the date the data is from, not the date the snapshot ran.
+export async function captureTraffic(snapshotDate: string): Promise<{ ok: number; failed: number; errors: Array<{ domain: string; source: string; error: string }> }> {
+  const sites = await loadSiteConfigs();
+  return persistTrafficDate(sites, shiftDate(snapshotDate, -3), shiftDate(snapshotDate, -1));
+}
+
+// Backfills exact report dates already known to have source data available.
+// Useful when historical rows need to be recalculated after logic changes.
+export async function backfillTrafficForDataDate(
+  dataDate: string,
+  domain?: string
+): Promise<{ ok: number; failed: number; errors: Array<{ domain: string; source: string; error: string }> }> {
+  const sites = (await loadSiteConfigs()).filter((site) => !domain || site.domain === domain);
+  return persistTrafficDate(sites, dataDate, dataDate);
 }
 
 export async function autoExpandUniverseFromGsc(daysBack: number = 7, perDomainLimit: number = 100): Promise<{ added: number; skipped: number }> {

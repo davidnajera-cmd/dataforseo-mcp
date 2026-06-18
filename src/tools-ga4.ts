@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { ga4Get, ga4Post, resolvePropertyId } from "./ga4-client.js";
+import { GA4_CONVERSION_EVENT_NAMES, ga4AndExpression, ga4ExactStringExpression, ga4HostNameExpression, ga4InListExpression } from "./ga4-site-filters.js";
 
 function formatResult(data: unknown): string {
   return JSON.stringify(data, null, 2);
@@ -113,28 +114,73 @@ export function registerGa4Tools(server: McpServer) {
 
   server.tool(
     "ga4_organic_landing_pages",
-    "SEO workflow: organic sessions and conversions by landing page from GA4.",
+    "SEO workflow: organic sessions and clean SEO conversions by landing page from GA4. Conversions are computed from whitelisted event names instead of the historical GA4 conversions metric. Pass host_name when the property mixes multiple domains or hostnames.",
     {
       property_id: z.string().optional(),
       start_date: z.string().optional(),
       end_date: z.string().optional(),
       limit: z.number().optional(),
+      host_name: z.string().optional().describe("Optional hostname filter, e.g. dnamusic.edu.co. Recommended when the GA4 property mixes multiple hosts."),
     },
-    async ({ property_id, start_date, end_date, limit }) => {
-      const result = await ga4Post(`/${await resolvePropertyId(property_id)}:runReport`, {
-        dateRanges: [{ startDate: start_date ?? "30daysAgo", endDate: end_date ?? "today" }],
-        dimensions: [{ name: "landingPagePlusQueryString" }],
-        metrics: [{ name: "sessions" }, { name: "conversions" }, { name: "engagementRate" }],
-        dimensionFilter: {
-          filter: {
-            fieldName: "sessionDefaultChannelGroup",
-            stringFilter: { matchType: "EXACT", value: "Organic Search" },
-          },
-        },
-        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-        limit: limit ?? 50,
+    async ({ property_id, start_date, end_date, limit, host_name }) => {
+      const property = await resolvePropertyId(property_id);
+      const baseFilter = ga4AndExpression(
+        ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search"),
+        host_name ? ga4HostNameExpression(host_name) : undefined
+      );
+
+      const [sessionsResult, conversionsResult] = await Promise.all([
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: start_date ?? "30daysAgo", endDate: end_date ?? "today" }],
+          dimensions: [{ name: "landingPagePlusQueryString" }],
+          metrics: [{ name: "sessions" }, { name: "engagementRate" }],
+          dimensionFilter: baseFilter,
+          orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+          limit: limit ?? 50,
+        }) as Promise<{ rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> }>,
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: start_date ?? "30daysAgo", endDate: end_date ?? "today" }],
+          dimensions: [{ name: "landingPagePlusQueryString" }],
+          metrics: [{ name: "eventCount" }],
+          dimensionFilter: ga4AndExpression(
+            baseFilter,
+            ga4InListExpression("eventName", GA4_CONVERSION_EVENT_NAMES)
+          ),
+          orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+          limit: limit ?? 50,
+        }) as Promise<{ rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> }>,
+      ]);
+
+      const conversionMap = new Map(
+        (conversionsResult.rows ?? []).map((row) => [
+          row.dimensionValues?.[0]?.value ?? "(unknown)",
+          Number(row.metricValues?.[0]?.value ?? 0),
+        ])
+      );
+
+      const rows = (sessionsResult.rows ?? []).map((row) => {
+        const landingPage = row.dimensionValues?.[0]?.value ?? "(unknown)";
+        return {
+          landing_page: landingPage,
+          sessions: Number(row.metricValues?.[0]?.value ?? 0),
+          conversions: conversionMap.get(landingPage) ?? 0,
+          engagement_rate: Number(row.metricValues?.[1]?.value ?? 0),
+        };
       });
-      return { content: [{ type: "text" as const, text: formatResult(result) }] };
+
+      return {
+        content: [{
+          type: "text" as const,
+          text: formatResult({
+            property,
+            host_name: host_name ?? null,
+            start_date: start_date ?? "30daysAgo",
+            end_date: end_date ?? "today",
+            conversion_event_names: GA4_CONVERSION_EVENT_NAMES,
+            rows,
+          }),
+        }],
+      };
     }
   );
 }

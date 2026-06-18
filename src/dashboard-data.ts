@@ -1,6 +1,7 @@
 import { post } from "./dataforseo-client.js";
 import { gscPost } from "./gsc-client.js";
 import { ga4Post } from "./ga4-client.js";
+import { GA4_CONVERSION_EVENT_NAMES, ga4AndExpression, ga4ExactStringExpression, ga4HostNameExpression } from "./ga4-site-filters.js";
 import { clarityRequest } from "./clarity-client.js";
 import { formatGscAttemptErrors, gscPropertyCandidates } from "./gsc-property.js";
 import { runPageSpeed, summarizePageSpeed } from "./pagespeed-client.js";
@@ -783,15 +784,44 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
     try {
       const property = config.ga4PropertyId.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
       const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
-      const total = await ga4Post(`/${property}:runReport`, {
-        dateRanges: [{ startDate: yesterday, endDate: yesterday }],
-        metrics: [{ name: "sessions" }, { name: "conversions" }],
-      }) as { rows?: Array<{ metricValues?: Array<{ value: string }> }> };
-      const mv = total.rows?.[0]?.metricValues ?? [];
-      const sessions = mv[0] ? Number(mv[0].value) : 0;
-      const conversions = mv[1] ? Number(mv[1].value) : 0;
-      byDomain.push({ domain: config.domain, sessions, organic_sessions: null, conversions, date: yesterday, source_origin: "live" });
+      const hostExpression = ga4HostNameExpression(config.domain);
+      const [total, organic, conversionsResult] = await Promise.all([
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+          metrics: [{ name: "sessions" }],
+          dimensionFilter: hostExpression,
+        }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+          metrics: [{ name: "sessions" }],
+          dimensionFilter: ga4AndExpression(
+            hostExpression,
+            ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")
+          ),
+        }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+          metrics: [{ name: "eventCount" }],
+          dimensionFilter: ga4AndExpression(
+            hostExpression,
+            {
+              filter: {
+                fieldName: "eventName",
+                inListFilter: { values: [...GA4_CONVERSION_EVENT_NAMES] },
+              },
+            }
+          ),
+        }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+      ]);
+      const totalMv = total.rows?.[0]?.metricValues ?? [];
+      const organicMv = organic.rows?.[0]?.metricValues ?? [];
+      const convMv = conversionsResult.rows?.[0]?.metricValues ?? [];
+      const sessions = totalMv[0] ? Number(totalMv[0].value) : 0;
+      const organicSessions = organicMv[0] ? Number(organicMv[0].value) : 0;
+      const conversions = convMv[0] ? Number(convMv[0].value) : 0;
+      byDomain.push({ domain: config.domain, sessions, organic_sessions: organicSessions, conversions, date: yesterday, source_origin: "live" });
       totalsSessions += sessions;
+      totalsOrganic += organicSessions;
       totalsConv += conversions;
       anyData = true;
     } catch (error) {

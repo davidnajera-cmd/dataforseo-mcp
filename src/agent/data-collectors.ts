@@ -1,6 +1,7 @@
 import { post, get } from "../dataforseo-client.js";
 import { gscPost } from "../gsc-client.js";
 import { ga4Post } from "../ga4-client.js";
+import { GA4_CONVERSION_EVENT_NAMES, GA4_CLEAN_KEY_EVENTS_TIMESTAMP, ga4AndExpression, ga4ExactStringExpression, ga4HostNameExpression, ga4InListExpression } from "../ga4-site-filters.js";
 import { getRuntimeVariable } from "../runtime-config.js";
 import { getLatestBacklinks, getBacklinksTrend, getLatestDomainRankings, getLatestLlmVisibility, getTrafficTrend } from "../persistence-store.js";
 
@@ -178,16 +179,29 @@ export async function collectGa4ConversionEvents(site: SiteContext): Promise<Ga4
   const property = site.ga4PropertyId.startsWith("properties/") ? site.ga4PropertyId : `properties/${site.ga4PropertyId}`;
   const today = new Date().toISOString().slice(0, 10);
   const start = new Date(Date.now() - 28 * 86400_000).toISOString().slice(0, 10);
+  const hostExpression = ga4HostNameExpression(site.domain);
 
   try {
-    // Top events by count
-    const eventsRes = await ga4Post(`/${property}:runReport`, {
-      dateRanges: [{ startDate: start, endDate: today }],
-      dimensions: [{ name: "eventName" }],
-      metrics: [{ name: "eventCount" }, { name: "keyEvents" }],
-      orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
-      limit: 50,
-    }) as { rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> };
+    const [eventsRes, totalsRes, seoConversionsRes] = await Promise.all([
+      ga4Post(`/${property}:runReport`, {
+        dateRanges: [{ startDate: start, endDate: today }],
+        dimensions: [{ name: "eventName" }],
+        metrics: [{ name: "eventCount" }],
+        dimensionFilter: hostExpression,
+        orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+        limit: 50,
+      }) as Promise<{ rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> }>,
+      ga4Post(`/${property}:runReport`, {
+        dateRanges: [{ startDate: start, endDate: today }],
+        metrics: [{ name: "eventCount" }],
+        dimensionFilter: hostExpression,
+      }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value?: string }> }> }>,
+      ga4Post(`/${property}:runReport`, {
+        dateRanges: [{ startDate: start, endDate: today }],
+        metrics: [{ name: "eventCount" }],
+        dimensionFilter: ga4AndExpression(hostExpression, ga4InListExpression("eventName", GA4_CONVERSION_EVENT_NAMES)),
+      }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value?: string }> }> }>,
+    ]);
 
     const events: Ga4KeyEvent[] = (eventsRes.rows ?? []).map((r) => {
       const name = r.dimensionValues?.[0]?.value ?? "(unknown)";
@@ -195,32 +209,57 @@ export async function collectGa4ConversionEvents(site: SiteContext): Promise<Ga4
       return { name, count, is_seo_conversion_proxy: isSeoConversionEvent(name) };
     });
 
-    const total = events.reduce((acc, e) => acc + e.count, 0);
-    const totalSeo = events.filter((e) => e.is_seo_conversion_proxy).reduce((acc, e) => acc + e.count, 0);
+    const total = Number(totalsRes.rows?.[0]?.metricValues?.[0]?.value ?? 0);
+    const totalSeo = Number(seoConversionsRes.rows?.[0]?.metricValues?.[0]?.value ?? 0);
 
-    // Conversions by landing page (organic only)
+    // Sessions + whitelisted conversion events by landing page (organic only, host filtered).
     let byLanding: Array<{ landing_page: string; sessions: number; conversions: number }> = [];
     try {
-      const landRes = await ga4Post(`/${property}:runReport`, {
-        dateRanges: [{ startDate: start, endDate: today }],
-        dimensions: [{ name: "landingPage" }],
-        metrics: [{ name: "sessions" }, { name: "keyEvents" }],
-        dimensionFilter: { filter: { fieldName: "sessionDefaultChannelGroup", stringFilter: { value: "Organic Search", matchType: "EXACT" } } },
-        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-        limit: 30,
-      }) as { rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> };
-      byLanding = (landRes.rows ?? []).map((r) => ({
-        landing_page: r.dimensionValues?.[0]?.value ?? "(unknown)",
-        sessions: Number(r.metricValues?.[0]?.value ?? 0),
-        conversions: Number(r.metricValues?.[1]?.value ?? 0),
-      }));
+      const [sessionRes, conversionRes] = await Promise.all([
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: start, endDate: today }],
+          dimensions: [{ name: "landingPage" }],
+          metrics: [{ name: "sessions" }],
+          dimensionFilter: ga4AndExpression(
+            hostExpression,
+            ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")
+          ),
+          orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+          limit: 30,
+        }) as Promise<{ rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> }>,
+        ga4Post(`/${property}:runReport`, {
+          dateRanges: [{ startDate: start, endDate: today }],
+          dimensions: [{ name: "landingPage" }],
+          metrics: [{ name: "eventCount" }],
+          dimensionFilter: ga4AndExpression(
+            hostExpression,
+            ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search"),
+            ga4InListExpression("eventName", GA4_CONVERSION_EVENT_NAMES)
+          ),
+          orderBys: [{ metric: { metricName: "eventCount" }, desc: true }],
+          limit: 30,
+        }) as Promise<{ rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> }>,
+      ]);
+      const conversionMap = new Map(
+        (conversionRes.rows ?? []).map((r) => [r.dimensionValues?.[0]?.value ?? "(unknown)", Number(r.metricValues?.[0]?.value ?? 0)])
+      );
+      byLanding = (sessionRes.rows ?? []).map((r) => {
+        const landing_page = r.dimensionValues?.[0]?.value ?? "(unknown)";
+        return {
+          landing_page,
+          sessions: Number(r.metricValues?.[0]?.value ?? 0),
+          conversions: conversionMap.get(landing_page) ?? 0,
+        };
+      });
     } catch {
       // landing page query optional
     }
 
     return {
       configured: true,
-      message: events.length > 0 ? "Eventos GA4 detectados." : "GA4 conectado pero sin eventos en los últimos 28 días.",
+      message: events.length > 0
+        ? `Eventos GA4 detectados. Conversiones SEO calculadas por whitelist (${GA4_CONVERSION_EVENT_NAMES.join(", ")}) para evitar key_events históricos contaminados antes de ${GA4_CLEAN_KEY_EVENTS_TIMESTAMP}.`
+        : "GA4 conectado pero sin eventos en los últimos 28 días.",
       total_events_28d: total,
       total_seo_conversions_28d: totalSeo,
       events: events.slice(0, 25),

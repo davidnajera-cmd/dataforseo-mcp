@@ -182,12 +182,19 @@ const TOOL_DEFAULTS = {
 
   // GA4
   ga4_get_account_summaries: {},
-  ga4_get_property_details: { property_id: "310251727" },
-  ga4_list_google_ads_links: { property_id: "310251727" },
-  ga4_get_custom_dimensions_and_metrics: { property_id: "310251727" },
-  ga4_run_report: { property_id: "310251727", date_ranges: [{ start_date: GENERIC.start_date, end_date: GENERIC.end_date }], metrics: [{ name: "sessions" }], dimensions: [{ name: "date" }], limit: 5 },
-  ga4_run_realtime_report: { property_id: "310251727", metrics: [{ name: "activeUsers" }] },
-  ga4_organic_landing_pages: { property_id: "310251727", days: 7, limit: 5 },
+  ga4_get_property_details: { property_id: "406222860" },
+  ga4_list_google_ads_links: { property_id: "406222860" },
+  ga4_get_custom_dimensions_and_metrics: { property_id: "406222860" },
+  ga4_run_report: {
+    property_id: "406222860",
+    date_ranges: [{ start_date: GENERIC.start_date, end_date: GENERIC.end_date }],
+    metrics: [{ name: "sessions" }],
+    dimensions: [{ name: "date" }],
+    dimension_filter: { filter: { fieldName: "hostName", stringFilter: { matchType: "EXACT", value: "dnamusic.edu.co" } } },
+    limit: 5,
+  },
+  ga4_run_realtime_report: { property_id: "406222860", metrics: [{ name: "activeUsers" }] },
+  ga4_organic_landing_pages: { property_id: "406222860", start_date: GENERIC.start_date, end_date: GENERIC.end_date, host_name: "dnamusic.edu.co", limit: 5 },
 
   // PageSpeed
   pagespeed_analyze_url: { url: "https://dnamusic.edu.co/", strategy: "mobile" },
