@@ -285,7 +285,7 @@ function render(data) {
   renderKeywords(data.keywords);
   renderContent(data.content);
   renderPages(data.content.topPages);
-  renderTechnical(data.technical);
+  renderTechnical(data.technical, data.sources);
   renderLeads(data.business.channels, data.ga4);
   renderComparison(data.comparison);
   renderOpportunities(data.business.opportunities);
@@ -1155,6 +1155,12 @@ function renderMetrics(metrics) {
 }
 
 function renderTrend(points) {
+  const trendTitle = document.querySelector("#trendChart")?.closest(".panel")?.querySelector("h2");
+  if (trendTitle) {
+    trendTitle.textContent = points.some((point) => typeof point.leads === "number")
+      ? "Trafico, leads y CTR"
+      : "Clicks orgánicos y CTR";
+  }
   if (!points.length) {
     document.querySelector("#trendChart").innerHTML = `<div class="empty-state">Sin tendencia real disponible para el periodo seleccionado.</div>`;
     return;
@@ -1194,7 +1200,8 @@ function renderTrend(points) {
 }
 
 function renderKeywords(keywords) {
-  const intentRows = keywords.intent.map((item) => `
+  const intentItems = toArray(keywords.intent).filter((item) => typeof item.value === "number");
+  const intentRows = intentItems.map((item) => `
     <div>
       <div class="row"><strong>${item.name}</strong><span>${displayValue(item.value, "%")}</span></div>
       <div class="bar"><span style="width:${item.value || 0}%"></span></div>
@@ -1202,21 +1209,37 @@ function renderKeywords(keywords) {
     </div>
   `).join("");
 
+  const missingKeywordIntel = [];
+  if (!isFiniteNumber(keywords.newKeywords)) missingKeywordIntel.push("nuevas keywords");
+  if (!isFiniteNumber(keywords.movementUp) || !isFiniteNumber(keywords.movementDown)) missingKeywordIntel.push("movimiento");
+  if (!intentItems.length) missingKeywordIntel.push("intención");
+
   document.querySelector("#keywordPanel").innerHTML = `
     <div class="row"><strong>Top 3</strong><span>${displayValue(keywords.top3)}</span></div>
     <div class="row"><strong>Top 10</strong><span>${displayValue(keywords.top10)}</span></div>
-    <div class="row"><strong>Nuevas</strong><span>${displayValue(keywords.newKeywords)}</span></div>
-    <div class="row"><strong>Suben / bajan</strong><span>${displayValue(keywords.movementUp)} / ${displayValue(keywords.movementDown)}</span></div>
+    ${isFiniteNumber(keywords.newKeywords) ? `<div class="row"><strong>Nuevas</strong><span>${displayValue(keywords.newKeywords)}</span></div>` : ""}
+    ${(isFiniteNumber(keywords.movementUp) || isFiniteNumber(keywords.movementDown)) ? `<div class="row"><strong>Suben / bajan</strong><span>${displayValue(keywords.movementUp)} / ${displayValue(keywords.movementDown)}</span></div>` : ""}
     ${intentRows}
+    ${missingKeywordIntel.length ? `<div class="empty-inline">Pendiente inteligencia de ${esc(missingKeywordIntel.join(", "))}. La lectura accionable actual es Top 3 / Top 10 + oportunidades SEO.</div>` : ""}
   `;
 }
 
 function renderContent(content) {
-  document.querySelector("#contentOps").innerHTML = `
+  const topPages = toArray(content.topPages);
+  const topPage = topPages[0];
+  const lowCtrPages = topPages.filter((page) => page.status === "Optimizar");
+  const programPages = topPages.filter((page) => page.path.includes("/programas"));
+  const hasEditorialMetrics = [content.published, content.optimized, content.updated, content.blogTrafficShare].some(isFiniteNumber);
+  document.querySelector("#contentOps").innerHTML = hasEditorialMetrics ? `
     <div class="op"><strong>${displayValue(content.published)}</strong><span>Articulos publicados</span></div>
     <div class="op"><strong>${displayValue(content.optimized)}</strong><span>Optimizados</span></div>
     <div class="op"><strong>${displayValue(content.updated)}</strong><span>Actualizados</span></div>
     <div class="op"><strong>${displayValue(content.blogTrafficShare, "%")}</strong><span>Trafico desde blog</span></div>
+  ` : `
+    <div class="op"><strong>${stripUrl(topPage?.path) || "Sin líder"}</strong><span>Landing orgánica líder</span></div>
+    <div class="op"><strong>${displayValue(lowCtrPages.length)}</strong><span>URLs con CTR bajo para optimizar</span></div>
+    <div class="op"><strong>${displayValue(programPages.length)}</strong><span>Programas visibles en top páginas</span></div>
+    <div class="op"><strong>Pendiente</strong><span>Workflow editorial no conectado todavía</span></div>
   `;
 }
 
@@ -1227,7 +1250,7 @@ function renderPages(pages) {
   }
   document.querySelector("#topPages").innerHTML = pages.map((page) => `
     <div class="page-row">
-      <strong>${page.path}</strong>
+      <strong>${stripUrl(page.path)}</strong>
       <span>${formatNumber(page.sessions)} clics orgánicos</span>
       <span>${page.ctr.toFixed(1)}% CTR</span>
       <span class="badge ${page.status === "Optimizar" ? "warn" : ""}">${page.status}</span>
@@ -1235,9 +1258,11 @@ function renderPages(pages) {
   `).join("");
 }
 
-function renderTechnical(technical) {
+function renderTechnical(technical, sources = []) {
   const score = typeof technical.score === "number" ? technical.score : 0;
   const node = document.querySelector("#technicalPanel");
+  const claritySource = toArray(sources).find((item) => item.name === "Microsoft Clarity");
+  const clarityAvailable = [technical.deadClicks, technical.rageClicks, technical.excessiveScroll, technical.quickbackClick].some(isFiniteNumber);
   // eslint-disable-next-line no-unsanitized/property
   node.innerHTML = `
     <div class="score">
@@ -1250,16 +1275,20 @@ function renderTechnical(technical) {
     <div class="row"><strong>LCP</strong><span>${esc(technical.lcp ?? "Sin datos")}</span></div>
     <div class="row"><strong>INP</strong><span>${esc(technical.inp ?? "Sin datos")}</span></div>
     <div class="row"><strong>CLS</strong><span>${esc(technical.cls ?? "Sin datos")}</span></div>
-    <div class="row clarity"><strong>Dead clicks (24h)</strong><span>${displayValue(technical.deadClicks)}</span></div>
-    <div class="row clarity"><strong>Rage clicks (24h)</strong><span>${displayValue(technical.rageClicks)}</span></div>
-    <div class="row clarity"><strong>Excessive scroll (24h)</strong><span>${displayValue(technical.excessiveScroll)}</span></div>
-    <div class="row clarity"><strong>Quickback clicks (24h)</strong><span>${displayValue(technical.quickbackClick)}</span></div>
+    ${clarityAvailable ? `
+      <div class="row clarity"><strong>Dead clicks (24h)</strong><span>${displayValue(technical.deadClicks)}</span></div>
+      <div class="row clarity"><strong>Rage clicks (24h)</strong><span>${displayValue(technical.rageClicks)}</span></div>
+      <div class="row clarity"><strong>Excessive scroll (24h)</strong><span>${displayValue(technical.excessiveScroll)}</span></div>
+      <div class="row clarity"><strong>Quickback clicks (24h)</strong><span>${displayValue(technical.quickbackClick)}</span></div>
+    ` : `<div class="empty-inline">UX behavior desde Clarity no disponible ahora mismo${claritySource?.message ? `: ${esc(claritySource.message)}` : "."}</div>`}
   `;
 }
 
 function renderLeads(channels, ga4) {
-  const max = Math.max(1, ...channels.map((channel) => channel.leads || 0));
-  const channelRows = channels.map((channel) => `
+  const usefulChannels = channels.filter((channel) => channel.leads !== null || channel.name === "Leads SEO");
+  const pendingChannels = channels.filter((channel) => channel.leads === null && channel.name !== "Leads SEO");
+  const max = Math.max(1, ...usefulChannels.map((channel) => channel.leads || 0));
+  const channelRows = usefulChannels.map((channel) => `
     <div>
       <div class="row"><strong>${esc(channel.name)}</strong><span>${displayValue(channel.leads)} ${typeof channel.conversion === "number" ? `· ${esc(channel.conversion)} conv` : ""}</span></div>
       <div class="bar"><span style="width:${((channel.leads || 0) / max) * 100}%"></span></div>
@@ -1299,6 +1328,7 @@ function renderLeads(channels, ga4) {
   // eslint-disable-next-line no-unsanitized/property
   node.innerHTML = `
     ${channelRows}
+    ${pendingChannels.length ? `<div class="empty-inline">Pendiente conectar medición directa de ${esc(pendingChannels.map((channel) => channel.name).join(", "))} para cerrar el loop comercial.</div>` : ""}
     ${realityNotes ? `<hr/><strong class="block-label">Lectura real de GA4</strong><div class="ga4-notes">${realityNotes}</div>` : ""}
     ${realityRows ? `<div class="ga4-reality-grid">${realityRows}</div>` : ""}
     ${byDomainRows ? `<hr/><strong class="block-label">GA4 por dominio (último día)</strong>${byDomainRows}` : ""}
@@ -1307,6 +1337,17 @@ function renderLeads(channels, ga4) {
 
 function renderComparison(rows) {
   const node = document.querySelector("#comparisonTable");
+  const validMarkets = toArray(rows).filter((row) => row.colombia !== "Sin datos" || row.mexico !== "Sin datos" || row.lta !== "Sin datos");
+  const marketsWithData = new Set();
+  validMarkets.forEach((row) => {
+    if (row.colombia !== "Sin datos") marketsWithData.add("co");
+    if (row.mexico !== "Sin datos") marketsWithData.add("mx");
+    if (row.lta !== "Sin datos") marketsWithData.add("lta");
+  });
+  if (marketsWithData.size < 2) {
+    node.innerHTML = `<div class="empty-state">Comparativo incompleto: hoy solo hay datos confiables para ${marketsWithData.has("co") ? "Colombia" : marketsWithData.has("mx") ? "Mexico" : marketsWithData.has("lta") ? "La Tienda de Audio" : "ningún mercado adicional"}.</div>`;
+    return;
+  }
   // eslint-disable-next-line no-unsanitized/property
   node.innerHTML = `
     <div class="comparison-row header"><span>Metrica</span><span>Colombia</span><span>Mexico</span><span>La Tienda de Audio</span><span>Lider</span></div>
