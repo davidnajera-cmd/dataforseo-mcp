@@ -62,6 +62,35 @@ async function slackGet<T = unknown>(method: string, params: Record<string, stri
   return data;
 }
 
+const userIdByEmail = new Map<string, string | null>();
+
+export async function lookupSlackUserIdByEmail(email: string): Promise<string | null> {
+  const normalized = email.trim().toLowerCase();
+  if (!normalized || !normalized.includes("@")) return null;
+  if (userIdByEmail.has(normalized)) return userIdByEmail.get(normalized) ?? null;
+
+  const url = new URL(`${BASE}/users.lookupByEmail`);
+  url.searchParams.set("email", normalized);
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${await token()}` } });
+  const data = await res.json() as {
+    ok?: boolean;
+    error?: string;
+    user?: { id?: string; deleted?: boolean; is_bot?: boolean };
+  };
+
+  if (!data.ok) {
+    if (data.error === "users_not_found") {
+      userIdByEmail.set(normalized, null);
+      return null;
+    }
+    throw new Error(`Slack users.lookupByEmail failed: ${data.error ?? "unknown"}`);
+  }
+
+  const id = data.user?.deleted ? null : data.user?.id ?? null;
+  userIdByEmail.set(normalized, id);
+  return id;
+}
+
 function richText(text: string) {
   return [{
     type: "rich_text",
@@ -76,7 +105,7 @@ export type SlackListItem = {
   date_created: number;
 };
 
-export async function createBacklogItem(input: { title: string; description: string; priority?: "alta" | "media" | "baja" }): Promise<{ id: string }> {
+export async function createBacklogItem(input: { title: string; description: string; priority?: "alta" | "media" | "baja"; assignee_user_id?: string | null }): Promise<{ id: string }> {
   const list_id = await listId();
   const estado_option = await backlogOptionId();
   const initial_fields: Array<Record<string, unknown>> = [
@@ -88,11 +117,14 @@ export async function createBacklogItem(input: { title: string; description: str
     const ratingByPriority = { alta: 5, media: 3, baja: 1 } as const;
     initial_fields.push({ column_id: SLACK_COLS.PRIORIDAD, rating: [ratingByPriority[input.priority]] });
   }
+  if (input.assignee_user_id) {
+    initial_fields.push({ column_id: SLACK_COLS.ASSIGNEE, user: [input.assignee_user_id] });
+  }
   const result = await slackPost<{ item: { id: string } }>("slackLists.items.create", { list_id, initial_fields });
   return { id: result.item.id };
 }
 
-export async function updateBacklogItem(rowId: string, input: { title?: string; description?: string; priority?: "alta" | "media" | "baja"; completed?: boolean; estado_option?: string }): Promise<void> {
+export async function updateBacklogItem(rowId: string, input: { title?: string; description?: string; priority?: "alta" | "media" | "baja"; completed?: boolean; estado_option?: string; assignee_user_id?: string | null }): Promise<void> {
   const list_id = await listId();
   const cells: Array<Record<string, unknown>> = [];
   if (input.title !== undefined) cells.push({ row_id: rowId, column_id: SLACK_COLS.NAME, rich_text: richText(input.title.slice(0, 200)) });
@@ -103,6 +135,7 @@ export async function updateBacklogItem(rowId: string, input: { title?: string; 
   }
   if (input.completed !== undefined) cells.push({ row_id: rowId, column_id: SLACK_COLS.COMPLETED, checkbox: input.completed });
   if (input.estado_option) cells.push({ row_id: rowId, column_id: SLACK_COLS.ESTADO, select: [input.estado_option] });
+  if (input.assignee_user_id !== undefined) cells.push({ row_id: rowId, column_id: SLACK_COLS.ASSIGNEE, user: input.assignee_user_id ? [input.assignee_user_id] : [] });
   if (cells.length === 0) return;
   await slackPost("slackLists.items.update", { list_id, cells });
 }
