@@ -1,6 +1,6 @@
 const state = {
-  module: "executive",
-  view: "executive_overview",
+  module: "seo",
+  view: "overview",
   data: null,
   socialData: null,
   executiveData: null,
@@ -62,6 +62,10 @@ function siteLabel(domain) {
 function normalizeLandingLabel(value) {
   if (value === null || value === undefined || value === "") return "(directo / sin landing)";
   return String(value);
+}
+
+function isLandingPlaceholder(value) {
+  return value === null || value === undefined || value === "" || value === "/" || value === "(directo / sin landing)";
 }
 
 function getTrafficReality(data) {
@@ -1020,8 +1024,8 @@ function buildSeoInsightCards(data) {
     {
       kicker: "Content",
       title: "Mayor palanca de adquisición",
-      value: stripUrl(traffic.topAcquisitionPage) || stripUrl(topPage?.path) || "Sin líder",
-      body: traffic.topAcquisitionPage
+      value: !isLandingPlaceholder(traffic.topAcquisitionPage) ? stripUrl(traffic.topAcquisitionPage) : stripUrl(topPage?.path) || "Sin líder",
+      body: !isLandingPlaceholder(traffic.topAcquisitionPage)
         ? `La landing de adquisición líder hoy es ${stripUrl(traffic.topAcquisitionPage)}. Conviene usarla como referencia de mensaje, UX y CTA para las demás páginas del funnel.`
         : topPage?.path
           ? `La URL con más tracción en Search Console está generando ${displayValue(topPage?.sessions)} clics orgánicos. Conviene usarla como plantilla de expansión o refresh.`
@@ -2268,6 +2272,8 @@ function formatBestSlot(slot) {
 
 function stripUrl(value) {
   if (!value) return "";
+  if (value === "/") return "Home";
+  if (String(value).startsWith("/")) return String(value).replace(/\/$/, "") || "Home";
   return String(value)
     .replace(/^https?:\/\//, "")
     .replace(/\/$/, "");
@@ -2332,7 +2338,8 @@ function updateSectionVisibility() {
     const allowed = panel.dataset.section.split(" ");
     panel.classList.toggle("hidden", !allowed.includes(state.view));
   });
-  const executiveVisible = state.view !== "variables" && state.view !== "backlog";
+  const executiveVisibleViews = new Set(["executive_overview", "overview", "monthly", "weekly", "social_overview", "social_local"]);
+  const executiveVisible = executiveVisibleViews.has(state.view);
   document.querySelector("#executiveDeck")?.classList.toggle("hidden", !executiveVisible);
   document.querySelector("#signalRail")?.classList.toggle("hidden", !executiveVisible);
   document.querySelector("#insightMatrix")?.classList.toggle("hidden", !executiveVisible);
@@ -2803,4 +2810,4 @@ function capitalize(value) {
   }
 })();
 
-setModule("executive");
+setModule("seo");

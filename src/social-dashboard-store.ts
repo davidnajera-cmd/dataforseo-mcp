@@ -1,5 +1,6 @@
 import { neon } from "@neondatabase/serverless";
-import type { DashboardFilters, SeoDashboardData } from "./dashboard-data.js";
+import type { DashboardFilters } from "./dashboard-data.js";
+import type { SocialDashboardData } from "./social-dashboard-data.js";
 
 let client: ReturnType<typeof neon> | null = null;
 let initialized = false;
@@ -10,13 +11,13 @@ function getSql() {
   return client;
 }
 
-export async function saveDashboardSnapshot(data: SeoDashboardData): Promise<boolean> {
+export async function saveSocialDashboardSnapshot(data: SocialDashboardData): Promise<boolean> {
   const sql = getSql();
   if (!sql) return false;
 
   await ensureSchema();
   await sql`
-    insert into seo_dashboard_snapshots (
+    insert into social_dashboard_snapshots (
       country,
       timeframe,
       channel,
@@ -37,41 +38,14 @@ export async function saveDashboardSnapshot(data: SeoDashboardData): Promise<boo
   return true;
 }
 
-export async function listDashboardSnapshots(filters: Partial<DashboardFilters>, limit = 20) {
-  const sql = getSql();
-  if (!sql) return [];
-
-  await ensureSchema();
-  const rows = await sql`
-    select
-      id,
-      country,
-      timeframe,
-      channel,
-      start_date,
-      end_date,
-      generated_at,
-      created_at,
-      payload
-    from seo_dashboard_snapshots
-    where (${filters.country ?? null}::text is null or country = ${filters.country ?? null})
-      and (${filters.timeframe ?? null}::text is null or timeframe = ${filters.timeframe ?? null})
-      and (${filters.channel ?? null}::text is null or channel = ${filters.channel ?? null})
-    order by created_at desc
-    limit ${limit}
-  `;
-
-  return rows;
-}
-
-export async function getLatestDashboardSnapshot(filters: DashboardFilters, maxAgeMinutes = 720): Promise<SeoDashboardData | null> {
+export async function getLatestSocialDashboardSnapshot(filters: DashboardFilters, maxAgeMinutes = 720): Promise<SocialDashboardData | null> {
   const sql = getSql();
   if (!sql) return null;
 
   await ensureSchema();
   const rows = await sql`
     select payload, generated_at
-    from seo_dashboard_snapshots
+    from social_dashboard_snapshots
     where country = ${filters.country}
       and timeframe = ${filters.timeframe}
       and channel = ${filters.channel}
@@ -79,7 +53,7 @@ export async function getLatestDashboardSnapshot(filters: DashboardFilters, maxA
       and end_date = ${filters.endDate}
     order by generated_at desc, created_at desc
     limit 1
-  ` as Array<{ payload: SeoDashboardData; generated_at: string }>;
+  ` as Array<{ payload: SocialDashboardData; generated_at: string }>;
 
   const row = rows[0];
   if (!row) return null;
@@ -93,7 +67,7 @@ async function ensureSchema() {
   if (!sql || initialized) return;
 
   await sql`
-    create table if not exists seo_dashboard_snapshots (
+    create table if not exists social_dashboard_snapshots (
       id bigserial primary key,
       country text not null,
       timeframe text not null,
@@ -107,8 +81,8 @@ async function ensureSchema() {
   `;
 
   await sql`
-    create index if not exists seo_dashboard_snapshots_lookup_idx
-    on seo_dashboard_snapshots (country, timeframe, channel, created_at desc)
+    create index if not exists social_dashboard_snapshots_lookup_idx
+    on social_dashboard_snapshots (country, timeframe, channel, created_at desc)
   `;
 
   initialized = true;
