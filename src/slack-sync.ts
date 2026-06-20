@@ -12,14 +12,14 @@
 // en_progreso). Local tasks already marked manually are not touched again.
 
 import { neon } from "@neondatabase/serverless";
-import { createBacklogItem, updateBacklogItem, deleteBacklogItem, listBacklogItems, itemFieldsByColumn, SLACK_COLS, SLACK_ESTADO_OPTIONS } from "./slack-client.js";
+import { createBacklogItem, updateBacklogItem, deleteBacklogItem, listBacklogItems, itemFieldsByColumn, lookupSlackUserIdByEmail, SLACK_COLS, SLACK_ESTADO_OPTIONS } from "./slack-client.js";
 import { ensureBacklogSchema, BacklogTask, BacklogStatus, updateTaskStatus } from "./backlog-store.js";
 import { getRuntimeVariable } from "./runtime-config.js";
 
-// What we consider "high priority enough to live in Slack". Recovery Focus alta:
-// only tasks that are both priority='alta' AND phase='recovery' should be pushed
-// to or kept in the Slack list. Everything else stays in the dashboard backlog
-// but is not surfaced to the team via Slack.
+// What we consider "team-visible enough to live in Slack":
+// - Recovery Focus alta: priority='alta' AND phase='recovery'
+// - Any open task explicitly assigned to a human owner.
+// Everything else stays in the dashboard backlog but is not surfaced to Slack.
 const SLACK_KEEP_PRIORITY: BacklogTask["priority"] = "alta";
 const SLACK_KEEP_PHASE = "recovery" as const;
 
@@ -44,37 +44,69 @@ export type SlackOutboundSummary = {
   enabled: boolean;
   pushed: number;
   updated: number;
+  recreated: number;
+  stale_links_cleared: number;
   failed: number;
-  errors: Array<{ task_id: number; error: string }>;
+  errors: Array<{ task_id: number; slack_id?: string | null; error: string }>;
 };
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function isInvalidSlackRowError(error: unknown): boolean {
+  return /\b(invalid_row_id|row_not_found|item_not_found|invalid_item)\b/i.test(errorMessage(error));
+}
+
+function emailFromOwner(owner: string | null): string | null {
+  if (!owner) return null;
+  const match = owner.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  return match?.[0]?.toLowerCase() ?? null;
+}
+
+async function ownerToSlackUserId(owner: string | null): Promise<string | null> {
+  const email = emailFromOwner(owner);
+  if (!email) return null;
+  try {
+    return await lookupSlackUserIdByEmail(email);
+  } catch {
+    return null;
+  }
+}
 
 // Push tasks to Slack: create rows for tasks without slack_list_item_id,
 // update existing rows for tasks with one. Only tasks with status='pendiente'
 // or 'en_progreso' are synced. Closed tasks are not re-pushed.
 export async function pushTasksToSlack(maxTasks: number = 50): Promise<SlackOutboundSummary> {
   if (!await slackEnabled()) {
-    return { enabled: false, pushed: 0, updated: 0, failed: 0, errors: [] };
+    return { enabled: false, pushed: 0, updated: 0, recreated: 0, stale_links_cleared: 0, failed: 0, errors: [] };
   }
   const sql = getSql();
-  if (!sql) return { enabled: true, pushed: 0, updated: 0, failed: 0, errors: [] };
+  if (!sql) return { enabled: true, pushed: 0, updated: 0, recreated: 0, stale_links_cleared: 0, failed: 0, errors: [] };
   await ensureBacklogSchema();
 
-  // Slack keeps only Recovery Focus alta. Pull only the tasks that pass the
-  // gate; the dashboard still shows everything else.
+  // Slack keeps Recovery Focus alta plus any task explicitly assigned to a
+  // human owner. The dashboard still shows everything else.
   const rows = await sql`
-    select id, title, description, priority, status, slack_list_item_id, slack_synced_at::text
+    select id, title, description, priority, status, owner, slack_list_item_id, slack_synced_at::text
     from seo_backlog_tasks
     where status in ('pendiente','en_progreso')
-      and priority = ${SLACK_KEEP_PRIORITY}
-      and phase = ${SLACK_KEEP_PHASE}
-    order by opportunity_score desc nulls last,
+      and (
+        (priority = ${SLACK_KEEP_PRIORITY} and phase = ${SLACK_KEEP_PHASE})
+        or nullif(trim(owner), '') is not null
+      )
+    order by case when slack_list_item_id is null or slack_synced_at is null then 0 else 1 end,
+      case when nullif(trim(owner), '') is not null then 0 else 1 end,
+      opportunity_score desc nulls last,
       case priority when 'alta' then 1 when 'media' then 2 else 3 end,
       proposed_at desc
     limit ${maxTasks}
-  ` as Array<{ id: number; title: string; description: string; priority: BacklogTask["priority"]; status: BacklogStatus; slack_list_item_id: string | null; slack_synced_at: string | null }>;
+  ` as Array<{ id: number; title: string; description: string; priority: BacklogTask["priority"]; status: BacklogStatus; owner: string | null; slack_list_item_id: string | null; slack_synced_at: string | null }>;
 
   let pushed = 0;
   let updated = 0;
+  let recreated = 0;
+  let staleLinksCleared = 0;
   let failed = 0;
   const errors: SlackOutboundSummary["errors"] = [];
 
@@ -85,29 +117,41 @@ export async function pushTasksToSlack(maxTasks: number = 50): Promise<SlackOutb
     try {
       const taskUrl = `${dashboardBase.replace(/\/$/, "")}/?view=backlog&task=${row.id}`;
       const descWithLink = `${row.description}\n\nVer en dashboard: ${taskUrl}`;
+      const assigneeUserId = await ownerToSlackUserId(row.owner);
       if (!row.slack_list_item_id) {
-        const created = await createBacklogItem({ title: row.title, description: descWithLink, priority: row.priority });
+        const created = await createBacklogItem({ title: row.title, description: descWithLink, priority: row.priority, assignee_user_id: assigneeUserId });
         await sql`update seo_backlog_tasks set slack_list_item_id = ${created.id}, slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
         pushed++;
       } else {
-        await updateBacklogItem(row.slack_list_item_id, { title: row.title, description: descWithLink, priority: row.priority });
-        await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
-        updated++;
+        try {
+          await updateBacklogItem(row.slack_list_item_id, { title: row.title, description: descWithLink, priority: row.priority, assignee_user_id: assigneeUserId });
+          await sql`update seo_backlog_tasks set slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
+          updated++;
+        } catch (error) {
+          if (!isInvalidSlackRowError(error)) throw error;
+          await sql`update seo_backlog_tasks set slack_list_item_id = null, slack_last_pushed_status = null, slack_synced_at = now() where id = ${row.id}`;
+          staleLinksCleared++;
+          const created = await createBacklogItem({ title: row.title, description: descWithLink, priority: row.priority, assignee_user_id: assigneeUserId });
+          await sql`update seo_backlog_tasks set slack_list_item_id = ${created.id}, slack_synced_at = now(), slack_last_pushed_status = ${row.status} where id = ${row.id}`;
+          pushed++;
+          recreated++;
+        }
       }
     } catch (error) {
       failed++;
-      errors.push({ task_id: row.id, error: error instanceof Error ? error.message : String(error) });
+      errors.push({ task_id: row.id, slack_id: row.slack_list_item_id, error: errorMessage(error) });
     }
   }
-  return { enabled: true, pushed, updated, failed, errors };
+  return { enabled: true, pushed, updated, recreated, stale_links_cleared: staleLinksCleared, failed, errors };
 }
 
 export type SlackClosedSyncSummary = {
   enabled: boolean;
   marked_completed: number;
   marked_descartada: number;
+  stale_links_cleared: number;
   failed: number;
-  errors: Array<{ task_id: number; error: string }>;
+  errors: Array<{ task_id: number; slack_id?: string | null; error: string }>;
 };
 
 // Mark Slack items as completed when the local task moved to ejecutada or
@@ -116,10 +160,10 @@ export type SlackClosedSyncSummary = {
 // already closed).
 export async function pushClosedTasksToSlack(): Promise<SlackClosedSyncSummary> {
   if (!await slackEnabled()) {
-    return { enabled: false, marked_completed: 0, marked_descartada: 0, failed: 0, errors: [] };
+    return { enabled: false, marked_completed: 0, marked_descartada: 0, stale_links_cleared: 0, failed: 0, errors: [] };
   }
   const sql = getSql();
-  if (!sql) return { enabled: true, marked_completed: 0, marked_descartada: 0, failed: 0, errors: [] };
+  if (!sql) return { enabled: true, marked_completed: 0, marked_descartada: 0, stale_links_cleared: 0, failed: 0, errors: [] };
   await ensureBacklogSchema();
 
   const rows = await sql`
@@ -135,6 +179,7 @@ export async function pushClosedTasksToSlack(): Promise<SlackClosedSyncSummary> 
 
   let executedCount = 0;
   let discardedCount = 0;
+  let staleLinksCleared = 0;
   let failed = 0;
   const errors: SlackClosedSyncSummary["errors"] = [];
 
@@ -157,11 +202,16 @@ export async function pushClosedTasksToSlack(): Promise<SlackClosedSyncSummary> 
         executedCount++;
       }
     } catch (error) {
+      if (isInvalidSlackRowError(error)) {
+        await sql`update seo_backlog_tasks set slack_list_item_id = null, slack_last_pushed_status = ${row.status}, slack_synced_at = now() where id = ${row.id}`;
+        staleLinksCleared++;
+        continue;
+      }
       failed++;
-      errors.push({ task_id: row.id, error: error instanceof Error ? error.message : String(error) });
+      errors.push({ task_id: row.id, slack_id: row.slack_list_item_id, error: errorMessage(error) });
     }
   }
-  return { enabled: true, marked_completed: executedCount, marked_descartada: discardedCount, failed, errors };
+  return { enabled: true, marked_completed: executedCount, marked_descartada: discardedCount, stale_links_cleared: staleLinksCleared, failed, errors };
 }
 
 export type SlackInboundSummary = {
@@ -226,34 +276,39 @@ export type SlackCleanupSummary = {
   scanned: number;
   removed: number;
   kept: number;
+  stale_links_cleared: number;
   failed: number;
   errors: Array<{ task_id: number; slack_id: string | null; error: string }>;
 };
 
 // Remove from the Slack "Backlog SEO Agent" group any open task that doesn't
-// pass the Recovery Focus alta gate (priority='alta' AND phase='recovery').
+// pass the team-visible gate (Recovery Focus alta or explicit owner).
 // Local rows stay intact: we only delete the Slack row and clear the link
 // fields so a future push won't recreate it.
 export async function cleanupSlackBacklog(): Promise<SlackCleanupSummary> {
   if (!await slackEnabled()) {
-    return { enabled: false, scanned: 0, removed: 0, kept: 0, failed: 0, errors: [] };
+    return { enabled: false, scanned: 0, removed: 0, kept: 0, stale_links_cleared: 0, failed: 0, errors: [] };
   }
   const sql = getSql();
-  if (!sql) return { enabled: true, scanned: 0, removed: 0, kept: 0, failed: 0, errors: [] };
+  if (!sql) return { enabled: true, scanned: 0, removed: 0, kept: 0, stale_links_cleared: 0, failed: 0, errors: [] };
   await ensureBacklogSchema();
 
   const rows = await sql`
-    select id, slack_list_item_id, priority, phase, status
+    select id, slack_list_item_id, priority, phase, owner, status
     from seo_backlog_tasks
     where slack_list_item_id is not null
       and (
         status = 'descartada'
         or (status in ('pendiente','en_progreso')
-            and not (priority = ${SLACK_KEEP_PRIORITY} and phase = ${SLACK_KEEP_PHASE}))
+            and not (
+              (priority = ${SLACK_KEEP_PRIORITY} and phase = ${SLACK_KEEP_PHASE})
+              or nullif(trim(owner), '') is not null
+            ))
       )
-  ` as Array<{ id: number; slack_list_item_id: string; priority: BacklogTask["priority"]; phase: string | null; status: BacklogStatus }>;
+  ` as Array<{ id: number; slack_list_item_id: string; priority: BacklogTask["priority"]; phase: string | null; owner: string | null; status: BacklogStatus }>;
 
   let removed = 0;
+  let staleLinksCleared = 0;
   let failed = 0;
   const errors: SlackCleanupSummary["errors"] = [];
 
@@ -263,8 +318,14 @@ export async function cleanupSlackBacklog(): Promise<SlackCleanupSummary> {
       await sql`update seo_backlog_tasks set slack_list_item_id = null, slack_last_pushed_status = null, slack_synced_at = now() where id = ${row.id}`;
       removed++;
     } catch (error) {
+      if (isInvalidSlackRowError(error)) {
+        await sql`update seo_backlog_tasks set slack_list_item_id = null, slack_last_pushed_status = null, slack_synced_at = now() where id = ${row.id}`;
+        staleLinksCleared++;
+        removed++;
+        continue;
+      }
       failed++;
-      errors.push({ task_id: row.id, slack_id: row.slack_list_item_id, error: error instanceof Error ? error.message : String(error) });
+      errors.push({ task_id: row.id, slack_id: row.slack_list_item_id, error: errorMessage(error) });
     }
   }
 
@@ -274,5 +335,5 @@ export async function cleanupSlackBacklog(): Promise<SlackCleanupSummary> {
     where slack_list_item_id is not null and status in ('pendiente','en_progreso')
   ` as Array<{ n: number }>;
 
-  return { enabled: true, scanned: rows.length, removed, kept: keptRows[0]?.n ?? 0, failed, errors };
+  return { enabled: true, scanned: rows.length, removed, kept: keptRows[0]?.n ?? 0, stale_links_cleared: staleLinksCleared, failed, errors };
 }
