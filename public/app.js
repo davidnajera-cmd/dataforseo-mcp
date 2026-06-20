@@ -59,6 +59,49 @@ function siteLabel(domain) {
   return SITE_LABELS[domain] ?? domain;
 }
 
+function normalizeLandingLabel(value) {
+  if (value === null || value === undefined || value === "") return "(directo / sin landing)";
+  return String(value);
+}
+
+function getTrafficReality(data) {
+  const summary = data?.ga4?.reality ?? null;
+  const primary = summary?.by_domain?.[0] ?? null;
+  return {
+    acquisition: summary?.acquisition_sessions ?? null,
+    organicAcquisition: summary?.organic_acquisition_sessions ?? null,
+    operational: summary?.operational_sessions ?? null,
+    propertyId: primary?.property_id ?? null,
+    hostFilter: primary?.host_filter ?? null,
+    topAcquisitionPage: normalizeLandingLabel(primary?.top_acquisition_pages?.[0] ?? null),
+    topPortalPage: normalizeLandingLabel(primary?.top_operational_pages?.[0] ?? null),
+    note: primary?.note ?? null,
+  };
+}
+
+function buildTrafficRealitySummary(data) {
+  const traffic = getTrafficReality(data);
+  if (!isFiniteNumber(traffic.acquisition) && !isFiniteNumber(traffic.operational)) {
+    return "La lectura de tráfico útil todavía no está disponible.";
+  }
+  if ((traffic.operational ?? 0) > 0) {
+    return `GA4 ya separa ${displayValue(traffic.acquisition)} sesiones de adquisición y ${displayValue(traffic.operational)} operativas de Portal / Q10 en la propiedad ${traffic.propertyId || "activa"}.`;
+  }
+  return `GA4 solo muestra tráfico de adquisición en el host filtrado ${traffic.hostFilter || "principal"}.`;
+}
+
+function parseLocaleNumber(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value !== "string") return 0;
+  const normalized = value
+    .replace(/%/g, "")
+    .replace(/\s+/g, "")
+    .replace(/\./g, "")
+    .replace(/,/g, ".");
+  const parsed = Number(normalized);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function esc(value) {
   if (value === null || value === undefined) return "";
   return String(value)
@@ -325,6 +368,7 @@ function renderSources(sources) {
 }
 
 function renderSeoExecutiveLayer(data) {
+  const traffic = getTrafficReality(data);
   const deck = [
     {
       kicker: "Search Pulse",
@@ -334,7 +378,7 @@ function renderSeoExecutiveLayer(data) {
       tone: "primary",
       meta: [
         { label: "Top 10 activas", value: displayValue(data.keywords?.top10), note: displayValue(data.keywords?.top3) + " en Top 3" },
-        { label: "Página líder", value: stripUrl(data.content?.topPages?.[0]?.path) || "Sin líder claro", note: `${displayValue(data.content?.topPages?.[0]?.sessions)} sesiones` },
+        { label: "Landing de adquisición", value: stripUrl(traffic.topAcquisitionPage) || "Sin líder claro", note: `${displayValue(traffic.acquisition)} sesiones útiles` },
       ],
     },
     {
@@ -378,7 +422,7 @@ function renderSeoExecutiveLayer(data) {
   renderCommandDeck(deck);
   renderSignalRail([
     { kicker: "Organic", title: "CTR promedio", value: data.overview.metrics?.[3]?.value ?? "Sin datos", note: data.overview.metrics?.[3]?.detail ?? "", status: "live" },
-    { kicker: "Content", title: "Top page", value: stripUrl(data.content?.topPages?.[0]?.path) || "Sin datos", note: `${displayValue(data.content?.topPages?.[0]?.sessions)} sesiones`, status: "live" },
+    { kicker: "Traffic", title: "Adquisición web", value: displayValue(traffic.acquisition), note: `${displayValue(traffic.operational)} portal/Q10 separados`, status: "live" },
     { kicker: "AI", title: "LLM visibility", value: displayValue(data.ai_visibility?.by_domain?.[0]?.google_mentions), note: data.ai_visibility?.note ?? "", status: data.ai_visibility?.has_data ? "live" : "pending" },
     { kicker: "Risk", title: "Technical score", value: displayValue(data.technical?.score), note: data.sources?.find((item) => item.name === "Microsoft Clarity")?.message || "Sin alertas críticas", status: normalizeSignalStatus(data.sources?.find((item) => item.name === "Microsoft Clarity")?.status || "live") },
   ]);
@@ -557,7 +601,8 @@ function renderBenchmarkBoard(rows) {
 }
 
 function buildExecutiveOverviewModel(seo, social, intel) {
-  const seoClicks = Number(seo.overview?.metrics?.[0]?.value) || 0;
+  const traffic = getTrafficReality(seo);
+  const seoClicks = parseLocaleNumber(seo.overview?.metrics?.[0]?.value);
   const socialFollowers = Number(intel.audience?.totalFollowers) || 0;
   const socialLeads = Number(intel.community?.leadSignals) || 0;
   const seoTop10 = Number(seo.keywords?.top10) || 0;
@@ -573,7 +618,7 @@ function buildExecutiveOverviewModel(seo, social, intel) {
   const riskScore = Math.max(0, 100 - Math.min(100, (toArray(social.social?.reputation_alerts).length * 14) + (seoTechnical < 80 ? 22 : 0)));
   return {
     verdict: "Executive signal en vivo",
-    summary: "Lectura unificada de demanda, comunidad, operación y riesgo para priorizar mejor SEO y Social desde una sola superficie.",
+    summary: `${buildTrafficRealitySummary(seo)} Lectura unificada de demanda, comunidad, operación y riesgo para priorizar mejor SEO y Social desde una sola superficie.`,
     metrics: [
       { label: "Search demand", value: displayValue(seoClicks), delta: seo.overview?.metrics?.[0]?.delta ?? 0, detail: `${displayValue(seoTop10)} keywords Top 10`, source: "Search Console" },
       { label: "Audience base", value: displayValue(socialFollowers), delta: 0, detail: `${displayValue(intel.audience?.activePlatforms)} plataformas activas`, source: "Zernio" },
@@ -585,11 +630,11 @@ function buildExecutiveOverviewModel(seo, social, intel) {
         kicker: "Command",
         title: "Demanda + comunidad",
         value: displayValue(demandBlend, "%"),
-        body: `${displayValue(seoClicks)} clics orgánicos y ${displayValue(socialFollowers)} seguidores activos ya permiten operar el sistema como un frente integrado, no como dos canales aislados.`,
+        body: `${displayValue(seoClicks)} clics orgánicos y ${displayValue(socialFollowers)} seguidores activos ya permiten operar el sistema como un frente integrado. Además, GA4 ya distingue ${displayValue(traffic.acquisition)} sesiones de adquisición frente a ${displayValue(traffic.operational)} operativas del portal.`,
         tone: "primary",
         meta: [
           { label: "Canal líder", value: topPlatform ? capitalize(topPlatform.platform) : "Sin líder", note: topPlatform ? `${displayValue(topPlatform.followers)} followers` : "Sin datos" },
-          { label: "Search posture", value: displayValue(seoTop10), note: "keywords en Top 10" },
+          { label: "Search posture", value: displayValue(seoTop10), note: `${displayValue(traffic.organicAcquisition)} orgánicas útiles` },
         ],
       },
       {
@@ -669,7 +714,7 @@ function renderExecutiveNarrativePanel(model) {
     <article class="executive-brief-card">
       <span>Foco de crecimiento</span>
       <strong>Capturar demanda y redistribuirla mejor.</strong>
-      <p>SEO está trayendo intención activa; Social debe amplificar, nutrir y recoger fricción comercial en comentarios.</p>
+      <p>SEO está trayendo intención activa; Social debe amplificar, nutrir y recoger fricción comercial en comentarios, mientras Portal / Q10 queda separado como tráfico operativo.</p>
     </article>
     <article class="executive-brief-card">
       <span>Foco de control</span>
@@ -682,12 +727,15 @@ function renderExecutiveNarrativePanel(model) {
 function renderExecutiveSnapshots(seo, social, intel) {
   const seoTarget = document.querySelector("#executiveSeoSnapshot");
   const socialTarget = document.querySelector("#executiveSocialSnapshot");
+  const traffic = getTrafficReality(seo);
   if (seoTarget) {
     seoTarget.innerHTML = `
       <div class="row"><strong>Clics orgánicos</strong><span>${displayValue(seo.overview?.metrics?.[0]?.value)}</span></div>
+      <div class="row"><strong>Adquisición web</strong><span>${displayValue(traffic.acquisition)}</span></div>
+      <div class="row"><strong>Portal / Q10</strong><span>${displayValue(traffic.operational)}</span></div>
       <div class="row"><strong>Keywords Top 10</strong><span>${displayValue(seo.keywords?.top10)}</span></div>
       <div class="row"><strong>CTR promedio</strong><span>${seo.overview?.metrics?.[3]?.value ?? "Sin datos"}</span></div>
-      <div class="row"><strong>Top page</strong><span>${stripUrl(seo.content?.topPages?.[0]?.path) || "Sin datos"}</span></div>
+      <div class="row"><strong>Landing adquisición</strong><span>${stripUrl(traffic.topAcquisitionPage) || "Sin datos"}</span></div>
       <div class="row"><strong>Salud técnica</strong><span>${displayValue(seo.technical?.score)}</span></div>
     `;
   }
@@ -950,6 +998,7 @@ function buildExecutiveAnomalies(seo, social, intel) {
 }
 
 function buildSeoInsightCards(data) {
+  const traffic = getTrafficReality(data);
   const topMetric = data.overview?.metrics?.[0];
   const ctrMetric = data.overview?.metrics?.[3];
   const aiMentions = Number(data.ai_visibility?.by_domain?.[0]?.google_mentions) || 0;
@@ -962,20 +1011,22 @@ function buildSeoInsightCards(data) {
       kicker: "Growth",
       title: "Captura orgánica activa",
       value: displayValue(topMetric?.value),
-      body: `La demanda orgánica visible sostiene ${displayValue(data.keywords?.top10)} keywords en Top 10 y ${displayValue(data.keywords?.top3)} en Top 3.`,
-      meta: ctrMetric?.detail || "Search Console",
+      body: `La demanda orgánica visible sostiene ${displayValue(data.keywords?.top10)} keywords en Top 10 y ${displayValue(data.keywords?.top3)} en Top 3. En paralelo, GA4 aísla ${displayValue(traffic.operational)} sesiones de Portal / Q10 para no inflar la lectura de adquisición.`,
+      meta: ctrMetric?.detail || traffic.note || "Search Console",
       priority: "Activa",
       priorityTone: "live",
       tone: "accent",
     },
     {
       kicker: "Content",
-      title: "Mayor palanca editorial",
-      value: stripUrl(topPage?.path) || "Sin líder",
-      body: topPage?.path
-        ? `La URL con más tracción está generando ${displayValue(topPage?.sessions)} sesiones. Conviene usarla como plantilla de expansión o refresh.`
-        : "Aún no hay una página líder clara para amplificar.",
-      meta: `${displayValue(topPage?.ctr, "%")} CTR · ${displayValue(topPage?.position)} posición media`,
+      title: "Mayor palanca de adquisición",
+      value: stripUrl(traffic.topAcquisitionPage) || stripUrl(topPage?.path) || "Sin líder",
+      body: traffic.topAcquisitionPage
+        ? `La landing de adquisición líder hoy es ${stripUrl(traffic.topAcquisitionPage)}. Conviene usarla como referencia de mensaje, UX y CTA para las demás páginas del funnel.`
+        : topPage?.path
+          ? `La URL con más tracción en Search Console está generando ${displayValue(topPage?.sessions)} clics orgánicos. Conviene usarla como plantilla de expansión o refresh.`
+          : "Aún no hay una página líder clara para amplificar.",
+      meta: topPage?.path ? `${displayValue(topPage?.ctr, "%")} CTR · ${displayValue(topPage?.sessions)} clics orgánicos` : (traffic.note || "Sin metadata adicional"),
       priority: "Expandir",
       priorityTone: "pending",
     },
@@ -1005,6 +1056,7 @@ function buildSeoInsightCards(data) {
 }
 
 function buildSeoBenchmarkRows(data) {
+  const traffic = getTrafficReality(data);
   const sources = toArray(data.sources);
   const liveSources = sources.filter((item) => item.status === "live").length;
   const visibilityScore = Math.min(100, Math.round(((Number(data.keywords?.top10) || 0) * 1.8) + ((Number(data.keywords?.top3) || 0) * 2.4)));
@@ -1013,8 +1065,8 @@ function buildSeoBenchmarkRows(data) {
   const aiScore = Math.min(100, Math.round((Number(data.ai_visibility?.by_domain?.[0]?.google_mentions) || 0) * 4));
   const sourceScore = sources.length ? Math.round((liveSources / sources.length) * 100) : 0;
   return [
-    { kicker: "Search", label: "Organic visibility", score: visibilityScore, scoreLabel: displayValue(visibilityScore, "%"), note: `${displayValue(data.keywords?.top10)} keywords Top 10 y ${displayValue(data.overview?.metrics?.[0]?.value)} clics reales.`, tone: benchmarkTone(visibilityScore) },
-    { kicker: "Content", label: "CTR + page leverage", score: contentScore, scoreLabel: displayValue(contentScore, "%"), note: `${stripUrl(data.content?.topPages?.[0]?.path) || "Sin URL líder"} está empujando el frente editorial.`, tone: benchmarkTone(contentScore) },
+    { kicker: "Search", label: "Organic visibility", score: visibilityScore, scoreLabel: displayValue(visibilityScore, "%"), note: `${displayValue(data.keywords?.top10)} keywords Top 10, ${displayValue(data.overview?.metrics?.[0]?.value)} clics reales y ${displayValue(traffic.organicAcquisition)} sesiones orgánicas útiles.`, tone: benchmarkTone(visibilityScore) },
+    { kicker: "Traffic", label: "Acquisition truth", score: Math.min(100, Math.round(((Number(traffic.acquisition) || 0) / Math.max(1, (Number(traffic.acquisition) || 0) + (Number(traffic.operational) || 0))) * 100)), scoreLabel: `${displayValue(traffic.acquisition)} / ${displayValue(traffic.operational)}`, note: `${stripUrl(traffic.topAcquisitionPage) || "Sin landing líder"} impulsa adquisición mientras portal/Q10 queda segregado.`, tone: benchmarkTone(Math.min(100, Math.round(((Number(traffic.acquisition) || 0) / Math.max(1, (Number(traffic.acquisition) || 0) + (Number(traffic.operational) || 0))) * 100))) },
     { kicker: "Technical", label: "Technical resilience", score: technicalScore, scoreLabel: displayValue(technicalScore), note: `LCP ${data.technical?.lcp ?? "Sin datos"} · Speed ${data.technical?.speed ?? "Sin datos"}.`, tone: benchmarkTone(technicalScore) },
     { kicker: "AI", label: "LLM / AI presence", score: aiScore, scoreLabel: displayValue(aiScore, "%"), note: data.ai_visibility?.note || "Sin notas AI todavía.", tone: benchmarkTone(aiScore) },
     { kicker: "Ops", label: "Measurement stack", score: sourceScore, scoreLabel: displayValue(sourceScore, "%"), note: `${liveSources}/${sources.length || 0} fuentes críticas en estado live.`, tone: benchmarkTone(sourceScore) },
@@ -1176,7 +1228,7 @@ function renderPages(pages) {
   document.querySelector("#topPages").innerHTML = pages.map((page) => `
     <div class="page-row">
       <strong>${page.path}</strong>
-      <span>${formatNumber(page.sessions)} sesiones</span>
+      <span>${formatNumber(page.sessions)} clics orgánicos</span>
       <span>${page.ctr.toFixed(1)}% CTR</span>
       <span class="badge ${page.status === "Optimizar" ? "warn" : ""}">${page.status}</span>
     </div>
@@ -1214,6 +1266,27 @@ function renderLeads(channels, ga4) {
     </div>
   `).join("");
 
+  const realityNotes = (ga4?.reality?.notes ?? []).map((note) => `
+    <div class="ga4-note">${esc(note)}</div>
+  `).join("");
+
+  const realityRows = (ga4?.reality?.by_domain ?? []).map((row) => `
+    <div class="ga4-reality-card">
+      <div class="row ga4-domain">
+        <strong>${esc(siteLabel(row.domain))}</strong>
+        <span>${displayValue(row.acquisition_sessions)} adq · ${displayValue(row.organic_acquisition_sessions)} org util · ${displayValue(row.operational_sessions)} portal</span>
+        <span class="origin-pill ${esc(row.source_origin)}">${esc(row.source_origin)}</span>
+      </div>
+      <div class="ga4-reality-meta">
+        <span>Propiedad ${esc(row.property_id ?? "sin id")}</span>
+        <span>Host ${esc(row.host_filter)}</span>
+      </div>
+      <div class="ga4-reality-note">${esc(row.note)}</div>
+      ${row.top_operational_pages?.length ? `<div class="ga4-reality-list"><strong>Portal / Q10:</strong> ${row.top_operational_pages.map((page) => esc(page)).join(" · ")}</div>` : ""}
+      ${row.top_acquisition_pages?.length ? `<div class="ga4-reality-list"><strong>Adquisicion:</strong> ${row.top_acquisition_pages.map((page) => esc(page)).join(" · ")}</div>` : ""}
+    </div>
+  `).join("");
+
   const byDomainRows = (ga4?.by_domain ?? []).map((row) => `
     <div class="row ga4-domain">
       <strong>${esc(siteLabel(row.domain))}</strong>
@@ -1226,6 +1299,8 @@ function renderLeads(channels, ga4) {
   // eslint-disable-next-line no-unsanitized/property
   node.innerHTML = `
     ${channelRows}
+    ${realityNotes ? `<hr/><strong class="block-label">Lectura real de GA4</strong><div class="ga4-notes">${realityNotes}</div>` : ""}
+    ${realityRows ? `<div class="ga4-reality-grid">${realityRows}</div>` : ""}
     ${byDomainRows ? `<hr/><strong class="block-label">GA4 por dominio (último día)</strong>${byDomainRows}` : ""}
   `;
 }
@@ -2132,7 +2207,8 @@ function buildSeoExecutiveNarrative(data) {
   const top10 = displayValue(data.keywords?.top10);
   const score = displayValue(data.technical?.score);
   const ai = displayValue(data.ai_visibility?.by_domain?.[0]?.google_mentions);
-  return `El frente orgánico está sosteniendo ${clicks} clics reales, ${top10} keywords en Top 10 y una postura técnica de ${score}. La capa de AI visibility ya registra ${ai} menciones en Google AI para el dominio principal.`;
+  const traffic = getTrafficReality(data);
+  return `El frente orgánico está sosteniendo ${clicks} clics reales, ${top10} keywords en Top 10 y una postura técnica de ${score}. GA4 separa ${displayValue(traffic.acquisition)} sesiones de adquisición frente a ${displayValue(traffic.operational)} del Portal / Q10, y la capa de AI visibility ya registra ${ai} menciones en Google AI para el dominio principal.`;
 }
 
 function buildSocialExecutiveNarrative(social, intel, leadPlatform, platformFilter) {

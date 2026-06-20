@@ -127,6 +127,24 @@ export type SeoDashboardData = {
     conversions: number | null;
     by_domain: Array<{ domain: string; sessions: number | null; organic_sessions: number | null; conversions: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
     series: Array<{ date: string; sessions: number; organic_sessions: number; conversions: number }>;
+    reality: {
+      notes: string[];
+      acquisition_sessions: number | null;
+      organic_acquisition_sessions: number | null;
+      operational_sessions: number | null;
+      by_domain: Array<{
+        domain: string;
+        property_id: string | null;
+        host_filter: string;
+        acquisition_sessions: number | null;
+        organic_acquisition_sessions: number | null;
+        operational_sessions: number | null;
+        top_acquisition_pages: string[];
+        top_operational_pages: string[];
+        source_origin: "live" | "missing";
+        note: string;
+      }>;
+    };
   };
   backlinks?: {
     by_domain: Array<{ domain: string; total: number | null; referring_domains: number | null; rank: number | null; spam_score: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
@@ -263,14 +281,20 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
     .filter((source) => source.status === "pending" || source.status === "error")
     .map((source) => `${source.name}: ${source.message}`);
 
+  const ga4RealitySummary = ga4.reality.operational_sessions && ga4.reality.operational_sessions > 0
+    ? `GA4 separa ${formatNumber(ga4.reality.operational_sessions)} sesiones operativas de Portal / Q10 para no mezclarlas con adquisicion web.`
+    : ga4.reality.acquisition_sessions !== null
+      ? "GA4 muestra solo trafico de adquisicion web en los hosts filtrados para este corte."
+      : null;
+
   return {
     generatedAt: new Date().toISOString(),
     filters,
     overview: {
       verdict: hasGsc || hasKeywords || hasTechnical ? "Datos reales parciales" : "Sin datos reales suficientes",
       summary: pendingReasons.length
-        ? `El tablero solo muestra fuentes reales. Pendiente: ${pendingReasons.join(" | ")}`
-        : "Todas las metricas visibles provienen de fuentes reales conectadas.",
+        ? `El tablero solo muestra fuentes reales. ${ga4RealitySummary ? `${ga4RealitySummary} ` : ""}Pendiente: ${pendingReasons.join(" | ")}`
+        : `${ga4RealitySummary ? `${ga4RealitySummary} ` : ""}Todas las metricas visibles provienen de fuentes reales conectadas.`,
       metrics,
     },
     trends: hasTrend ? gsc.trends : [],
@@ -310,8 +334,10 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
     business: {
       programs: [],
       channels: [
-        { name: "Sesiones GA4", leads: ga4.totals.sessions, conversion: ga4.totals.conversions },
-        { name: "Organico SEO", leads: ga4.totals.organic_sessions, conversion: null },
+        { name: "Adquisicion web", leads: ga4.reality.acquisition_sessions, conversion: null },
+        { name: "SEO organico util", leads: ga4.reality.organic_acquisition_sessions, conversion: null },
+        { name: "Portal / Q10", leads: ga4.reality.operational_sessions, conversion: null },
+        { name: "Conversiones GA4", leads: ga4.totals.conversions, conversion: null },
         { name: "WhatsApp", leads: null, conversion: null },
         { name: "Formulario", leads: null, conversion: null },
       ],
@@ -325,6 +351,24 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       conversions: ga4.totals.conversions,
       by_domain: ga4.byDomain,
       series: ga4.series,
+      reality: {
+        notes: ga4.reality.notes,
+        acquisition_sessions: ga4.reality.acquisition_sessions,
+        organic_acquisition_sessions: ga4.reality.organic_acquisition_sessions,
+        operational_sessions: ga4.reality.operational_sessions,
+        by_domain: ga4.reality.byDomain.map((row) => ({
+          domain: row.domain,
+          property_id: row.propertyId,
+          host_filter: row.hostFilter,
+          acquisition_sessions: row.acquisition_sessions,
+          organic_acquisition_sessions: row.organic_acquisition_sessions,
+          operational_sessions: row.operational_sessions,
+          top_acquisition_pages: row.top_acquisition_pages,
+          top_operational_pages: row.top_operational_pages,
+          source_origin: row.source_origin,
+          note: row.note,
+        })),
+      },
     },
     backlinks: {
       by_domain: backlinksData.byDomain,
@@ -550,13 +594,15 @@ function parseGscSummary(raw: unknown) {
 }
 
 function parseGscPages(raw: unknown): PageMetric[] {
-  return getRows(raw).map((row) => ({
-    path: String(row.keys?.[0] ?? "/"),
-    sessions: Number(row.clicks ?? 0),
-    ctr: Number(row.ctr ?? 0) * 100,
-    conversion: null,
-    status: Number(row.ctr ?? 0) < 0.025 && Number(row.impressions ?? 0) > 100 ? "Optimizar" : "Sin historico",
-  }));
+  return getRows(raw)
+    .map((row) => ({
+      path: String(row.keys?.[0] ?? "/"),
+      sessions: Number(row.clicks ?? 0),
+      ctr: Number(row.ctr ?? 0) * 100,
+      conversion: null,
+      status: (Number(row.ctr ?? 0) < 0.025 && Number(row.impressions ?? 0) > 100 ? "Optimizar" : "Sin historico") as PageMetric["status"],
+    }))
+    .filter((row) => !isOperationalTrafficPath(row.path));
 }
 
 function parseGscTrend(raw: unknown): TrendPoint[] {
@@ -742,23 +788,69 @@ type Ga4DashboardSection = {
   totals: { sessions: number | null; organic_sessions: number | null; conversions: number | null };
   byDomain: Array<{ domain: string; sessions: number | null; organic_sessions: number | null; conversions: number | null; date: string | null; source_origin: "db" | "live" | "missing" }>;
   series: Array<{ date: string; sessions: number; organic_sessions: number; conversions: number }>;
+  reality: {
+    notes: string[];
+    acquisition_sessions: number | null;
+    organic_acquisition_sessions: number | null;
+    operational_sessions: number | null;
+    byDomain: Array<{
+      domain: string;
+      propertyId: string | null;
+      hostFilter: string;
+      acquisition_sessions: number | null;
+      organic_acquisition_sessions: number | null;
+      operational_sessions: number | null;
+      top_acquisition_pages: string[];
+      top_operational_pages: string[];
+      source_origin: "live" | "missing";
+      note: string;
+    }>;
+  };
 };
 
 async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
   if (!await getRuntimeVariable("GOOGLE_REFRESH_TOKEN")) {
-    return { live: false, message: "Falta GOOGLE_REFRESH_TOKEN.", totals: { sessions: null, organic_sessions: null, conversions: null }, byDomain: [], series: [] };
+    return {
+      live: false,
+      message: "Falta GOOGLE_REFRESH_TOKEN.",
+      totals: { sessions: null, organic_sessions: null, conversions: null },
+      byDomain: [],
+      series: [],
+      reality: { notes: [], acquisition_sessions: null, organic_acquisition_sessions: null, operational_sessions: null, byDomain: [] },
+    };
   }
   const byDomain: Ga4DashboardSection["byDomain"] = [];
+  const realityByDomain: Ga4DashboardSection["reality"]["byDomain"] = [];
   const seriesMap = new Map<string, { sessions: number; organic_sessions: number; conversions: number }>();
   let totalsSessions = 0;
   let totalsOrganic = 0;
   let totalsConv = 0;
+  let totalsAcquisition = 0;
+  let totalsOrganicAcquisition = 0;
+  let totalsOperational = 0;
+  let anyRealityData = false;
   let anyData = false;
   const errors: string[] = [];
+  const realityNotes = [
+    "GA4 se interpreta con filtro por host para aislar cada dominio publicado.",
+    "El trafico de Portal / Q10 se muestra como operativo y no se mezcla con adquisicion SEO.",
+  ];
 
   for (const config of configs) {
     if (!config.ga4PropertyId) {
       byDomain.push({ domain: config.domain, sessions: null, organic_sessions: null, conversions: null, date: null, source_origin: "missing" });
+      realityByDomain.push({
+        domain: config.domain,
+        propertyId: null,
+        hostFilter: config.domain,
+        acquisition_sessions: null,
+        organic_acquisition_sessions: null,
+        operational_sessions: null,
+        top_acquisition_pages: [],
+        top_operational_pages: [],
+        source_origin: "missing",
+        note: "Sin propiedad GA4 configurada para este dominio.",
+      });
       continue;
     }
     // Try DB first
@@ -778,59 +870,85 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
         existing.conversions += row.conversions ?? 0;
         seriesMap.set(key, existing);
       }
-      continue;
+    } else {
+      // DB empty -> live
+      try {
+        const property = config.ga4PropertyId.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
+        const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+        const hostExpression = ga4HostNameExpression(config.domain);
+        const [total, organic, conversionsResult] = await Promise.all([
+          ga4Post(`/${property}:runReport`, {
+            dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+            metrics: [{ name: "sessions" }],
+            dimensionFilter: hostExpression,
+          }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+          ga4Post(`/${property}:runReport`, {
+            dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+            metrics: [{ name: "sessions" }],
+            dimensionFilter: ga4AndExpression(
+              hostExpression,
+              ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")
+            ),
+          }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+          ga4Post(`/${property}:runReport`, {
+            dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+            metrics: [{ name: "eventCount" }],
+            dimensionFilter: ga4AndExpression(
+              hostExpression,
+              {
+                filter: {
+                  fieldName: "eventName",
+                  inListFilter: { values: [...GA4_CONVERSION_EVENT_NAMES] },
+                },
+              }
+            ),
+          }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+        ]);
+        const totalMv = total.rows?.[0]?.metricValues ?? [];
+        const organicMv = organic.rows?.[0]?.metricValues ?? [];
+        const convMv = conversionsResult.rows?.[0]?.metricValues ?? [];
+        const sessions = totalMv[0] ? Number(totalMv[0].value) : 0;
+        const organicSessions = organicMv[0] ? Number(organicMv[0].value) : 0;
+        const conversions = convMv[0] ? Number(convMv[0].value) : 0;
+        byDomain.push({ domain: config.domain, sessions, organic_sessions: organicSessions, conversions, date: yesterday, source_origin: "live" });
+        totalsSessions += sessions;
+        totalsOrganic += organicSessions;
+        totalsConv += conversions;
+        anyData = true;
+      } catch (error) {
+        errors.push(`${config.domain}: ${error instanceof Error ? error.message : "GA4 error"}`);
+        byDomain.push({ domain: config.domain, sessions: null, organic_sessions: null, conversions: null, date: null, source_origin: "missing" });
+      }
     }
-    // DB empty -> live
+
     try {
-      const property = config.ga4PropertyId.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
-      const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
-      const hostExpression = ga4HostNameExpression(config.domain);
-      const [total, organic, conversionsResult] = await Promise.all([
-        ga4Post(`/${property}:runReport`, {
-          dateRanges: [{ startDate: yesterday, endDate: yesterday }],
-          metrics: [{ name: "sessions" }],
-          dimensionFilter: hostExpression,
-        }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
-        ga4Post(`/${property}:runReport`, {
-          dateRanges: [{ startDate: yesterday, endDate: yesterday }],
-          metrics: [{ name: "sessions" }],
-          dimensionFilter: ga4AndExpression(
-            hostExpression,
-            ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")
-          ),
-        }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
-        ga4Post(`/${property}:runReport`, {
-          dateRanges: [{ startDate: yesterday, endDate: yesterday }],
-          metrics: [{ name: "eventCount" }],
-          dimensionFilter: ga4AndExpression(
-            hostExpression,
-            {
-              filter: {
-                fieldName: "eventName",
-                inListFilter: { values: [...GA4_CONVERSION_EVENT_NAMES] },
-              },
-            }
-          ),
-        }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
-      ]);
-      const totalMv = total.rows?.[0]?.metricValues ?? [];
-      const organicMv = organic.rows?.[0]?.metricValues ?? [];
-      const convMv = conversionsResult.rows?.[0]?.metricValues ?? [];
-      const sessions = totalMv[0] ? Number(totalMv[0].value) : 0;
-      const organicSessions = organicMv[0] ? Number(organicMv[0].value) : 0;
-      const conversions = convMv[0] ? Number(convMv[0].value) : 0;
-      byDomain.push({ domain: config.domain, sessions, organic_sessions: organicSessions, conversions, date: yesterday, source_origin: "live" });
-      totalsSessions += sessions;
-      totalsOrganic += organicSessions;
-      totalsConv += conversions;
-      anyData = true;
+      const reality = await loadGa4RealityBreakdown(config);
+      realityByDomain.push(reality);
+      totalsAcquisition += reality.acquisition_sessions ?? 0;
+      totalsOrganicAcquisition += reality.organic_acquisition_sessions ?? 0;
+      totalsOperational += reality.operational_sessions ?? 0;
+      anyRealityData = anyRealityData || reality.source_origin === "live";
     } catch (error) {
-      errors.push(`${config.domain}: ${error instanceof Error ? error.message : "GA4 error"}`);
-      byDomain.push({ domain: config.domain, sessions: null, organic_sessions: null, conversions: null, date: null, source_origin: "missing" });
+      realityByDomain.push({
+        domain: config.domain,
+        propertyId: config.ga4PropertyId,
+        hostFilter: config.domain,
+        acquisition_sessions: null,
+        organic_acquisition_sessions: null,
+        operational_sessions: null,
+        top_acquisition_pages: [],
+        top_operational_pages: [],
+        source_origin: "missing",
+        note: error instanceof Error ? error.message : "No se pudo clasificar el trafico de GA4 por landing page.",
+      });
     }
   }
 
   const series = [...seriesMap.entries()].map(([date, v]) => ({ date, ...v })).sort((a, b) => a.date.localeCompare(b.date));
+  if (configs.some((config) => config.code === "co")) {
+    realityNotes.push("En Colombia, la lectura operativa identifica landings tipo /portal-estudiantes y accesos Q10 como trafico de alumnos actuales.");
+  }
+
   return {
     live: anyData,
     error: errors.length > 0 && !anyData,
@@ -838,7 +956,108 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
     totals: { sessions: anyData ? totalsSessions : null, organic_sessions: anyData ? totalsOrganic : null, conversions: anyData ? totalsConv : null },
     byDomain,
     series,
+    reality: {
+      notes: realityNotes,
+      acquisition_sessions: anyRealityData ? totalsAcquisition : null,
+      organic_acquisition_sessions: anyRealityData ? totalsOrganicAcquisition : null,
+      operational_sessions: anyRealityData ? totalsOperational : null,
+      byDomain: realityByDomain,
+    },
   };
+}
+
+type Ga4LandingRow = { page: string; sessions: number };
+
+async function loadGa4RealityBreakdown(config: CountryConfig) {
+  const property = config.ga4PropertyId?.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
+  const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
+  const hostExpression = ga4HostNameExpression(config.domain);
+
+  const [allLandingPages, organicLandingPages] = await Promise.all([
+    runGa4LandingPageSessions(property, yesterday, hostExpression),
+    runGa4LandingPageSessions(
+      property,
+      yesterday,
+      ga4AndExpression(hostExpression, ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")) ?? hostExpression
+    ),
+  ]);
+
+  const allSplit = splitOperationalTraffic(allLandingPages);
+  const organicSplit = splitOperationalTraffic(organicLandingPages);
+
+  return {
+    domain: config.domain,
+    propertyId: config.ga4PropertyId,
+    hostFilter: config.domain,
+    acquisition_sessions: allSplit.acquisition,
+    organic_acquisition_sessions: organicSplit.acquisition,
+    operational_sessions: allSplit.operational,
+    top_acquisition_pages: allSplit.topAcquisitionPages,
+    top_operational_pages: allSplit.topOperationalPages,
+    source_origin: "live" as const,
+    note: allSplit.operational > 0
+      ? "Incluye separacion operativa de portal/Q10 basada en landing pages del ultimo dia."
+      : "Todo el trafico del ultimo dia se interpreta como adquisicion web para este host.",
+  };
+}
+
+async function runGa4LandingPageSessions(property: string, date: string, dimensionFilter: NonNullable<Parameters<typeof ga4AndExpression>[0]>) {
+  const result = await ga4Post(`/${property}:runReport`, {
+    dateRanges: [{ startDate: date, endDate: date }],
+    dimensions: [{ name: "landingPagePlusQueryString" }],
+    metrics: [{ name: "sessions" }],
+    dimensionFilter,
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    limit: 100,
+  }) as { rows?: Array<{ dimensionValues?: Array<{ value?: string }>; metricValues?: Array<{ value?: string }> }> };
+
+  return (result.rows ?? []).map((row) => ({
+    page: row.dimensionValues?.[0]?.value ?? "(unknown)",
+    sessions: Number(row.metricValues?.[0]?.value ?? 0),
+  })).filter((row) => row.sessions > 0);
+}
+
+function splitOperationalTraffic(rows: Ga4LandingRow[]) {
+  let acquisition = 0;
+  let operational = 0;
+  const acquisitionPages: Ga4LandingRow[] = [];
+  const operationalPages: Ga4LandingRow[] = [];
+
+  for (const row of rows) {
+    if (isOperationalLandingPage(row.page)) {
+      operational += row.sessions;
+      operationalPages.push(row);
+      continue;
+    }
+    acquisition += row.sessions;
+    acquisitionPages.push(row);
+  }
+
+  return {
+    acquisition,
+    operational,
+    topAcquisitionPages: acquisitionPages.slice(0, 3).map((row) => row.page),
+    topOperationalPages: operationalPages.slice(0, 3).map((row) => row.page),
+  };
+}
+
+function isOperationalLandingPage(page: string) {
+  return isOperationalTrafficPath(page);
+}
+
+function isOperationalTrafficPath(value: string) {
+  const normalized = value.toLowerCase();
+  return [
+    "/portal-estudiantes",
+    "acceso-q10",
+    "/q10",
+    "portal/q10",
+    "portalestudiantes",
+    "prematricula",
+    "calendario-academico",
+    "atencion-al-estudiante",
+    "login",
+  ].some((pattern) => normalized.includes(pattern));
 }
 
 type ClaritySection = {
