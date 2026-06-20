@@ -7,7 +7,9 @@ import executiveOverviewHandler from "../api/executive-overview.js";
 import mcpHandler from "../api/mcp.js";
 import { collectSeoDashboardData } from "./dashboard-data.js";
 import { collectSocialDashboardData } from "./social-dashboard-data.js";
-import { listDashboardSnapshots, saveDashboardSnapshot } from "./dashboard-store.js";
+import { getLatestDashboardSnapshot, listDashboardSnapshots, saveDashboardSnapshot } from "./dashboard-store.js";
+import { getLatestSocialDashboardSnapshot, saveSocialDashboardSnapshot } from "./social-dashboard-store.js";
+import { normalizeFilters } from "./dashboard-data.js";
 import { runSeoConnectivityChecks } from "./seo-connectivity.js";
 import {
   assertVariablesAdminToken,
@@ -39,13 +41,22 @@ app.get("/api/seo-dashboard", async (req, res) => {
       return;
     }
 
-    const data = await collectSeoDashboardData({
+    const filters = normalizeFilters({
       country: req.query.country as never,
       timeframe: req.query.timeframe as never,
       channel: req.query.channel as never,
       startDate: typeof req.query.startDate === "string" ? req.query.startDate : undefined,
       endDate: typeof req.query.endDate === "string" ? req.query.endDate : undefined,
     });
+    const forceRefresh = req.query.refresh === "1";
+    if (!forceRefresh) {
+      const cached = await getLatestDashboardSnapshot(filters).catch(() => null);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+    }
+    const data = await collectSeoDashboardData(filters);
     await saveDashboardSnapshot(data).catch((error) => {
       console.warn("Could not persist SEO dashboard snapshot", error);
     });
@@ -60,12 +71,24 @@ app.get("/api/seo-dashboard", async (req, res) => {
 
 app.get("/api/social-dashboard", async (req, res) => {
   try {
-    const data = await collectSocialDashboardData({
+    const filters = normalizeFilters({
       country: req.query.country as never,
       timeframe: req.query.timeframe as never,
       channel: req.query.channel as never,
       startDate: typeof req.query.startDate === "string" ? req.query.startDate : undefined,
       endDate: typeof req.query.endDate === "string" ? req.query.endDate : undefined,
+    });
+    const forceRefresh = req.query.refresh === "1";
+    if (!forceRefresh) {
+      const cached = await getLatestSocialDashboardSnapshot(filters).catch(() => null);
+      if (cached) {
+        res.json(cached);
+        return;
+      }
+    }
+    const data = await collectSocialDashboardData(filters);
+    await saveSocialDashboardSnapshot(data).catch((error) => {
+      console.warn("Could not persist social dashboard snapshot", error);
     });
     res.json(data);
   } catch (error) {

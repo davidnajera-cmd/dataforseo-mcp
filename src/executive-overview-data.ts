@@ -1,6 +1,8 @@
 import { collectSeoDashboardData, normalizeFilters, type DashboardFilters, type SeoDashboardData } from "./dashboard-data.js";
+import { getLatestDashboardSnapshot } from "./dashboard-store.js";
 import { collectSocialDashboardData, type SocialDashboardData } from "./social-dashboard-data.js";
 import { listExecutiveSnapshots, saveExecutiveSnapshot, type ExecutiveSnapshotPayload } from "./executive-store.js";
+import { getLatestSocialDashboardSnapshot } from "./social-dashboard-store.js";
 
 type ExecutiveHistoryEntry = {
   snapshot_date: string;
@@ -20,9 +22,13 @@ export type ExecutiveOverviewData = {
 
 export async function collectExecutiveOverviewData(input: Partial<DashboardFilters>): Promise<ExecutiveOverviewData> {
   const filters = normalizeFilters(input);
+  const [cachedSeo, cachedSocial] = await Promise.all([
+    getLatestDashboardSnapshot(filters).catch(() => null),
+    getLatestSocialDashboardSnapshot(filters).catch(() => null),
+  ]);
   const [seo, social] = await Promise.all([
-    collectSeoDashboardData(filters),
-    collectSocialDashboardData(filters),
+    cachedSeo ? Promise.resolve(cachedSeo) : collectSeoDashboardData(filters),
+    cachedSocial ? Promise.resolve(cachedSocial) : collectSocialDashboardData(filters),
   ]);
 
   const payload = buildExecutiveSnapshotPayload(seo, social);

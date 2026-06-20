@@ -24,17 +24,17 @@
           </div>
         </div>
         <div class="module-switcher" role="tablist" aria-label="Modulos principales">
-          <button class="module-tab is-active" data-module="executive" role="tab" aria-selected="true">Executive</button>
-          <button class="module-tab" data-module="seo" role="tab" aria-selected="false">SEO</button>
+          <button class="module-tab" data-module="executive" role="tab" aria-selected="false">Executive</button>
+          <button class="module-tab is-active" data-module="seo" role="tab" aria-selected="true">SEO</button>
           <button class="module-tab" data-module="social" role="tab" aria-selected="false">Redes Sociales</button>
         </div>
-        <nav class="nav" data-nav-module="executive">
+        <nav class="nav hidden" data-nav-module="executive">
           <span class="nav-group-label">Executive</span>
           <button class="nav-item is-active" data-module="executive" data-view="executive_overview">Executive Overview</button>
         </nav>
-        <nav class="nav hidden" data-nav-module="seo">
+        <nav class="nav" data-nav-module="seo">
           <span class="nav-group-label">SEO</span>
-          <button class="nav-item" data-module="seo" data-view="overview">Overview SEO</button>
+          <button class="nav-item is-active" data-module="seo" data-view="overview">Overview SEO</button>
           <button class="nav-item" data-module="seo" data-view="backlog">Backlog SEO</button>
           <button class="nav-item" data-module="seo" data-view="monthly">Dashboard Mensual</button>
           <button class="nav-item" data-module="seo" data-view="weekly">Dashboard Semanal</button>
@@ -68,8 +68,8 @@
         <header class="topbar">
           <button id="sidebarToggle" class="icon-button" aria-label="Toggle sidebar">☰</button>
           <div class="topbar-title">
-            <span id="moduleEyebrow">Executive Overview</span>
-            <strong id="pageTitle">Executive Overview</strong>
+            <span id="moduleEyebrow">Modulo SEO</span>
+            <strong id="pageTitle">Overview SEO</strong>
           </div>
           <form id="filters" class="filters">
             <label>
