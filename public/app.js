@@ -310,7 +310,11 @@ async function loadExecutiveOverview() {
 }
 
 function setLoading(isLoading) {
-  document.querySelector("#freshness").textContent = isLoading ? "Sincronizando" : "Actualizado";
+  // Only show the "Sincronizando" placeholder while a request is in flight.
+  // On completion, leave the real timestamp render()/renderExecutiveOverview()/
+  // renderSocialDashboard() just set — this used to unconditionally overwrite it
+  // with a bare "Actualizado" with no time at all, every single load.
+  if (isLoading) document.querySelector("#freshness").textContent = "Sincronizando";
 }
 
 function render(data) {
