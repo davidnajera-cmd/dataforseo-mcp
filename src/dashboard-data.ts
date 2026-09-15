@@ -160,13 +160,37 @@ export type SeoDashboardData = {
   };
 };
 
-const DEFAULT_FILTERS: DashboardFilters = {
+const DEFAULT_FILTERS: Omit<DashboardFilters, "startDate" | "endDate"> = {
   country: "all",
   timeframe: "monthly",
   channel: "all",
-  startDate: "2026-04-01",
-  endDate: "2026-04-28",
 };
+
+const BOGOTA_TIME_ZONE = "America/Bogota";
+
+function formatDateInBogota(date: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: BOGOTA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
+function addDays(isoDate: string, days: number): string {
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+}
+
+// GSC/GA4 data for "today" is typically incomplete, so the rolling window ends yesterday
+// (Bogota time, the project's reference timezone) instead of the current calendar day.
+function computeDefaultDateRange(timeframe: Timeframe): { startDate: string; endDate: string } {
+  const endDate = addDays(formatDateInBogota(new Date()), -1);
+  const windowDays = timeframe === "weekly" ? 7 : 28;
+  return { startDate: addDays(endDate, -(windowDays - 1)), endDate };
+}
 
 type SiteCode = "co" | "mx" | "lta";
 
@@ -195,12 +219,14 @@ type GscData = {
 };
 
 export function normalizeFilters(input: Partial<DashboardFilters>): DashboardFilters {
+  const timeframe: Timeframe = input.timeframe === "weekly" ? "weekly" : "monthly";
+  const defaultRange = computeDefaultDateRange(timeframe);
   return {
     country: isCountry(input.country) ? input.country : DEFAULT_FILTERS.country,
-    timeframe: input.timeframe === "weekly" ? "weekly" : "monthly",
+    timeframe,
     channel: isChannel(input.channel) ? input.channel : DEFAULT_FILTERS.channel,
-    startDate: input.startDate || DEFAULT_FILTERS.startDate,
-    endDate: input.endDate || DEFAULT_FILTERS.endDate,
+    startDate: input.startDate || defaultRange.startDate,
+    endDate: input.endDate || defaultRange.endDate,
   };
 }
 
@@ -478,8 +504,30 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
   };
 }
 
+// GSC's dimensionFilterGroups let us scope a query to URLs matching a path pattern.
+// "campaigns" has no dedicated path prefix in the site IA yet, so it's defined as the
+// residual bucket: organic landing pages that aren't the evergreen program or blog sections.
+function buildChannelFilterGroups(channel: Channel): Array<Record<string, unknown>> | undefined {
+  if (channel === "blog") {
+    return [{ filters: [{ dimension: "page", operator: "includingRegex", expression: "/blog/" }] }];
+  }
+  if (channel === "programs") {
+    return [{ filters: [{ dimension: "page", operator: "includingRegex", expression: "/programas/" }] }];
+  }
+  if (channel === "campaigns") {
+    return [{
+      filters: [
+        { dimension: "page", operator: "excludingRegex", expression: "/programas/" },
+        { dimension: "page", operator: "excludingRegex", expression: "/blog/" },
+      ],
+    }];
+  }
+  return undefined;
+}
+
 async function loadSearchConsoleForConfig(filters: DashboardFilters, config: CountryConfig) {
   const attemptErrors: Array<{ site: string; error: unknown }> = [];
+  const dimensionFilterGroups = buildChannelFilterGroups(filters.channel);
 
   for (const site of gscPropertyCandidates(config)) {
     try {
@@ -489,6 +537,7 @@ async function loadSearchConsoleForConfig(filters: DashboardFilters, config: Cou
           endDate: filters.endDate,
           rowLimit: 1,
           type: "web",
+          ...(dimensionFilterGroups ? { dimensionFilterGroups } : {}),
         }),
         gscPost(`/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
           startDate: filters.startDate,
@@ -496,6 +545,7 @@ async function loadSearchConsoleForConfig(filters: DashboardFilters, config: Cou
           dimensions: ["page"],
           rowLimit: 20,
           type: "web",
+          ...(dimensionFilterGroups ? { dimensionFilterGroups } : {}),
         }),
         gscPost(`/sites/${encodeURIComponent(site)}/searchAnalytics/query`, {
           startDate: filters.startDate,
@@ -503,6 +553,7 @@ async function loadSearchConsoleForConfig(filters: DashboardFilters, config: Cou
           dimensions: ["date"],
           rowLimit: 1000,
           type: "web",
+          ...(dimensionFilterGroups ? { dimensionFilterGroups } : {}),
         }),
       ]);
 
@@ -766,7 +817,7 @@ function formatNumber(value: number): string {
 }
 
 function isCountry(value: unknown): value is CountryCode {
-  return value === "all" || value === "co" || value === "mx";
+  return value === "all" || value === "co" || value === "mx" || value === "lta";
 }
 
 function isChannel(value: unknown): value is Channel {

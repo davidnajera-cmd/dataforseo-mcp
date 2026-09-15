@@ -11,3 +11,4 @@ tmp-pdf-venv/
 *.bak
 .claude/
 .DS_Store
+.playwright-mcp/

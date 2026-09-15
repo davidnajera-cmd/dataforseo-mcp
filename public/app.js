@@ -123,26 +123,57 @@ const navItems = [...document.querySelectorAll(".nav-item")];
 const moduleTabs = [...document.querySelectorAll(".module-tab")];
 const navGroups = [...document.querySelectorAll("[data-nav-module]")];
 
+const isMobileViewport = () => window.matchMedia("(max-width: 860px)").matches;
+// On phones the sidebar renders as a fixed full-height overlay; starting it open would
+// cover the dashboard (and the toggle button itself) until the user finds the hamburger.
+if (isMobileViewport()) shell.dataset.sidebar = "closed";
+
 document.querySelector("#sidebarToggle").addEventListener("click", () => {
   shell.dataset.sidebar = shell.dataset.sidebar === "closed" ? "open" : "closed";
+});
+
+document.querySelector("#sidebarBackdrop")?.addEventListener("click", () => {
+  shell.dataset.sidebar = "closed";
 });
 
 navItems.forEach((button) => {
   button.addEventListener("click", () => {
     if (button.dataset.module !== state.module) setModule(button.dataset.module, { skipDefaultView: true });
     setView(button.dataset.view);
+    if (isMobileViewport()) shell.dataset.sidebar = "closed";
   });
 });
 
 moduleTabs.forEach((button) => {
   button.addEventListener("click", () => {
     setModule(button.dataset.module);
+    if (isMobileViewport()) shell.dataset.sidebar = "closed";
   });
 });
 
 document.querySelectorAll("[data-view-shortcut]").forEach((button) => {
   button.addEventListener("click", () => setView(button.dataset.viewShortcut));
 });
+
+function clearDateInputs() {
+  filters.elements.startDate.value = "";
+  filters.elements.endDate.value = "";
+}
+
+// Leaving the date fields blank tells the API to compute a fresh default window
+// (last 7/28 days) for the newly selected cadence, instead of re-sending whatever
+// range was on screen for the previous timeframe.
+filters.elements.timeframe.addEventListener("change", clearDateInputs);
+
+function syncDateInputs(resolvedFilters) {
+  if (!resolvedFilters) return;
+  if (resolvedFilters.startDate && document.activeElement !== filters.elements.startDate) {
+    filters.elements.startDate.value = resolvedFilters.startDate;
+  }
+  if (resolvedFilters.endDate && document.activeElement !== filters.elements.endDate) {
+    filters.elements.endDate.value = resolvedFilters.endDate;
+  }
+}
 
 filters.addEventListener("change", () => {
   if (state.module === "executive") loadExecutiveOverview();
@@ -202,9 +233,11 @@ function setView(view) {
   }
   if (view === "weekly") {
     filters.elements.timeframe.value = "weekly";
+    clearDateInputs();
     loadDashboard();
   } else if (view === "monthly") {
     filters.elements.timeframe.value = "monthly";
+    clearDateInputs();
     loadDashboard();
   } else {
     updateSectionVisibility();
@@ -224,6 +257,7 @@ async function loadDashboard() {
     const nextData = await response.json();
     if (!isRequestCurrent(requestToken)) return;
     state.data = nextData;
+    syncDateInputs(nextData.filters);
     render(state.data);
   } catch (error) {
     if (!isRequestCurrent(requestToken)) return;
@@ -243,6 +277,7 @@ async function loadSocialDashboard() {
     const nextData = await response.json();
     if (!isRequestCurrent(requestToken)) return;
     state.socialData = nextData;
+    syncDateInputs(nextData.filters);
     renderSocialDashboard(state.socialData);
   } catch (error) {
     if (!isRequestCurrent(requestToken)) return;
@@ -264,6 +299,7 @@ async function loadExecutiveOverview() {
     state.data = bundle.seo;
     state.socialData = bundle.social;
     state.executiveData = bundle;
+    syncDateInputs(bundle.filters);
     renderExecutiveOverview(state.executiveData);
   } catch (error) {
     if (!isRequestCurrent(requestToken)) return;

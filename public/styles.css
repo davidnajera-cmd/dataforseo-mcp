@@ -71,6 +71,10 @@ select {
   grid-template-columns: 240px minmax(0, 1fr);
 }
 
+.sidebar-backdrop {
+  display: none;
+}
+
 .sidebar {
   position: sticky;
   top: 0;
@@ -1107,8 +1111,22 @@ select {
     grid-template-columns: 1fr;
   }
 
+  .shell[data-sidebar="closed"] .sidebar-backdrop {
+    display: none;
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 4;
+    background: rgba(24, 20, 14, 0.32);
+  }
+
   .topbar {
     grid-template-columns: auto 1fr;
+    position: relative;
+    z-index: 6;
   }
 
   .filters {

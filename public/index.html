@@ -15,6 +15,7 @@
   </head>
   <body>
     <div class="shell" data-sidebar="open">
+      <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
       <aside class="sidebar" aria-label="Navegacion principal">
         <div class="brand">
           <div class="brand-mark">DNA</div>
@@ -90,11 +91,11 @@
             </label>
             <label>
               Desde
-              <input name="startDate" type="date" value="2026-04-01" />
+              <input name="startDate" type="date" />
             </label>
             <label>
               Hasta
-              <input name="endDate" type="date" value="2026-04-28" />
+              <input name="endDate" type="date" />
             </label>
             <label>
               Canal
@@ -573,13 +574,13 @@
               </div>
               <button id="refreshVariables" class="small-button" type="button">Actualizar</button>
             </div>
-            <div class="admin-box">
+            <form class="admin-box" onsubmit="return false">
               <label>
                 Token admin
                 <input id="adminToken" type="password" autocomplete="off" placeholder="SEO_VARIABLES_ADMIN_TOKEN" />
               </label>
               <p class="summary">Las variables sensibles se guardan cifradas en Postgres. La app usa primero estos valores y luego las variables de Vercel.</p>
-            </div>
+            </form>
             <div class="market-box">
               <div>
                 <strong>Colombia</strong>
