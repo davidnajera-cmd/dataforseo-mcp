@@ -131,6 +131,11 @@ export async function ensurePersistenceSchema(): Promise<void> {
   `;
   await sql`create unique index if not exists seo_web_leads_external_id on seo_web_leads (external_id) where external_id is not null`;
   await sql`create index if not exists seo_web_leads_domain_date on seo_web_leads (domain, received_at desc)`;
+  // Added after the table already existed in production — create table if not exists
+  // won't add columns to an existing table, so these need their own migration step.
+  await sql`alter table seo_web_leads add column if not exists name text`;
+  await sql`alter table seo_web_leads add column if not exists phone text`;
+  await sql`alter table seo_web_leads add column if not exists email text`;
 
   schemaReady = true;
 }
@@ -263,6 +268,9 @@ export type WebLeadInput = {
   utm_content?: string | null;
   utm_term?: string | null;
   channel?: string | null;
+  name?: string | null;
+  phone?: string | null;
+  email?: string | null;
   metadata?: unknown;
   received_at?: string | null;
 };
@@ -278,11 +286,13 @@ export async function recordWebLead(lead: WebLeadInput): Promise<{ id: number; d
   const metadataJson = lead.metadata === undefined ? null : JSON.stringify(lead.metadata);
   const inserted = await sql`
     insert into seo_web_leads (
-      external_id, domain, source_url, utm_source, utm_medium, utm_campaign, utm_content, utm_term, channel, metadata, received_at
+      external_id, domain, source_url, utm_source, utm_medium, utm_campaign, utm_content, utm_term, channel,
+      name, phone, email, metadata, received_at
     ) values (
       ${lead.external_id ?? null}, ${lead.domain ?? null}, ${lead.source_url ?? null},
       ${lead.utm_source ?? null}, ${lead.utm_medium ?? null}, ${lead.utm_campaign ?? null},
       ${lead.utm_content ?? null}, ${lead.utm_term ?? null}, ${lead.channel ?? null},
+      ${lead.name ?? null}, ${lead.phone ?? null}, ${lead.email ?? null},
       ${metadataJson}::jsonb, ${receivedAt}
     )
     on conflict (external_id) where external_id is not null do nothing

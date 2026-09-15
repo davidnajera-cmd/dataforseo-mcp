@@ -13,6 +13,9 @@ type IncomingLead = {
   utm_content?: unknown;
   utm_term?: unknown;
   channel?: unknown;
+  name?: unknown;
+  phone?: unknown;
+  email?: unknown;
   received_at?: unknown;
   metadata?: unknown;
 };
@@ -96,6 +99,9 @@ function toLeadInput(item: IncomingLead): WebLeadInput {
     utm_content: stringOrNull(item.utm_content),
     utm_term: stringOrNull(item.utm_term),
     channel: stringOrNull(item.channel),
+    name: stringOrNull(item.name),
+    phone: stringOrNull(item.phone),
+    email: stringOrNull(item.email),
     received_at: stringOrNull(item.received_at),
     metadata: item.metadata,
   };
