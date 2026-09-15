@@ -11,7 +11,9 @@ export default async function handler(
   try {
     clearRuntimeVariableCache();
     const auth = headerValue(req, "authorization");
-    const expected = (await getRuntimeVariable("CRON_SECRET")) ?? process.env.CRON_SECRET;
+    // See api/cron/snapshot.ts: the Vercel project env var is what Vercel's cron
+    // invoker actually sends, so it must take precedence over the DB-stored copy.
+    const expected = process.env.CRON_SECRET ?? (await getRuntimeVariable("CRON_SECRET"));
     if (!expected) { send(res, 500, { error: "CRON_SECRET not configured" }); return; }
     const provided = (auth ?? "").replace(/^Bearer\s+/i, "");
     if (provided !== expected) { send(res, 401, { error: "unauthorized" }); return; }

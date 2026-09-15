@@ -15,7 +15,10 @@ export default async function handler(
     clearRuntimeVariableCache();
     clearGoogleAccessTokenCache();
     const auth = headerValue(req, "authorization");
-    const expected = (await getRuntimeVariable("CRON_SECRET")) ?? process.env.CRON_SECRET;
+    // Vercel's cron invoker authenticates using the CRON_SECRET *Vercel project* env var,
+    // so that must win; the DB-stored copy is a convenience fallback for manual/local calls,
+    // not a source of truth Vercel's scheduler can ever know about.
+    const expected = process.env.CRON_SECRET ?? (await getRuntimeVariable("CRON_SECRET"));
     if (!expected) {
       send(res, 500, { error: "CRON_SECRET not configured" });
       return;
