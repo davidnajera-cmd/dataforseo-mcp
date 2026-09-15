@@ -10,6 +10,7 @@
     { "source": "/api/cron/snapshot", "destination": "/api/cron/snapshot" },
     { "source": "/api/cron/agent", "destination": "/api/cron/agent" },
     { "source": "/api/cron/slack-sync", "destination": "/api/cron/slack-sync" },
+    { "source": "/api/cron/gbp-backfill", "destination": "/api/cron/gbp-backfill" },
     { "source": "/mcp", "destination": "/api/mcp" },
     { "source": "/sse", "destination": "/api/mcp" }
   ],
@@ -22,11 +23,13 @@
     "api/backlog.ts": { "maxDuration": 300 },
     "api/cron/snapshot.ts": { "maxDuration": 300 },
     "api/cron/agent.ts": { "maxDuration": 300 },
-    "api/cron/slack-sync.ts": { "maxDuration": 120 }
+    "api/cron/slack-sync.ts": { "maxDuration": 120 },
+    "api/cron/gbp-backfill.ts": { "maxDuration": 280 }
   },
   "crons": [
     { "path": "/api/cron/snapshot", "schedule": "0 6 * * *" },
     { "path": "/api/cron/agent", "schedule": "30 6 * * *" },
-    { "path": "/api/cron/slack-sync", "schedule": "0 */2 * * *" }
+    { "path": "/api/cron/slack-sync", "schedule": "0 */2 * * *" },
+    { "path": "/api/cron/gbp-backfill", "schedule": "0 7 * * 1" }
   ]
 }

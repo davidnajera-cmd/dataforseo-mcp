@@ -1754,7 +1754,7 @@ function renderSocialLocalExecutive(local) {
     <article class="social-exec-card social-exec-primary">
       <span>Sedes activas</span>
       <strong>${displayValue(local.locations)}</strong>
-      <small>${displayValue(local.accounts)} cuentas GBP historizadas · snapshot ${esc(formatShortDate(local.snapshot_date) || "actual")}</small>
+      <small>${displayValue(local.accounts)} cuentas GBP historizadas · snapshot ${esc(snapshotAgeLabel(local.snapshot_date, 10).text)}</small>
     </article>
     <article class="social-exec-card">
       <span>Reputación</span>
