@@ -210,7 +210,7 @@ export async function backfillGoogleBusinessFromZernio(options: {
   const errors: Array<{ account_id?: string; location_id?: string; stage: string; error: string }> = [];
 
   try {
-    const rawAccounts = await zernioGet("/accounts", { platform: "googlebusiness", limit: 100 });
+    const rawAccounts = await zernioGet("/accounts", { platform: "googlebusiness", limit: 100, page: 1 });
     const accounts = getCollection(rawAccounts, ["accounts", "data", "items"]);
     const locationMap = new Map<string, { account: Record<string, any>; locationRef: Record<string, any> }>();
 
