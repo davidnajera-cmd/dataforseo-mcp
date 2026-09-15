@@ -13,6 +13,8 @@ import {
   getLatestTrafficSnapshot,
   getTrafficTrend,
   getLatestDomainRankings,
+  getWebLeadStats,
+  hasAnyWebLeads,
 } from "./persistence-store.js";
 
 export type CountryCode = "all" | "co" | "mx" | "lta";
@@ -249,7 +251,7 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
   const configs = await Promise.all(countries.map(getCountryConfig));
   const sources: SourceStatus[] = [];
 
-  const [gsc, dataforseo, pagespeed, ga4, clarity, backlinksData, llmData, historyData] = await Promise.all([
+  const [gsc, dataforseo, pagespeed, ga4, clarity, backlinksData, llmData, historyData, webLeads] = await Promise.all([
     loadSearchConsole(filters, configs).then((data) => {
       sources.push({ name: "Google Search Console", status: sourceStatus(data), message: data.message });
       return data;
@@ -294,6 +296,21 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       return data;
     }),
     loadHistorySummary(configs),
+    (async () => {
+      const domain = filters.country === "all" ? null : configs[0]?.domain ?? null;
+      const [stats, everConnected] = await Promise.all([
+        getWebLeadStats({ domain, startDate: filters.startDate, endDate: filters.endDate }),
+        hasAnyWebLeads(),
+      ]);
+      sources.push({
+        name: "Leads (Dream CRM)",
+        status: everConnected ? "live" : "pending",
+        message: everConnected
+          ? `${stats.total} leads registrados en el periodo seleccionado.`
+          : "No hay leads conectados todavia. Configura el webhook /api/leads-webhook en Dream CRM.",
+      });
+      return { stats, everConnected };
+    })(),
   ]);
   const hasGsc = gsc.live && gsc.clicks !== null;
   const hasTrend = gsc.trends.length > 0;
@@ -310,10 +327,12 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
     },
     {
       label: "Leads SEO",
-      value: "No conectado",
+      value: webLeads.everConnected ? formatNumber(webLeads.stats.total) : "No conectado",
       delta: null,
-      detail: "No hay fuente CRM/lead real conectada todavia.",
-      source: "Pendiente CRM",
+      detail: webLeads.everConnected
+        ? (webLeads.stats.byUtmSource[0] ? `Top origen: ${webLeads.stats.byUtmSource[0].utmSource} (${webLeads.stats.byUtmSource[0].count})` : "Sin desglose por utm_source en este periodo.")
+        : "No hay fuente CRM/lead real conectada todavia.",
+      source: webLeads.everConnected ? "Dream CRM" : "Pendiente CRM",
     },
     {
       label: "Keywords Top 10",
@@ -401,8 +420,12 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
         { name: "SEO organico util", leads: ga4.reality.organic_acquisition_sessions, conversion: null },
         { name: "Portal / Q10", leads: ga4.reality.operational_sessions, conversion: null },
         { name: "Conversiones GA4", leads: ga4.totals.conversions, conversion: null },
-        { name: "WhatsApp", leads: null, conversion: null },
-        { name: "Formulario", leads: null, conversion: null },
+        ...(webLeads.everConnected
+          ? webLeads.stats.byChannel.map((row) => ({ name: `Lead: ${row.channel}`, leads: row.count, conversion: null }))
+          : [
+              { name: "WhatsApp", leads: null, conversion: null },
+              { name: "Formulario", leads: null, conversion: null },
+            ]),
       ],
       opportunities: buildRealOpportunities(gsc, dataforseo, pagespeed),
     },

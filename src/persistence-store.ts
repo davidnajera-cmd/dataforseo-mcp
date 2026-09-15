@@ -112,6 +112,26 @@ export async function ensurePersistenceSchema(): Promise<void> {
     )
   `;
 
+  await sql`
+    create table if not exists seo_web_leads (
+      id bigserial primary key,
+      external_id text,
+      domain text,
+      source_url text,
+      utm_source text,
+      utm_medium text,
+      utm_campaign text,
+      utm_content text,
+      utm_term text,
+      channel text,
+      metadata jsonb,
+      received_at timestamptz not null default now(),
+      captured_at timestamptz not null default now()
+    )
+  `;
+  await sql`create unique index if not exists seo_web_leads_external_id on seo_web_leads (external_id) where external_id is not null`;
+  await sql`create index if not exists seo_web_leads_domain_date on seo_web_leads (domain, received_at desc)`;
+
   schemaReady = true;
 }
 
@@ -231,6 +251,99 @@ export async function finishSnapshotRun(runId: number, status: string, stats: un
         errors = ${errors === undefined || errors === null ? null : JSON.stringify(errors)}::jsonb
     where id = ${runId}
   `;
+}
+
+export type WebLeadInput = {
+  external_id?: string | null;
+  domain?: string | null;
+  source_url?: string | null;
+  utm_source?: string | null;
+  utm_medium?: string | null;
+  utm_campaign?: string | null;
+  utm_content?: string | null;
+  utm_term?: string | null;
+  channel?: string | null;
+  metadata?: unknown;
+  received_at?: string | null;
+};
+
+// external_id is optional, but when Dream CRM sends one, retries (timeouts, at-least-once
+// delivery) must not double-count the same lead — the partial unique index on external_id
+// enforces that at the DB level; this just makes the insert idempotent against it.
+export async function recordWebLead(lead: WebLeadInput): Promise<{ id: number; deduped: boolean }> {
+  const sql = getPersistenceSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
+  await ensurePersistenceSchema();
+  const receivedAt = lead.received_at ?? new Date().toISOString();
+  const metadataJson = lead.metadata === undefined ? null : JSON.stringify(lead.metadata);
+  const inserted = await sql`
+    insert into seo_web_leads (
+      external_id, domain, source_url, utm_source, utm_medium, utm_campaign, utm_content, utm_term, channel, metadata, received_at
+    ) values (
+      ${lead.external_id ?? null}, ${lead.domain ?? null}, ${lead.source_url ?? null},
+      ${lead.utm_source ?? null}, ${lead.utm_medium ?? null}, ${lead.utm_campaign ?? null},
+      ${lead.utm_content ?? null}, ${lead.utm_term ?? null}, ${lead.channel ?? null},
+      ${metadataJson}::jsonb, ${receivedAt}
+    )
+    on conflict (external_id) where external_id is not null do nothing
+    returning id
+  ` as Array<{ id: number }>;
+  if (inserted.length) return { id: inserted[0].id, deduped: false };
+  if (lead.external_id) {
+    const existing = await sql`select id from seo_web_leads where external_id = ${lead.external_id} limit 1` as Array<{ id: number }>;
+    if (existing.length) return { id: existing[0].id, deduped: true };
+  }
+  throw new Error("Failed to insert web lead");
+}
+
+export type WebLeadStats = {
+  total: number;
+  byDomain: Array<{ domain: string; count: number }>;
+  byUtmSource: Array<{ utmSource: string; count: number }>;
+  byChannel: Array<{ channel: string; count: number }>;
+  latestReceivedAt: string | null;
+};
+
+export async function getWebLeadStats(params: { domain?: string | null; startDate: string; endDate: string }): Promise<WebLeadStats> {
+  const sql = getPersistenceSql();
+  if (!sql) return { total: 0, byDomain: [], byUtmSource: [], byChannel: [], latestReceivedAt: null };
+  await ensurePersistenceSchema();
+  const domainFilter = params.domain ?? null;
+  const rows = await sql`
+    select domain, utm_source, channel, received_at::text as received_at
+    from seo_web_leads
+    where received_at::date >= ${params.startDate}::date and received_at::date <= ${params.endDate}::date
+      and (${domainFilter}::text is null or domain = ${domainFilter})
+    order by received_at desc
+  ` as Array<{ domain: string | null; utm_source: string | null; channel: string | null; received_at: string }>;
+
+  const byDomainMap = new Map<string, number>();
+  const byUtmSourceMap = new Map<string, number>();
+  const byChannelMap = new Map<string, number>();
+  for (const row of rows) {
+    const domainKey = row.domain ?? "Sin origen identificado";
+    byDomainMap.set(domainKey, (byDomainMap.get(domainKey) ?? 0) + 1);
+    const utmKey = row.utm_source ?? "Sin utm_source";
+    byUtmSourceMap.set(utmKey, (byUtmSourceMap.get(utmKey) ?? 0) + 1);
+    const channelKey = row.channel ?? "Sin canal especificado";
+    byChannelMap.set(channelKey, (byChannelMap.get(channelKey) ?? 0) + 1);
+  }
+
+  return {
+    total: rows.length,
+    byDomain: [...byDomainMap.entries()].map(([domain, count]) => ({ domain, count })).sort((a, b) => b.count - a.count),
+    byUtmSource: [...byUtmSourceMap.entries()].map(([utmSource, count]) => ({ utmSource, count })).sort((a, b) => b.count - a.count),
+    byChannel: [...byChannelMap.entries()].map(([channel, count]) => ({ channel, count })).sort((a, b) => b.count - a.count),
+    latestReceivedAt: rows[0]?.received_at ?? null,
+  };
+}
+
+export async function hasAnyWebLeads(): Promise<boolean> {
+  const sql = getPersistenceSql();
+  if (!sql) return false;
+  await ensurePersistenceSchema();
+  const rows = await sql`select 1 from seo_web_leads limit 1` as Array<{ "?column?": number }>;
+  return rows.length > 0;
 }
 
 export type SnapshotRunHealth = {
