@@ -618,7 +618,7 @@ function renderBenchmarkBoard(rows) {
         <span>Operating benchmark</span>
         <h3>Lectura comparativa del sistema</h3>
       </div>
-      <small>Normaliza cobertura, riesgo y capacidad operativa para priorizar mejor.</small>
+      <small>Normaliza cobertura, riesgo y capacidad operativa para priorizar mejor. Son fórmulas internas del tablero para comparar y priorizar — no son puntajes de una herramienta externa (tipo Domain Rating o Moz DA).</small>
     </div>
     <div class="benchmark-grid">
       ${toArray(rows).map((row) => `
@@ -1356,13 +1356,19 @@ function renderLeads(channels, ga4) {
     </div>
   `).join("");
 
-  const byDomainRows = (ga4?.by_domain ?? []).map((row) => `
-    <div class="row ga4-domain">
+  const byDomainRows = (ga4?.by_domain ?? []).map((row) => {
+    // A "live" row is always yesterday's single day; a "db" row can be any age —
+    // that's the one that actually needs the staleness warning.
+    const age = row.source_origin === "db" ? snapshotAgeLabel(row.date, 2) : null;
+    const dateNote = age ? ` · ${age.text}` : row.date ? ` · ${row.date}` : "";
+    return `
+    <div class="row ga4-domain"${age?.stale ? ' style="color:var(--warn)"' : ""}>
       <strong>${esc(siteLabel(row.domain))}</strong>
-      <span>${displayValue(row.sessions)} ses · ${displayValue(row.organic_sessions)} org · ${displayValue(row.conversions)} conv</span>
+      <span>${displayValue(row.sessions)} ses · ${displayValue(row.organic_sessions)} org · ${displayValue(row.conversions)} conv${esc(dateNote)}</span>
       <span class="origin-pill ${esc(row.source_origin)}">${esc(row.source_origin)}</span>
     </div>
-  `).join("");
+  `;
+  }).join("");
 
   const node = document.querySelector("#leadChannels");
   // eslint-disable-next-line no-unsanitized/property
@@ -1415,7 +1421,7 @@ function renderAiVisibility(ai) {
   // eslint-disable-next-line no-unsanitized/property
   target.innerHTML = (ai.by_domain ?? []).map((row) => `
     <article class="ai-card">
-      <header><strong>${esc(siteLabel(row.domain))}</strong><small>${esc(row.date ?? "")}</small></header>
+      <header><strong>${esc(siteLabel(row.domain))}</strong>${snapshotDateHtml(row.date)}</header>
       <div class="row"><span>ChatGPT mentions</span><strong>${displayValue(row.chat_gpt_mentions)}</strong></div>
       <div class="row"><span>Google AI Overview mentions</span><strong>${displayValue(row.google_mentions)}</strong></div>
     </article>
@@ -1433,15 +1439,18 @@ function renderBacklinks(backlinks) {
   }
   target.classList.remove("empty-state");
   // eslint-disable-next-line no-unsanitized/property
-  target.innerHTML = byDomain.map((row) => `
+  target.innerHTML = byDomain.map((row) => {
+    const age = snapshotAgeLabel(row.date, 10);
+    return `
     <article class="bl-card">
-      <header><strong>${esc(siteLabel(row.domain))}</strong><small>${esc(row.date ?? "")} · ${esc(row.source_origin)}</small></header>
+      <header><strong>${esc(siteLabel(row.domain))}</strong><small${age.stale ? ' style="color:var(--warn);font-weight:600"' : ""}>${esc(age.text)} · ${esc(row.source_origin)}</small></header>
       <div class="row"><span>Total backlinks</span><strong>${displayValue(row.total)}</strong></div>
       <div class="row"><span>Referring domains</span><strong>${displayValue(row.referring_domains)}</strong></div>
       <div class="row"><span>Domain rank</span><strong>${displayValue(row.rank)}</strong></div>
       <div class="row"><span>Spam score</span><strong>${displayValue(row.spam_score)}</strong></div>
     </article>
-  `).join("");
+  `;
+  }).join("");
 }
 
 function renderHistory(history) {
@@ -1460,7 +1469,7 @@ function renderHistory(history) {
       <strong>${esc(siteLabel(r.domain))}</strong>
       <span>${esc(r.total_tracked)} tracked · ${esc(r.top3)} en Top 3 · ${esc(r.top10)} en Top 10</span>
       <span>Avg pos ${esc(r.avg_position ?? "S/D")}</span>
-      <small>${esc(r.snapshot_date)}</small>
+      ${snapshotDateHtml(r.snapshot_date, 10)}
     </div>
   `).join("");
 }
@@ -2803,9 +2812,41 @@ function formatDelta(value) {
   return `${sign}${value}% vs periodo anterior`;
 }
 
+// Snapshot-backed sections (LLM visibility, backlinks, keyword history, GA4-by-domain)
+// carry their own date instead of the page's live "Actualizado" timestamp. Flag them
+// plainly when they're old enough that "weekly cron" can no longer explain the gap.
+function snapshotAgeLabel(dateStr, staleAfterDays = 10) {
+  if (!dateStr) return { text: "Sin fecha", stale: true };
+  const date = new Date(`${dateStr}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return { text: esc(dateStr), stale: false };
+  const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
+  if (days <= staleAfterDays) return { text: dateStr, stale: false };
+  const ageText = days >= 60 ? `hace ${Math.round(days / 30)} meses` : `hace ${days} días`;
+  return { text: `${dateStr} — ⚠ ${ageText}`, stale: true };
+}
+
+function snapshotDateHtml(dateStr, staleAfterDays = 10) {
+  const { text, stale } = snapshotAgeLabel(dateStr, staleAfterDays);
+  return `<small${stale ? ' style="color:var(--warn);font-weight:600"' : ""}>${esc(text)}</small>`;
+}
+
 function formatFreshness(value) {
   const date = new Date(value);
-  return `Actualizado ${date.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" })}`;
+  if (Number.isNaN(date.getTime())) return "Actualizado: fecha desconocida";
+  const dateLabel = date.toLocaleString("es-CO", {
+    timeZone: "America/Bogota",
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  // The payload cache lives up to 12h; anything older than that on screen is a real
+  // staleness signal (a stalled pipeline, not just cache lag) and should say so plainly.
+  const ageHours = (Date.now() - date.getTime()) / 3_600_000;
+  if (ageHours < 20) return `Actualizado ${dateLabel}`;
+  const ageDays = Math.floor(ageHours / 24);
+  const ageLabel = ageDays >= 1 ? `hace ${ageDays} ${ageDays === 1 ? "día" : "días"}` : `hace ${Math.round(ageHours)} h`;
+  return `Actualizado ${dateLabel} — ⚠ ${ageLabel}`;
 }
 
 function formatTrendLabel(value) {
@@ -2847,3 +2888,23 @@ function capitalize(value) {
 })();
 
 setModule("seo");
+
+// One-shot check so a stalled/misauthenticated cron (the whole reason historical
+// data used to be 4 months stale) shows up on screen instead of only in Postgres.
+(async function loadPipelineHealth() {
+  const node = document.querySelector("#pipelineHealth");
+  if (!node) return;
+  try {
+    const response = await fetch("/api/pipeline-health");
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const health = await response.json();
+    const dotClass = health.healthy ? "live" : "error";
+    const label = health.lastRunAt
+      ? `Pipeline: hace ${health.hoursSinceLastRun}h`
+      : "Pipeline: nunca corrio";
+    node.innerHTML = `<span class="source-dot ${dotClass}" title="${esc(health.note)}"></span> ${esc(label)}`;
+    node.title = health.note;
+  } catch {
+    node.textContent = "";
+  }
+})();

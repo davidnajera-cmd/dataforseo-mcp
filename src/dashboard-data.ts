@@ -192,6 +192,19 @@ function computeDefaultDateRange(timeframe: Timeframe): { startDate: string; end
   return { startDate: addDays(endDate, -(windowDays - 1)), endDate };
 }
 
+function daysSince(isoDate: string | null): number | null {
+  if (!isoDate) return null;
+  const [year, month, day] = isoDate.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (Number.isNaN(date.getTime())) return null;
+  return Math.floor((Date.now() - date.getTime()) / 86_400_000);
+}
+
+function newestIsoDate(dates: Array<string | null>): string | null {
+  const valid = dates.filter((d): d is string => !!d);
+  return valid.length ? valid.sort().at(-1)! : null;
+}
+
 type SiteCode = "co" | "mx" | "lta";
 
 type CountryConfig = {
@@ -258,11 +271,26 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       return data;
     }),
     loadBacklinksSection(configs).then((data) => {
-      sources.push({ name: "Backlinks (DataForSEO)", status: data.live ? "live" : data.error ? "error" : "pending", message: data.message });
+      const dbRows = data.byDomain.filter((row) => row.source_origin === "db");
+      const age = dbRows.length ? daysSince(newestIsoDate(dbRows.map((row) => row.date))) : null;
+      const stale = data.live && age !== null && age > 10;
+      sources.push({
+        name: "Backlinks (DataForSEO)",
+        status: data.live ? (stale ? "degraded" : "live") : data.error ? "error" : "pending",
+        message: stale ? `${data.message} Snapshot con ${age} dias de antiguedad — el cron semanal deberia haberlo refrescado.` : data.message,
+      });
       return data;
     }),
     loadLlmVisibilitySection(configs).then((data) => {
-      sources.push({ name: "LLM Visibility (DataForSEO)", status: data.has_data ? "live" : "pending", message: data.note });
+      // A weekly snapshot older than ~10 days means the pipeline stalled, not that
+      // the data is merely "live" — the source-health badge needs to say so.
+      const age = daysSince(newestIsoDate(data.by_domain.map((row) => row.date)));
+      const stale = data.has_data && age !== null && age > 10;
+      sources.push({
+        name: "LLM Visibility (DataForSEO)",
+        status: !data.has_data ? "pending" : stale ? "degraded" : "live",
+        message: stale ? `${data.note} Snapshot con ${age} dias de antiguedad — el cron semanal deberia haberlo refrescado.` : data.note,
+      });
       return data;
     }),
     loadHistorySummary(configs),
@@ -313,14 +341,23 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       ? "GA4 muestra solo trafico de adquisicion web en los hosts filtrados para este corte."
       : null;
 
+  const llmAgeDays = daysSince(newestIsoDate(llmData.by_domain.map((row) => row.date)));
+  const historyAgeDays = daysSince(newestIsoDate(historyData.map((row) => row.snapshot_date)));
+  const staleParts: string[] = [];
+  if (llmAgeDays !== null && llmAgeDays > 10) staleParts.push(`visibilidad AI (hace ${llmAgeDays}d)`);
+  if (historyAgeDays !== null && historyAgeDays > 10) staleParts.push(`historico de rankings (hace ${historyAgeDays}d)`);
+  const staleNote = staleParts.length
+    ? ` Ojo: ${staleParts.join(" y ")} viene de una foto historica vieja, no de una consulta en vivo — revisa la fecha en cada panel.`
+    : "";
+
   return {
     generatedAt: new Date().toISOString(),
     filters,
     overview: {
       verdict: hasGsc || hasKeywords || hasTechnical ? "Datos reales parciales" : "Sin datos reales suficientes",
       summary: pendingReasons.length
-        ? `El tablero solo muestra fuentes reales. ${ga4RealitySummary ? `${ga4RealitySummary} ` : ""}Pendiente: ${pendingReasons.join(" | ")}`
-        : `${ga4RealitySummary ? `${ga4RealitySummary} ` : ""}Todas las metricas visibles provienen de fuentes reales conectadas.`,
+        ? `El tablero solo muestra fuentes reales. ${ga4RealitySummary ? `${ga4RealitySummary} ` : ""}Pendiente: ${pendingReasons.join(" | ")}${staleNote}`
+        : `${ga4RealitySummary ? `${ga4RealitySummary} ` : ""}Las metricas visibles vienen de fuentes reales conectadas; la fecha de cada panel indica su antiguedad real.${staleNote}`,
       metrics,
     },
     trends: hasTrend ? gsc.trends : [],
@@ -450,7 +487,7 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
 
   const byCountry = emptyCountryData();
   const allPages: PageMetric[] = [];
-  const trendMap = new Map<string, TrendPoint>();
+  const trendCtrAccumulator = new Map<string, { organic: number; leads: null; ctrClicks: number; ctrWeighted: number }>();
   let clicks = 0;
   let impressions = 0;
   let weightedPosition = 0;
@@ -477,10 +514,15 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
       weightedPosition += parsedSummary.position * parsedSummary.clicks;
       allPages.push(...parseGscPages(pages));
       for (const point of parseGscTrend(trend)) {
-        const existing = trendMap.get(point.label) ?? { label: point.label, organic: 0, leads: null, ctr: null };
+        // CTR isn't additive across sites, so blend it as a click-weighted average
+        // instead of letting whichever country is processed last overwrite it.
+        const existing = trendCtrAccumulator.get(point.label) ?? { organic: 0, leads: null, ctrClicks: 0, ctrWeighted: 0 };
         existing.organic += point.organic;
-        existing.ctr = point.ctr;
-        trendMap.set(point.label, existing);
+        if (point.ctr !== null) {
+          existing.ctrWeighted += point.ctr * point.organic;
+          existing.ctrClicks += point.organic;
+        }
+        trendCtrAccumulator.set(point.label, existing);
       }
       liveCount += 1;
       if (site !== config.site) errors.push(`${config.name}: usando propiedad GSC alternativa ${site}.`);
@@ -499,7 +541,14 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
     ctr: impressions ? (clicks / impressions) * 100 : null,
     position: clicks ? weightedPosition / clicks : null,
     pages: allPages.sort((a, b) => b.sessions - a.sessions).slice(0, 20),
-    trends: [...trendMap.values()].sort((a, b) => a.label.localeCompare(b.label)),
+    trends: [...trendCtrAccumulator.entries()]
+      .map(([label, point]) => ({
+        label,
+        organic: point.organic,
+        leads: point.leads,
+        ctr: point.ctrClicks ? (point.ctrWeighted / point.ctrClicks) : null,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
     byCountry,
   };
 }

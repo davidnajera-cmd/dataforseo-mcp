@@ -233,6 +233,43 @@ export async function finishSnapshotRun(runId: number, status: string, stats: un
   `;
 }
 
+export type SnapshotRunHealth = {
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+  hoursSinceLastRun: number | null;
+  healthy: boolean;
+  note: string;
+};
+
+// Surfaces cron health for the dashboard UI so a stalled/misauthenticated pipeline
+// (like the CRON_SECRET mismatch that silently broke every run for months) shows up
+// on screen instead of only being visible to whoever thinks to query Postgres.
+export async function getSnapshotRunHealth(): Promise<SnapshotRunHealth> {
+  const sql = getPersistenceSql();
+  if (!sql) return { lastRunAt: null, lastRunStatus: null, hoursSinceLastRun: null, healthy: false, note: "DATABASE_URL no configurado." };
+  await ensurePersistenceSchema();
+  const rows = await sql`
+    select started_at, status from seo_snapshot_runs order by started_at desc limit 1
+  ` as Array<{ started_at: Date; status: string }>;
+  if (!rows.length) {
+    return { lastRunAt: null, lastRunStatus: null, hoursSinceLastRun: null, healthy: false, note: "El cron de snapshots nunca ha corrido." };
+  }
+  const lastRunAt = rows[0].started_at;
+  const hoursSince = (Date.now() - new Date(lastRunAt).getTime()) / 3_600_000;
+  // The daily task runs once every ~24h; call it unhealthy past 48h so a missed
+  // run doesn't false-positive, but a genuinely stalled cron still gets flagged.
+  const healthy = hoursSince <= 48 && rows[0].status !== "failed";
+  return {
+    lastRunAt: new Date(lastRunAt).toISOString(),
+    lastRunStatus: rows[0].status,
+    hoursSinceLastRun: Math.round(hoursSince),
+    healthy,
+    note: healthy
+      ? "El cron de snapshots corrio recientemente."
+      : `El cron de snapshots no corre hace ${Math.round(hoursSince)}h (ultimo estado: ${rows[0].status}). Revisar CRON_SECRET y logs de Vercel.`,
+  };
+}
+
 // =====================================================================
 // Read helpers used by the dashboard. All return [] / null when DB empty
 // so callers can fall back to live API calls without special-casing nulls.
