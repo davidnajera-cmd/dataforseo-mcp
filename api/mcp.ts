@@ -10,11 +10,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 // without truncation. Per-tool internal time budgets still apply.
 export const config = { maxDuration: 300 };
 
-// Set this to true once you want to enforce API keys on the public /mcp
-// endpoint. Until then, the endpoint is open (matching the historic
-// behaviour Claude.ai connected to). Bundles are still respected via
-// query string regardless of auth state.
-const REQUIRE_API_KEY_DEFAULT = process.env.MCP_REQUIRE_API_KEY === "true";
+// The MCP endpoint provides access to paid providers and mutating workflows.
+// Authentication is therefore mandatory for every bundle, including the
+// default full bundle. Never make public access depend on an environment flag.
+export function isMcpApiKeyRequired(_bundle: BundleName | undefined): boolean {
+  return true;
+}
 
 export default async function handler(
   req: IncomingMessage & { body?: unknown; method?: string; headers: Record<string, string | string[] | undefined>; url?: string },
@@ -41,12 +42,10 @@ export default async function handler(
   }
 
   // Auth: x-api-key header (preferred) OR Authorization: Bearer <key>.
-  // When a bundle is requested OR the env flag forces it, an API key is required.
-  // Default no-bundle (the legacy /mcp) stays open for Claude.ai backwards compat
-  // unless MCP_REQUIRE_API_KEY=true in env.
+  // Every MCP connection must be authenticated, including the default bundle.
   const apiKey = headerString(req.headers["x-api-key"])
     ?? extractBearer(headerString(req.headers["authorization"]));
-  const requireKey = REQUIRE_API_KEY_DEFAULT || bundle !== undefined;
+  const requireKey = isMcpApiKeyRequired(bundle);
 
   if (requireKey) {
     const v = await validateApiKey(apiKey);
