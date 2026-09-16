@@ -486,7 +486,13 @@ async function getCountryConfig(country: SiteCode): Promise<CountryConfig> {
       domain: await getRuntimeVariable("DNA_DOMAIN_MX") ?? "dnamusic.mx",
       canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL_MX") ?? "https://dnamusic.mx/",
       locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484),
-      published: (await getRuntimeVariable("DNA_MX_PUBLISHED")) === "true",
+      // Defaults to published: DNA_MX_PUBLISHED was never registered as a settable
+      // variable (nobody could ever set it via the admin UI), so this always read as
+      // false and silently skipped GSC for Mexico even though the site is real and
+      // has working data via a URL-prefix property (the sc-domain: format 403s, but
+      // https://dnamusic.mx/ doesn't — confirmed live). Only an explicit "false"
+      // should suppress it now.
+      published: (await getRuntimeVariable("DNA_MX_PUBLISHED")) !== "false",
       ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_MX")) ?? null,
     };
   }

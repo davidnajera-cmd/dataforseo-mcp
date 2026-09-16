@@ -37,6 +37,7 @@ export const RUNTIME_VARIABLE_SPECS: RuntimeVariableSpec[] = [
   { name: "DNA_INSPECTION_URL", group: "DNA Music", label: "URL inspeccion", description: "URL que pertenece a la propiedad GSC.", sensitive: false, requiredFor: "URL Inspection" },
   { name: "DNA_LOCATION_CO", group: "DNA Music", label: "Location code CO", description: "Codigo DataForSEO para Colombia.", sensitive: false, requiredFor: "Rankings locales" },
   { name: "DNA_LOCATION_MX", group: "DNA Music", label: "Location code MX", description: "Codigo DataForSEO para Mexico.", sensitive: false, requiredFor: "Rankings locales" },
+  { name: "DNA_MX_PUBLISHED", group: "DNA Music", label: "Mexico publicado", description: "Pon 'false' solo si el sitio de Mexico deja de estar en producción y su GSC debe omitirse. Por defecto se asume publicado.", sensitive: false, requiredFor: "GSC Mexico" },
   { name: "DNA_SITE_LTA", group: "La Tienda de Audio", label: "GSC LTA", description: "Propiedad GSC La Tienda de Audio, ej. sc-domain:latiendadeaudio.com.", sensitive: false, requiredFor: "GSC La Tienda de Audio" },
   { name: "DNA_DOMAIN_LTA", group: "La Tienda de Audio", label: "Dominio LTA", description: "Dominio para DataForSEO La Tienda de Audio.", sensitive: false, requiredFor: "Competencia La Tienda de Audio" },
   { name: "DNA_LOCATION_LTA", group: "La Tienda de Audio", label: "Location code LTA", description: "Codigo DataForSEO de mercado principal de La Tienda de Audio.", sensitive: false, requiredFor: "Rankings locales LTA" },
