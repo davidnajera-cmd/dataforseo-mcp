@@ -21,6 +21,18 @@ export function isMcpRateLimitExceeded(requestCount: number): boolean {
   return requestCount > MCP_API_KEY_REQUESTS_PER_MINUTE;
 }
 
+/**
+ * Claude and ChatGPT probe a remote MCP server with `initialize` before they
+ * attach configured static request headers.  Permit that single capability-
+ * free handshake so they can persist the connector configuration; every
+ * discoverable or executable MCP operation still requires an API key.
+ */
+export function isUnauthenticatedConnectorHandshake(body: unknown): boolean {
+  return typeof body === "object"
+    && body !== null
+    && (body as { method?: unknown }).method === "initialize";
+}
+
 export default async function handler(
   req: IncomingMessage & { body?: unknown; method?: string; headers: Record<string, string | string[] | undefined>; url?: string },
   res: ServerResponse
@@ -45,13 +57,26 @@ export default async function handler(
     bundle = bundleParam;
   }
 
+  let body = (req as unknown as { body?: unknown }).body;
+  if (!body && req.method === "POST") {
+    body = await new Promise<string>((resolve) => {
+      let data = "";
+      req.on("data", (chunk: Buffer) => { data += chunk.toString(); });
+      req.on("end", () => resolve(data));
+    });
+    if (typeof body === "string") {
+      try { body = JSON.parse(body); } catch { /* keep as string */ }
+    }
+  }
+
   // Auth: x-api-key header (preferred) OR Authorization: Bearer <key>.
-  // Every MCP connection must be authenticated, including the default bundle.
+  // The only unauthenticated exception is the capability-free initialize
+  // handshake required by clients before they apply static request headers.
   const apiKey = headerString(req.headers["x-api-key"])
     ?? extractBearer(headerString(req.headers["authorization"]));
   const requireKey = isMcpApiKeyRequired(bundle);
 
-  if (requireKey) {
+  if (requireKey && !isUnauthenticatedConnectorHandshake(body)) {
     const v = await validateApiKey(apiKey);
     if (!v.valid) {
       res.writeHead(401, { "Content-Type": "application/json" });
@@ -80,18 +105,6 @@ export default async function handler(
     sessionIdGenerator: undefined, // stateless mode
   });
   await server.connect(transport);
-
-  let body = (req as unknown as { body?: unknown }).body;
-  if (!body && req.method === "POST") {
-    body = await new Promise<string>((resolve) => {
-      let data = "";
-      req.on("data", (chunk: Buffer) => { data += chunk.toString(); });
-      req.on("end", () => resolve(data));
-    });
-    if (typeof body === "string") {
-      try { body = JSON.parse(body); } catch { /* keep as string */ }
-    }
-  }
 
   await transport.handleRequest(req, res, body);
 }
