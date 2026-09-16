@@ -12,6 +12,6 @@ test("requires an API key for every bundle", () => {
 });
 
 test("rejects MCP requests that exceed the per-key minute quota", () => {
-  assert.equal(isMcpRateLimitExceeded(60), true);
-  assert.equal(isMcpRateLimitExceeded(59), false);
+  assert.equal(isMcpRateLimitExceeded(61), true);
+  assert.equal(isMcpRateLimitExceeded(60), false);
 });

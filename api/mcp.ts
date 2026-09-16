@@ -1,6 +1,6 @@
 import { createServer } from "../src/server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { validateApiKey } from "../src/api-key-auth.js";
+import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -15,6 +15,10 @@ export const config = { maxDuration: 300 };
 // default full bundle. Never make public access depend on an environment flag.
 export function isMcpApiKeyRequired(_bundle: BundleName | undefined): boolean {
   return true;
+}
+
+export function isMcpRateLimitExceeded(requestCount: number): boolean {
+  return requestCount > MCP_API_KEY_REQUESTS_PER_MINUTE;
 }
 
 export default async function handler(
@@ -58,6 +62,15 @@ export default async function handler(
     if (v.bundle_scope && bundle && !v.bundle_scope.includes(bundle)) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden", reason: "bundle_not_in_key_scope", allowed_bundles: v.bundle_scope }));
+      return;
+    }
+    const quota = await consumeMcpApiKeyQuota(apiKey!);
+    if (!quota.allowed || isMcpRateLimitExceeded(quota.requestCount)) {
+      res.writeHead(429, {
+        "Content-Type": "application/json",
+        "Retry-After": "60",
+      });
+      res.end(JSON.stringify({ error: "rate_limited", retry_after_seconds: 60 }));
       return;
     }
   }

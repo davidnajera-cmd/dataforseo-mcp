@@ -11,6 +11,7 @@ import { neon } from "@neondatabase/serverless";
 
 let client: ReturnType<typeof neon> | null = null;
 let initialized = false;
+export const MCP_API_KEY_REQUESTS_PER_MINUTE = 60;
 
 function getSql() {
   if (!process.env.DATABASE_URL) return null;
@@ -46,6 +47,13 @@ export async function ensureApiKeySchema(): Promise<void> {
     )
   `;
   await sql`create index if not exists seo_api_keys_active on seo_api_keys (revoked_at) where revoked_at is null`;
+  await sql`
+    create table if not exists seo_api_key_rate_limits (
+      api_key_id bigint primary key references seo_api_keys(id) on delete cascade,
+      window_started_at timestamptz not null default now(),
+      request_count integer not null default 0
+    )
+  `;
   initialized = true;
 }
 
@@ -117,4 +125,31 @@ export async function validateApiKey(rawKey: string | undefined): Promise<{ vali
   // Fire-and-forget update; don't block the request.
   sql`update seo_api_keys set last_used_at = now(), request_count = request_count + 1 where id = ${row.id}`.catch(() => {});
   return { valid: true, name: row.name, bundle_scope: row.bundle_scope };
+}
+
+export async function consumeMcpApiKeyQuota(rawKey: string): Promise<{ allowed: boolean; requestCount: number }> {
+  await ensureApiKeySchema();
+  const sql = getSql();
+  if (!sql) return { allowed: false, requestCount: 0 };
+
+  const keyHash = hashKey(rawKey);
+  const rows = await sql`
+    insert into seo_api_key_rate_limits (api_key_id, window_started_at, request_count)
+    select id, now(), 1
+    from seo_api_keys
+    where key_hash = ${keyHash} and revoked_at is null
+    on conflict (api_key_id) do update set
+      window_started_at = case
+        when seo_api_key_rate_limits.window_started_at <= now() - interval '1 minute' then now()
+        else seo_api_key_rate_limits.window_started_at
+      end,
+      request_count = case
+        when seo_api_key_rate_limits.window_started_at <= now() - interval '1 minute' then 1
+        else seo_api_key_rate_limits.request_count + 1
+      end
+    returning request_count
+  ` as Array<{ request_count: number }>;
+
+  const requestCount = rows[0]?.request_count ?? 0;
+  return { allowed: requestCount > 0 && requestCount <= MCP_API_KEY_REQUESTS_PER_MINUTE, requestCount };
 }
