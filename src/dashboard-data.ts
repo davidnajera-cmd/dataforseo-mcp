@@ -17,9 +17,41 @@ import {
   hasAnyWebLeads,
 } from "./persistence-store.js";
 
-export type CountryCode = "all" | "co" | "mx" | "lta";
+export type SiteCode = "co" | "mx" | "mx_edu" | "ar" | "us" | "cl" | "pe" | "encasa" | "lta";
+export type CountryCode = "all" | SiteCode;
 export type Timeframe = "monthly" | "weekly";
 export type Channel = "all" | "blog" | "programs" | "campaigns";
+
+// One entry per tracked property. Adding a market is: one row here, plus the matching
+// runtime variables in src/runtime-config.ts if you want to override a default. Everything
+// else (GSC loading, comparison table, "Sitio" filter) derives from this list — nothing
+// else in this file hardcodes which sites exist.
+type SiteRegistryEntry = {
+  code: SiteCode;
+  name: string;
+  siteVar: string;
+  defaultSite: string;
+  domainVar: string;
+  defaultDomain: string;
+  canonicalVar: string;
+  defaultCanonical: string;
+  locationVar: string;
+  defaultLocationCode: number;
+  ga4Var: string;
+  ga4FallbackVar?: string;
+};
+
+const SITE_REGISTRY: SiteRegistryEntry[] = [
+  { code: "co", name: "Colombia", siteVar: "DNA_SITE_CO", defaultSite: "https://dnamusic.edu.co/", domainVar: "DNA_DOMAIN_CO", defaultDomain: "dnamusic.edu.co", canonicalVar: "DNA_CANONICAL_URL", defaultCanonical: "https://www.dnamusic.edu.co/", locationVar: "DNA_LOCATION_CO", defaultLocationCode: 2170, ga4Var: "GA4_PROPERTY_ID_CO", ga4FallbackVar: "GA4_PROPERTY_ID" },
+  { code: "mx", name: "Mexico", siteVar: "DNA_SITE_MX", defaultSite: "sc-domain:dnamusic.mx", domainVar: "DNA_DOMAIN_MX", defaultDomain: "dnamusic.mx", canonicalVar: "DNA_CANONICAL_URL_MX", defaultCanonical: "https://dnamusic.mx/", locationVar: "DNA_LOCATION_MX", defaultLocationCode: 2484, ga4Var: "GA4_PROPERTY_ID_MX" },
+  { code: "mx_edu", name: "Mexico (dnamusic.edu.co)", siteVar: "DNA_SITE_MX_EDU", defaultSite: "https://mexico.dnamusic.edu.co/", domainVar: "DNA_DOMAIN_MX_EDU", defaultDomain: "mexico.dnamusic.edu.co", canonicalVar: "DNA_CANONICAL_URL_MX_EDU", defaultCanonical: "https://mexico.dnamusic.edu.co/", locationVar: "DNA_LOCATION_MX_EDU", defaultLocationCode: 2484, ga4Var: "GA4_PROPERTY_ID_MX_EDU" },
+  { code: "ar", name: "Argentina", siteVar: "DNA_SITE_AR", defaultSite: "https://argentina.dnamusic.edu.co/", domainVar: "DNA_DOMAIN_AR", defaultDomain: "argentina.dnamusic.edu.co", canonicalVar: "DNA_CANONICAL_URL_AR", defaultCanonical: "https://argentina.dnamusic.edu.co/", locationVar: "DNA_LOCATION_AR", defaultLocationCode: 2032, ga4Var: "GA4_PROPERTY_ID_AR" },
+  { code: "us", name: "Estados Unidos", siteVar: "DNA_SITE_US", defaultSite: "https://dnamusic.us/", domainVar: "DNA_DOMAIN_US", defaultDomain: "dnamusic.us", canonicalVar: "DNA_CANONICAL_URL_US", defaultCanonical: "https://dnamusic.us/", locationVar: "DNA_LOCATION_US", defaultLocationCode: 2840, ga4Var: "GA4_PROPERTY_ID_US" },
+  { code: "cl", name: "Chile", siteVar: "DNA_SITE_CL", defaultSite: "https://dnamusic.cl/", domainVar: "DNA_DOMAIN_CL", defaultDomain: "dnamusic.cl", canonicalVar: "DNA_CANONICAL_URL_CL", defaultCanonical: "https://dnamusic.cl/", locationVar: "DNA_LOCATION_CL", defaultLocationCode: 2152, ga4Var: "GA4_PROPERTY_ID_CL" },
+  { code: "pe", name: "Peru", siteVar: "DNA_SITE_PE", defaultSite: "https://dnamusic.pe/", domainVar: "DNA_DOMAIN_PE", defaultDomain: "dnamusic.pe", canonicalVar: "DNA_CANONICAL_URL_PE", defaultCanonical: "https://dnamusic.pe/", locationVar: "DNA_LOCATION_PE", defaultLocationCode: 2604, ga4Var: "GA4_PROPERTY_ID_PE" },
+  { code: "encasa", name: "DNA Music en Casa", siteVar: "DNA_SITE_ENCASA", defaultSite: "https://dnamusicencasa.com/", domainVar: "DNA_DOMAIN_ENCASA", defaultDomain: "dnamusicencasa.com", canonicalVar: "DNA_CANONICAL_URL_ENCASA", defaultCanonical: "https://dnamusicencasa.com/", locationVar: "DNA_LOCATION_ENCASA", defaultLocationCode: 2170, ga4Var: "GA4_PROPERTY_ID_ENCASA" },
+  { code: "lta", name: "La Tienda de Audio", siteVar: "DNA_SITE_LTA", defaultSite: "sc-domain:latiendadeaudio.com", domainVar: "DNA_DOMAIN_LTA", defaultDomain: "latiendadeaudio.com", canonicalVar: "DNA_CANONICAL_URL_LTA", defaultCanonical: "https://latiendadeaudio.com/", locationVar: "DNA_LOCATION_LTA", defaultLocationCode: 2170, ga4Var: "GA4_PROPERTY_ID_LTA" },
+];
 
 export type DashboardFilters = {
   country: CountryCode;
@@ -46,10 +78,8 @@ type TrendPoint = {
 
 type CountryMetric = {
   metric: string;
-  colombia: string;
-  mexico: string;
-  lta: string;
-  leader: "Colombia" | "Mexico" | "La Tienda de Audio" | "Empate" | "Sin datos";
+  values: Array<{ code: SiteCode; name: string; value: string; raw: number | null }>;
+  leader: string;
 };
 
 type PageMetric = {
@@ -207,11 +237,9 @@ function newestIsoDate(dates: Array<string | null>): string | null {
   return valid.length ? valid.sort().at(-1)! : null;
 }
 
-type SiteCode = "co" | "mx" | "lta";
-
 type CountryConfig = {
   code: SiteCode;
-  name: "Colombia" | "Mexico" | "La Tienda de Audio";
+  name: string;
   site: string;
   domain: string;
   canonicalUrl: string;
@@ -247,7 +275,7 @@ export function normalizeFilters(input: Partial<DashboardFilters>): DashboardFil
 
 export async function collectSeoDashboardData(input: Partial<DashboardFilters>): Promise<SeoDashboardData> {
   const filters = normalizeFilters(input);
-  const countries = filters.country === "all" ? (["co", "mx", "lta"] as const) : ([filters.country] as const);
+  const countries = filters.country === "all" ? SITE_REGISTRY.map((entry) => entry.code) : [filters.country];
   const configs = await Promise.all(countries.map(getCountryConfig));
   const sources: SourceStatus[] = [];
 
@@ -429,7 +457,7 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       ],
       opportunities: buildRealOpportunities(gsc, dataforseo, pagespeed),
     },
-    comparison: buildComparison(gsc.byCountry),
+    comparison: buildComparison(gsc.byCountry, configs),
     sources: sources.sort((a, b) => a.name.localeCompare(b.name)),
     ga4: {
       sessions: ga4.totals.sessions,
@@ -466,46 +494,32 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
 }
 
 async function getCountryConfig(country: SiteCode): Promise<CountryConfig> {
-  if (country === "co") {
-    return {
-      code: "co",
-      name: "Colombia",
-      site: await getRuntimeVariable("DNA_SITE_CO") ?? "https://dnamusic.edu.co/",
-      domain: await getRuntimeVariable("DNA_DOMAIN_CO") ?? "dnamusic.edu.co",
-      canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL") ?? "https://www.dnamusic.edu.co/",
-      locationCode: Number(await getRuntimeVariable("DNA_LOCATION_CO") ?? 2170),
-      published: true,
-      ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_CO")) ?? (await getRuntimeVariable("GA4_PROPERTY_ID")) ?? null,
-    };
-  }
-  if (country === "mx") {
-    return {
-      code: "mx",
-      name: "Mexico",
-      site: await getRuntimeVariable("DNA_SITE_MX") ?? "sc-domain:dnamusic.mx",
-      domain: await getRuntimeVariable("DNA_DOMAIN_MX") ?? "dnamusic.mx",
-      canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL_MX") ?? "https://dnamusic.mx/",
-      locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484),
-      // Defaults to published: DNA_MX_PUBLISHED was never registered as a settable
-      // variable (nobody could ever set it via the admin UI), so this always read as
-      // false and silently skipped GSC for Mexico even though the site is real and
-      // has working data via a URL-prefix property (the sc-domain: format 403s, but
-      // https://dnamusic.mx/ doesn't — confirmed live). Only an explicit "false"
-      // should suppress it now.
-      published: (await getRuntimeVariable("DNA_MX_PUBLISHED")) !== "false",
-      ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_MX")) ?? null,
-    };
-  }
-  // lta
+  const entry = SITE_REGISTRY.find((item) => item.code === country);
+  if (!entry) throw new Error(`Unknown site code: ${country}`);
+
+  // Every site defaults to published — DNA_MX_PUBLISHED used to be the only such flag,
+  // and it was never registered as a settable variable (nobody could ever set it via
+  // the admin UI), so it always read as unset and silently skipped GSC for Mexico even
+  // though the site is real and has working data via a URL-prefix property (the
+  // sc-domain: format 403s, but https://dnamusic.mx/ doesn't — confirmed live).
+  // Generalized here so any site can be paused the same way if it's ever needed, but
+  // only an explicit "false" suppresses it — the default is always published.
+  const publishedVar = `DNA_${entry.code.toUpperCase()}_PUBLISHED`;
+  const published = (await getRuntimeVariable(publishedVar)) !== "false";
+
+  const ga4PropertyId = (await getRuntimeVariable(entry.ga4Var))
+    ?? (entry.ga4FallbackVar ? await getRuntimeVariable(entry.ga4FallbackVar) : null)
+    ?? null;
+
   return {
-    code: "lta",
-    name: "La Tienda de Audio",
-    site: await getRuntimeVariable("DNA_SITE_LTA") ?? "sc-domain:latiendadeaudio.com",
-    domain: await getRuntimeVariable("DNA_DOMAIN_LTA") ?? "latiendadeaudio.com",
-    canonicalUrl: await getRuntimeVariable("DNA_CANONICAL_URL_LTA") ?? "https://latiendadeaudio.com/",
-    locationCode: Number(await getRuntimeVariable("DNA_LOCATION_LTA") ?? 2170),
-    published: true,
-    ga4PropertyId: (await getRuntimeVariable("GA4_PROPERTY_ID_LTA")) ?? null,
+    code: entry.code,
+    name: entry.name,
+    site: (await getRuntimeVariable(entry.siteVar)) ?? entry.defaultSite,
+    domain: (await getRuntimeVariable(entry.domainVar)) ?? entry.defaultDomain,
+    canonicalUrl: (await getRuntimeVariable(entry.canonicalVar)) ?? entry.defaultCanonical,
+    locationCode: Number((await getRuntimeVariable(entry.locationVar)) ?? entry.defaultLocationCode),
+    published,
+    ga4PropertyId,
   };
 }
 
@@ -524,8 +538,8 @@ async function loadSearchConsole(filters: DashboardFilters, configs: CountryConf
   const errors: string[] = [];
 
   for (const config of configs) {
-    if (!config.published && config.code === "mx") {
-      errors.push("Mexico: sitio marcado como no publicado.");
+    if (!config.published) {
+      errors.push(`${config.name}: sitio marcado como no publicado.`);
       continue;
     }
 
@@ -652,7 +666,7 @@ async function loadDataForSeo(configs: CountryConfig[]) {
 
   try {
     const results = await Promise.all(configs
-      .filter((config) => config.published || config.code !== "mx")
+      .filter((config) => config.published)
       .map((config) => post("/dataforseo_labs/google/domain_rank_overview/live", {
         target: config.domain,
         location_code: config.locationCode,
@@ -809,30 +823,27 @@ function buildRealOpportunities(gsc: GscData, dataforseo: { top3: number | null;
   return opportunities;
 }
 
-function buildComparison(data: GscData["byCountry"]): CountryMetric[] {
-  return [
-    {
-      metric: "Clics organicos",
-      colombia: displayNumber(data.co.clicks),
-      mexico: displayNumber(data.mx.clicks),
-      lta: displayNumber(data.lta.clicks),
-      leader: leader3(data.co.clicks, data.mx.clicks, data.lta.clicks),
-    },
-    {
-      metric: "Impresiones",
-      colombia: displayNumber(data.co.impressions),
-      mexico: displayNumber(data.mx.impressions),
-      lta: displayNumber(data.lta.impressions),
-      leader: leader3(data.co.impressions, data.mx.impressions, data.lta.impressions),
-    },
-    {
-      metric: "CTR promedio",
-      colombia: displayPercent(data.co.ctr),
-      mexico: displayPercent(data.mx.ctr),
-      lta: displayPercent(data.lta.ctr),
-      leader: leader3(data.co.ctr, data.mx.ctr, data.lta.ctr),
-    },
+function buildComparison(data: GscData["byCountry"], configs: CountryConfig[]): CountryMetric[] {
+  const metricDefs: Array<{ label: string; key: keyof GscData["byCountry"][SiteCode]; format: (v: number | null) => string }> = [
+    { label: "Clics organicos", key: "clicks", format: displayNumber },
+    { label: "Impresiones", key: "impressions", format: displayNumber },
+    { label: "CTR promedio", key: "ctr", format: displayPercent },
   ];
+  return metricDefs.map(({ label, key, format }) => {
+    const values = configs.map((config) => {
+      const raw = data[config.code]?.[key] ?? null;
+      return { code: config.code, name: config.name, raw, value: format(raw) };
+    });
+    return { metric: label, values, leader: pickLeader(values) };
+  });
+}
+
+function pickLeader(values: Array<{ name: string; raw: number | null }>): string {
+  const valid = values.filter((v): v is { name: string; raw: number } => v.raw !== null);
+  if (!valid.length) return "Sin datos";
+  const max = Math.max(...valid.map((v) => v.raw));
+  const winners = valid.filter((v) => v.raw === max);
+  return winners.length > 1 ? "Empate" : winners[0].name;
 }
 
 function emptyGsc(message: string): GscData {
@@ -851,11 +862,9 @@ function emptyGsc(message: string): GscData {
 }
 
 function emptyCountryData(): GscData["byCountry"] {
-  return {
-    co: { clicks: null, impressions: null, ctr: null },
-    mx: { clicks: null, impressions: null, ctr: null },
-    lta: { clicks: null, impressions: null, ctr: null },
-  };
+  return Object.fromEntries(
+    SITE_REGISTRY.map((entry) => [entry.code, { clicks: null, impressions: null, ctr: null }])
+  ) as GscData["byCountry"];
 }
 
 function sourceStatus(data: { live: boolean; error?: boolean }): SourceStatus["status"] {
@@ -872,30 +881,12 @@ function displayPercent(value: number | null) {
   return value === null ? "Sin datos" : `${value.toFixed(2)}%`;
 }
 
-function leader(a: number | null, b: number | null): "Colombia" | "Mexico" | "Empate" | "Sin datos" {
-  if (a === null || b === null) return "Sin datos";
-  if (a === b) return "Empate";
-  return a > b ? "Colombia" : "Mexico";
-}
-
-function leader3(co: number | null, mx: number | null, lta: number | null): CountryMetric["leader"] {
-  const entries: Array<["Colombia" | "Mexico" | "La Tienda de Audio", number | null]> = [
-    ["Colombia", co], ["Mexico", mx], ["La Tienda de Audio", lta],
-  ];
-  const valid = entries.filter(([, v]) => v !== null) as Array<["Colombia" | "Mexico" | "La Tienda de Audio", number]>;
-  if (valid.length === 0) return "Sin datos";
-  const max = Math.max(...valid.map(([, v]) => v));
-  const winners = valid.filter(([, v]) => v === max);
-  if (winners.length > 1) return "Empate";
-  return winners[0][0];
-}
-
 function formatNumber(value: number): string {
   return new Intl.NumberFormat("es-CO").format(Math.round(value));
 }
 
 function isCountry(value: unknown): value is CountryCode {
-  return value === "all" || value === "co" || value === "mx" || value === "lta";
+  return value === "all" || SITE_REGISTRY.some((entry) => entry.code === value);
 }
 
 function isChannel(value: unknown): value is Channel {

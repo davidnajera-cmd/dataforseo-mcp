@@ -985,6 +985,47 @@ select {
   gap: 0;
 }
 
+.comparison-metric {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.comparison-metric:last-child {
+  border-bottom: 0;
+}
+
+.comparison-metric-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.comparison-metric-rows {
+  display: grid;
+  gap: 8px;
+}
+
+.comparison-site-row {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.9fr) minmax(0, 2fr) minmax(60px, auto);
+  align-items: center;
+  gap: 10px;
+  font-size: var(--text-sm);
+}
+
+.comparison-site-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.comparison-site-value {
+  text-align: right;
+  font-weight: 600;
+}
+
 .comparison-row {
   grid-template-columns: minmax(0, 1.1fr) repeat(3, minmax(90px, 0.4fr));
 }

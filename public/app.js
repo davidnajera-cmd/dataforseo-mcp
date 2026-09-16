@@ -29,7 +29,7 @@ const modules = {
       backlinks: "Backlinks",
       leads: "Leads / Conversiones",
       technical: "Salud Tecnica",
-      comparison: "CO vs MX vs LTA",
+      comparison: "Comparativo de sitios",
       business: "Insights de Negocio",
       variables: "Variables",
     },
@@ -52,6 +52,12 @@ const modules = {
 const SITE_LABELS = {
   "dnamusic.edu.co": "Colombia",
   "dnamusic.mx": "Mexico",
+  "mexico.dnamusic.edu.co": "Mexico (dnamusic.edu.co)",
+  "argentina.dnamusic.edu.co": "Argentina",
+  "dnamusic.us": "Estados Unidos",
+  "dnamusic.cl": "Chile",
+  "dnamusic.pe": "Peru",
+  "dnamusicencasa.com": "DNA Music en Casa",
   "latiendadeaudio.com": "La Tienda de Audio",
 };
 
@@ -1387,30 +1393,39 @@ function renderLeads(channels, ga4) {
 
 function renderComparison(rows) {
   const node = document.querySelector("#comparisonTable");
-  const validMarkets = toArray(rows).filter((row) => row.colombia !== "Sin datos" || row.mexico !== "Sin datos" || row.lta !== "Sin datos");
-  const marketsWithData = new Set();
-  validMarkets.forEach((row) => {
-    if (row.colombia !== "Sin datos") marketsWithData.add("co");
-    if (row.mexico !== "Sin datos") marketsWithData.add("mx");
-    if (row.lta !== "Sin datos") marketsWithData.add("lta");
-  });
-  if (marketsWithData.size < 2) {
-    node.innerHTML = `<div class="empty-state">Comparativo incompleto: hoy solo hay datos confiables para ${marketsWithData.has("co") ? "Colombia" : marketsWithData.has("mx") ? "Mexico" : marketsWithData.has("lta") ? "La Tienda de Audio" : "ningún mercado adicional"}.</div>`;
+  const metricRows = toArray(rows);
+  const sitesWithData = new Set();
+  metricRows.forEach((row) => toArray(row.values).forEach((v) => { if (v.raw !== null) sitesWithData.add(v.name); }));
+  if (sitesWithData.size < 2) {
+    const only = [...sitesWithData][0];
+    node.innerHTML = `<div class="empty-state">Comparativo incompleto: hoy solo hay datos confiables para ${esc(only ?? "ningún sitio")}.</div>`;
     return;
   }
+  // Sites are a dynamic, growing list (not a fixed CO/MX/LTA trio), so each metric
+  // renders as its own ranked mini-leaderboard instead of a fixed-width table —
+  // that's the only layout that stays readable whether there are 3 sites or 9.
   // eslint-disable-next-line no-unsanitized/property
-  node.innerHTML = `
-    <div class="comparison-row header"><span>Metrica</span><span>Colombia</span><span>Mexico</span><span>La Tienda de Audio</span><span>Lider</span></div>
-    ${rows.map((row) => `
-      <div class="comparison-row">
-        <strong>${esc(row.metric)}</strong>
-        <span>${esc(row.colombia)}</span>
-        <span>${esc(row.mexico)}</span>
-        <span>${esc(row.lta ?? "Sin datos")}</span>
-        <span class="badge">${esc(row.leader)}</span>
+  node.innerHTML = metricRows.map((row) => {
+    const ranked = [...toArray(row.values)].sort((a, b) => (b.raw ?? -Infinity) - (a.raw ?? -Infinity));
+    const max = Math.max(1, ...ranked.map((v) => v.raw ?? 0));
+    return `
+      <div class="comparison-metric">
+        <div class="comparison-metric-head">
+          <strong>${esc(row.metric)}</strong>
+          <span class="badge">Lider: ${esc(row.leader)}</span>
+        </div>
+        <div class="comparison-metric-rows">
+          ${ranked.map((v) => `
+            <div class="comparison-site-row">
+              <span class="comparison-site-name">${esc(v.name)}</span>
+              <div class="bar"><span style="width:${v.raw === null ? 0 : Math.max(4, (v.raw / max) * 100)}%"></span></div>
+              <span class="comparison-site-value">${esc(v.value)}</span>
+            </div>
+          `).join("")}
+        </div>
       </div>
-    `).join("")}
-  `;
+    `;
+  }).join("");
 }
 
 function renderAiVisibility(ai) {

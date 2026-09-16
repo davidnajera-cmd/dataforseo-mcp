@@ -342,14 +342,20 @@ export async function collectSocialDashboardData(input: Partial<DashboardFilters
   };
 }
 
+// Every SiteCode is a real GSC/SEO property, but only a subset has its own Zernio social
+// profile. Anything without a ZERNIO_PROFILE_ID_<CODE> entry here returns no profile IDs
+// (an honest "not configured" state) instead of silently falling through to a wrong
+// market's data — that used to be the fallback for every non-CO/MX site, which would have
+// quietly mixed a new market's SEO data with La Tienda de Audio's social profile.
+const SOCIAL_PROFILE_VAR_BY_SITE: Partial<Record<SiteCode, string>> = {
+  co: "ZERNIO_PROFILE_ID_CO",
+  mx: "ZERNIO_PROFILE_ID_MX",
+  lta: "ZERNIO_PROFILE_ID_LTA",
+};
+
 async function getSocialSiteConfig(site: SiteCode): Promise<SocialSiteConfig> {
-  if (site === "co") {
-    return { code: "co", profileIds: await getConfiguredProfileIds("ZERNIO_PROFILE_ID_CO") };
-  }
-  if (site === "mx") {
-    return { code: "mx", profileIds: await getConfiguredProfileIds("ZERNIO_PROFILE_ID_MX") };
-  }
-  return { code: "lta", profileIds: await getConfiguredProfileIds("ZERNIO_PROFILE_ID_LTA") };
+  const variableName = SOCIAL_PROFILE_VAR_BY_SITE[site];
+  return { code: site, profileIds: variableName ? await getConfiguredProfileIds(variableName) : [] };
 }
 
 async function loadSocialDashboard(configs: SocialSiteConfig[], filters: DashboardFilters): Promise<SocialData> {
@@ -613,7 +619,7 @@ async function loadSocialDashboard(configs: SocialSiteConfig[], filters: Dashboa
   }
 }
 
-async function getConfiguredProfileIds(primaryVariable: "ZERNIO_PROFILE_ID_CO" | "ZERNIO_PROFILE_ID_MX" | "ZERNIO_PROFILE_ID_LTA"): Promise<string[]> {
+async function getConfiguredProfileIds(primaryVariable: string): Promise<string[]> {
   const primary = parseProfileIds(await getRuntimeVariable(primaryVariable));
   if (primary.length) return primary;
   return parseProfileIds(await getRuntimeVariable("ZERNIO_DEFAULT_PROFILE_ID"));
