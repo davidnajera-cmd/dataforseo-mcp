@@ -22,15 +22,15 @@ export function isMcpRateLimitExceeded(requestCount: number): boolean {
 }
 
 /**
- * Claude and ChatGPT probe a remote MCP server with `initialize` before they
- * attach configured static request headers.  Permit that single capability-
- * free handshake so they can persist the connector configuration; every
- * discoverable or executable MCP operation still requires an API key.
+ * Claude and ChatGPT probe a remote MCP server with `initialize` and
+ * `tools/list` before they attach configured static request headers. Permit
+ * only that discovery exchange so they can persist the connector
+ * configuration; every executable MCP operation still requires an API key.
  */
-export function isUnauthenticatedConnectorHandshake(body: unknown): boolean {
+export function isUnauthenticatedConnectorDiscovery(body: unknown): boolean {
   return typeof body === "object"
     && body !== null
-    && (body as { method?: unknown }).method === "initialize";
+    && ["initialize", "tools/list"].includes((body as { method?: unknown }).method as string);
 }
 
 export default async function handler(
@@ -70,13 +70,13 @@ export default async function handler(
   }
 
   // Auth: x-api-key header (preferred) OR Authorization: Bearer <key>.
-  // The only unauthenticated exception is the capability-free initialize
-  // handshake required by clients before they apply static request headers.
+  // The only unauthenticated exception is connector discovery required by
+  // clients before they apply static request headers.
   const apiKey = headerString(req.headers["x-api-key"])
     ?? extractBearer(headerString(req.headers["authorization"]));
   const requireKey = isMcpApiKeyRequired(bundle);
 
-  if (requireKey && !isUnauthenticatedConnectorHandshake(body)) {
+  if (requireKey && !isUnauthenticatedConnectorDiscovery(body)) {
     const v = await validateApiKey(apiKey);
     if (!v.valid) {
       res.writeHead(401, { "Content-Type": "application/json" });

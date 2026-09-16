@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isMcpApiKeyRequired, isMcpRateLimitExceeded, isUnauthenticatedConnectorHandshake } from "../api/mcp.js";
+import { isMcpApiKeyRequired, isMcpRateLimitExceeded, isUnauthenticatedConnectorDiscovery } from "../api/mcp.js";
 
 test("requires an API key for the default MCP endpoint", () => {
   assert.equal(isMcpApiKeyRequired(undefined), true);
@@ -16,8 +16,9 @@ test("rejects MCP requests that exceed the per-key minute quota", () => {
   assert.equal(isMcpRateLimitExceeded(60), false);
 });
 
-test("only permits an unauthenticated initialize handshake for connector setup", () => {
-  assert.equal(isUnauthenticatedConnectorHandshake({ method: "initialize" }), true);
-  assert.equal(isUnauthenticatedConnectorHandshake({ method: "tools/list" }), false);
-  assert.equal(isUnauthenticatedConnectorHandshake(undefined), false);
+test("only permits unauthenticated connector discovery", () => {
+  assert.equal(isUnauthenticatedConnectorDiscovery({ method: "initialize" }), true);
+  assert.equal(isUnauthenticatedConnectorDiscovery({ method: "tools/list" }), true);
+  assert.equal(isUnauthenticatedConnectorDiscovery({ method: "tools/call" }), false);
+  assert.equal(isUnauthenticatedConnectorDiscovery(undefined), false);
 });
