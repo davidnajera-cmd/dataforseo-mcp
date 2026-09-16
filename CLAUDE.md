@@ -19,9 +19,7 @@ Practical rule:
 - **Endpoint**: `https://dataforseo-mcp-three.vercel.app/mcp`
 - **Protocol**: MCP (Model Context Protocol) over Streamable HTTP
 - **Mode**: Stateless (no session required)
-- **Authentication**:
-  - Default `/mcp` (no `?bundle=`): open, no auth — for Claude.ai backwards compat
-  - `/mcp?bundle=<name>`: requires API key via `x-api-key` header or `Authorization: Bearer <key>`
+- **Authentication**: every `/mcp` endpoint, including the default route, requires an API key via `x-api-key` or `Authorization: Bearer <key>`. Each key is limited to 60 requests per minute.
 - **Bundles** (curated tool subsets so clients with tool-count limits like ChatGPT can connect to a focused workflow):
   - `?bundle=research` — market research, customer voice, AI visibility, ad library, social signals. Mix of vendor base + business synthesis.
   - `?bundle=seo` — technical SEO, GSC, history, schema, on-page, backlinks, crawl, indexing. Heaviest mix of commodity SEO tools plus DNA Music persistence.

@@ -630,10 +630,10 @@ export function registerApifyGrowthTools(server: McpServer) {
       const scopedUrl = baseUrl(selectedBundle);
       const response = {
         production_base_url: root,
-        legacy_open_endpoint: legacyUrl,
+        default_endpoint: legacyUrl,
         bundle_endpoint: scopedUrl,
         auth: {
-          legacy_open_endpoint: "No API key required unless MCP_REQUIRE_API_KEY=true in production.",
+          default_endpoint: "Requires x-api-key or Authorization: Bearer <key>.",
           bundle_endpoint: "Requires x-api-key or Authorization: Bearer <key>.",
         },
         recommended_bundle_by_use_case: {
@@ -646,7 +646,7 @@ export function registerApifyGrowthTools(server: McpServer) {
         apify_console_steps: [
           "Open Apify Console > MCP Connectors.",
           "Create connector and paste the selected bundle endpoint.",
-          "Authenticate once with an MCP API key if using a bundle URL.",
+          "Authenticate with an MCP API key.",
           "Attach the connector to one or more Actors that support MCP connectors.",
         ],
         actor_input_field_schema_example: {

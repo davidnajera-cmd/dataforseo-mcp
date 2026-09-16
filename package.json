@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
+    "test": "node --import tsx --test tests/*.test.ts",
     "dev": "tsx watch src/http.ts",
     "dev:mcp": "tsx watch src/server.ts",
     "start": "node build/src/http.js",
