@@ -86,6 +86,7 @@ export default async function handler(
     ?? extractBearer(headerString(req.headers["authorization"]));
   const requireKey = isMcpApiKeyRequired(bundle);
   let completeTrace: (() => Promise<void>) | undefined;
+  let actorKeyId: number | undefined;
 
   if (requireKey && !isUnauthenticatedConnectorProtocolRequest(body)) {
     const v = await validateApiKey(apiKey);
@@ -94,6 +95,7 @@ export default async function handler(
       res.end(JSON.stringify({ error: "unauthorized", reason: v.reason, hint: "Provide an API key via x-api-key header or Authorization: Bearer <key>" }));
       return;
     }
+    actorKeyId = normalizeTraceActorKeyId(v.id) ?? undefined;
     // If the key has a bundle_scope set, enforce that the requested bundle is in scope.
     if (v.bundle_scope && bundle && !v.bundle_scope.includes(bundle)) {
       res.writeHead(403, { "Content-Type": "application/json" });
@@ -121,7 +123,7 @@ export default async function handler(
         traceId,
         started: startMcpExecutionRun({
           trace_id: traceId,
-          actor_key_id: normalizeTraceActorKeyId(v.id),
+          actor_key_id: actorKeyId ?? null,
           tool_name: toolName,
           operation: capability!.operation,
           args: redactExecutionArguments(body),
@@ -182,7 +184,7 @@ export default async function handler(
     }
   }
 
-  const server = createServer({ bundle });
+  const server = createServer({ bundle, actorKeyId });
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined, // stateless mode
   });
