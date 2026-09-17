@@ -2636,9 +2636,9 @@ async function openTaskModal(id) {
       ${task.risk_level && task.risk_level !== "low" ? `<span class="risk-badge risk-${esc(task.risk_level)}">Riesgo ${esc(task.risk_level)}</span>` : ""}
       ${task.requires_human_review ? `<span class="review-badge">Requiere revisión humana</span>` : ""}
       ${task.source_type ? `<span class="source-badge source-${esc(task.source_type)}">${esc(task.source_type)}</span>` : ""}
-      <button class="modal-close" type="button">×</button>
+      <button class="modal-close" type="button" aria-label="Cerrar detalle de tarea">×</button>
     </header>
-    <h3>${esc(task.title)}</h3>
+    <h3 id="taskModalTitle">${esc(task.title)}</h3>
     ${taxonomy ? `<p class="taxonomy-line">${taxonomy}</p>` : ""}
     ${scoresPanel}
     <p class="modal-desc">${esc(task.description)}</p>
@@ -2660,16 +2660,17 @@ async function openTaskModal(id) {
     </div>
     <h5>Operación</h5>
     <div class="op-fields">
-      <label>Owner <input id="taskOwnerInput" type="text" value="${esc(task.owner ?? '')}" placeholder="Nombre o email" /></label>
-      <label>Due date <input id="taskDueInput" type="date" value="${esc(task.due_date ?? '')}" /></label>
-      <label>Team area <input id="taskTeamInput" type="text" value="${esc(task.team_area ?? '')}" placeholder="SEO | dev | content | ops" /></label>
+      <label>Responsable <input id="taskOwnerInput" type="text" value="${esc(task.owner ?? '')}" placeholder="Nombre o correo" /></label>
+      <label>Fecha límite <input id="taskDueInput" type="date" value="${esc(task.due_date ?? '')}" /></label>
+      <label>Área responsable <input id="taskTeamInput" type="text" value="${esc(task.team_area ?? '')}" placeholder="SEO | desarrollo | contenido | operaciones" /></label>
       <button class="small-button" id="saveOpFields" type="button">Guardar</button>
     </div>
     ${task.blocked_by && task.blocked_by.length ? `<p class="blocked-note">Bloqueada por tareas: ${task.blocked_by.map((id) => `#${esc(id)}`).join(', ')}${task.blocked_reason ? '. ' + esc(task.blocked_reason) : ''}</p>` : ""}
     <textarea id="taskNoteInput" placeholder="Agregar nota (opcional al cambiar estado)"></textarea>
   `;
-  modal.classList.add("visible");
-  modal.querySelector(".modal-close").addEventListener("click", () => modal.classList.remove("visible"));
+  modal.setAttribute("aria-labelledby", "taskModalTitle");
+  if (!modal.open) modal.showModal();
+  modal.querySelector(".modal-close").addEventListener("click", () => modal.close());
   modal.querySelector("#saveOpFields")?.addEventListener("click", async () => {
     const token = adminToken;
     if (!token) { alert("Configura admin token primero."); return; }
@@ -2684,7 +2685,7 @@ async function openTaskModal(id) {
       headers: { "Content-Type": "application/json", "x-admin-token": token },
       body: JSON.stringify(body),
     });
-    if (res.ok) { modal.classList.remove("visible"); loadBacklog(); }
+    if (res.ok) { modal.close(); loadBacklog(); }
     else alert(`No se pudo guardar: ${res.status}`);
   });
 
@@ -2703,7 +2704,7 @@ async function openTaskModal(id) {
         body: JSON.stringify({ id: task.id, status, notes }),
       });
       if (res.ok) {
-        modal.classList.remove("visible");
+        modal.close();
         loadBacklog();
       } else {
         alert(`No se pudo actualizar: HTTP ${res.status}`);
@@ -2713,14 +2714,13 @@ async function openTaskModal(id) {
 }
 
 function createTaskModalElement() {
-  const div = document.createElement("div");
-  div.id = "taskModal";
-  div.className = "task-modal";
+  const dialog = document.createElement("dialog");
+  dialog.id = "taskModal";
+  dialog.className = "task-modal";
   // eslint-disable-next-line no-unsanitized/property
-  div.innerHTML = `<div class="modal-backdrop"></div><div class="modal-content"><div class="modal-body"></div></div>`;
-  document.body.appendChild(div);
-  div.querySelector(".modal-backdrop").addEventListener("click", () => div.classList.remove("visible"));
-  return div;
+  dialog.innerHTML = `<div class="modal-content"><div class="modal-body"></div></div>`;
+  document.body.appendChild(dialog);
+  return dialog;
 }
 
 async function runAgentNow() {

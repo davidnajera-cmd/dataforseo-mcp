@@ -1993,21 +1993,21 @@ select {
 .domain-tag { background: #e0f4ef; color: var(--accent-2); text-transform: none; letter-spacing: 0; }
 
 .task-modal {
-  position: fixed;
-  inset: 0;
-  display: none;
+  width: min(720px, calc(100vw - 32px));
+  max-height: 90vh;
+  padding: 0;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
+  overflow: visible;
   z-index: 1000;
 }
-.task-modal.visible { display: block; }
-.modal-backdrop {
-  position: absolute;
-  inset: 0;
+.task-modal::backdrop {
   background: rgba(0, 0, 0, 0.4);
 }
 .modal-content {
   position: relative;
-  max-width: 720px;
-  margin: 5vh auto;
+  width: 100%;
   background: #fff;
   border: 1px solid var(--line);
   border-radius: 16px;
