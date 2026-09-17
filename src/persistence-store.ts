@@ -118,6 +118,8 @@ export async function ensurePersistenceSchema(): Promise<void> {
       trace_id text unique not null,
       actor_key_id bigint,
       tool_name text not null,
+      idempotency_key_hash text,
+      request_fingerprint text,
       operation text not null,
       status text not null,
       args jsonb,
@@ -129,9 +131,12 @@ export async function ensurePersistenceSchema(): Promise<void> {
     )
   `;
   await sql`alter table mcp_execution_runs add column if not exists actor_key_id bigint`;
+  await sql`alter table mcp_execution_runs add column if not exists idempotency_key_hash text`;
+  await sql`alter table mcp_execution_runs add column if not exists request_fingerprint text`;
   await sql`create index if not exists mcp_execution_runs_trace on mcp_execution_runs (trace_id)`;
   await sql`create index if not exists mcp_execution_runs_actor_started on mcp_execution_runs (actor_key_id, started_at desc)`;
   await sql`create index if not exists mcp_execution_runs_tool_started on mcp_execution_runs (tool_name, started_at desc)`;
+  await sql`create unique index if not exists mcp_execution_runs_idempotency on mcp_execution_runs (actor_key_id, tool_name, idempotency_key_hash) where idempotency_key_hash is not null`;
 
   await sql`
     create table if not exists seo_web_leads (
@@ -161,11 +166,30 @@ export async function ensurePersistenceSchema(): Promise<void> {
   schemaReady = true;
 }
 
-export async function startMcpExecutionRun(input: { trace_id: string; actor_key_id: number | null; tool_name: string; operation: string; args: unknown }): Promise<void> {
+export type McpExecutionStartResult =
+  | { created: true }
+  | { created: false; trace_id: string; status: string; same_request: boolean };
+
+export async function startMcpExecutionRun(input: { trace_id: string; actor_key_id: number | null; tool_name: string; operation: string; args: unknown; idempotency_key_hash?: string; request_fingerprint?: string }): Promise<McpExecutionStartResult> {
   const sql = getPersistenceSql();
-  if (!sql) return;
+  if (!sql) return { created: true };
   await ensurePersistenceSchema();
-  await sql`insert into mcp_execution_runs (trace_id, actor_key_id, tool_name, operation, status, args) values (${input.trace_id}, ${input.actor_key_id}, ${input.tool_name}, ${input.operation}, 'running', ${JSON.stringify(input.args)}::jsonb)`;
+  const inserted = await sql`
+    insert into mcp_execution_runs (trace_id, actor_key_id, tool_name, idempotency_key_hash, request_fingerprint, operation, status, args)
+    values (${input.trace_id}, ${input.actor_key_id}, ${input.tool_name}, ${input.idempotency_key_hash ?? null}, ${input.request_fingerprint ?? null}, ${input.operation}, 'running', ${JSON.stringify(input.args)}::jsonb)
+    on conflict (actor_key_id, tool_name, idempotency_key_hash) where idempotency_key_hash is not null do nothing
+    returning trace_id
+  ` as Array<{ trace_id: string }>;
+  if (inserted.length) return { created: true };
+  const existing = await sql`
+    select trace_id, status, request_fingerprint
+    from mcp_execution_runs
+    where actor_key_id = ${input.actor_key_id} and tool_name = ${input.tool_name} and idempotency_key_hash = ${input.idempotency_key_hash ?? null}
+    limit 1
+  ` as Array<{ trace_id: string; status: string; request_fingerprint: string | null }>;
+  const record = existing[0];
+  if (!record) throw new Error("idempotency_reservation_not_found");
+  return { created: false, trace_id: record.trace_id, status: record.status, same_request: record.request_fingerprint === (input.request_fingerprint ?? null) };
 }
 
 export async function finishMcpExecutionRun(input: { trace_id: string; status: "completed" | "failed"; outcome_summary?: unknown; cost_usd?: number; error_code?: string }): Promise<void> {

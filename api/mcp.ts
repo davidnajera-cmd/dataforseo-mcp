@@ -4,7 +4,7 @@ import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey 
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
 import { authorizeMcpToolCall, getMcpToolCapability } from "../src/mcp-capabilities.js";
-import { executionTraceFinalState, normalizeTraceActorKeyId, redactExecutionArguments } from "../src/mcp-execution-trace.js";
+import { executionRequestFingerprint, executionTraceFinalState, idempotencyKeyFingerprint, normalizeIdempotencyKey, normalizeTraceActorKeyId, redactExecutionArguments } from "../src/mcp-execution-trace.js";
 import { finishMcpExecutionRun, startMcpExecutionRun } from "../src/persistence-store.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -50,7 +50,7 @@ export default async function handler(
   // CORS
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, x-api-key, authorization");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, x-api-key, x-mcp-idempotency-key, authorization");
   res.setHeader("Access-Control-Expose-Headers", "mcp-session-id, x-mcp-trace-id");
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
@@ -101,6 +101,13 @@ export default async function handler(
       return;
     }
     const toolName = requestedMcpToolName(body);
+    const requestedIdempotencyKey = headerString(req.headers["x-mcp-idempotency-key"]);
+    const idempotencyKey = normalizeIdempotencyKey(requestedIdempotencyKey);
+    if (requestedIdempotencyKey && !idempotencyKey) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "invalid_idempotency_key", hint: "Use 8-128 letters, digits, dots, colons, underscores, or hyphens." }));
+      return;
+    }
     const trace = toolName ? (() => {
       const traceId = randomUUID();
       res.setHeader("x-mcp-trace-id", traceId);
@@ -112,12 +119,34 @@ export default async function handler(
           tool_name: toolName,
           operation: getMcpToolCapability(toolName).operation,
           args: redactExecutionArguments(body),
-        }).catch(() => undefined),
+          idempotency_key_hash: idempotencyKey ? idempotencyKeyFingerprint(idempotencyKey) : undefined,
+          request_fingerprint: idempotencyKey ? executionRequestFingerprint(body) : undefined,
+        }),
       };
     })() : undefined;
+    let traceCreated = false;
+    if (trace) {
+      try {
+        const start = await trace.started;
+        traceCreated = start.created;
+        if (!start.created) {
+          res.setHeader("x-mcp-trace-id", start.trace_id);
+          res.writeHead(start.same_request ? 409 : 422, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({
+            error: start.same_request ? "idempotency_replay" : "idempotency_key_reused_with_different_request",
+            trace_id: start.trace_id,
+            status: start.status,
+          }));
+          return;
+        }
+      } catch {
+        res.writeHead(503, { "Content-Type": "application/json", "Retry-After": "5" });
+        res.end(JSON.stringify({ error: "execution_trace_unavailable", hint: "Retry with the same idempotency key." }));
+        return;
+      }
+    }
     completeTrace = async () => {
-      if (!trace) return;
-      await trace.started;
+      if (!trace || !traceCreated) return;
       await finishMcpExecutionRun({ trace_id: trace.traceId, ...executionTraceFinalState(res.statusCode) }).catch(() => undefined);
     };
     const scopedAuthorization = toolName && v.capability_scopes !== null
