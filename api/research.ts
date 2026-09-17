@@ -140,7 +140,7 @@ export default async function handler(
     send(res, 405, { error: "method_or_action_not_supported" });
   } catch (error) {
     const message = error instanceof Error ? error.message : "unknown";
-    send(res, message.includes("token") ? 401 : 500, { error: "research_failed", message });
+    send(res, message.includes("token") || message === "dashboard_session_required" ? 401 : 500, { error: "research_failed", message });
   }
 }
 
