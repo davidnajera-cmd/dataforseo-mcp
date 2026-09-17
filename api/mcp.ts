@@ -4,6 +4,9 @@ import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey 
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
 import { authorizeMcpToolCall } from "../src/mcp-capabilities.js";
+import { redactExecutionArguments } from "../src/mcp-execution-trace.js";
+import { startMcpExecutionRun } from "../src/persistence-store.js";
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 // Some tools (seo_legacy_redirect_audit, bulk URL inspection, Apify scrapers,
@@ -97,6 +100,11 @@ export default async function handler(
       return;
     }
     const toolName = requestedMcpToolName(body);
+    if (toolName) {
+      const traceId = randomUUID();
+      res.setHeader("x-mcp-trace-id", traceId);
+      void startMcpExecutionRun({ trace_id: traceId, tool_name: toolName, operation: "requested", args: redactExecutionArguments(body) });
+    }
     const scopedAuthorization = toolName && v.capability_scopes !== null
       ? authorizeMcpToolCall(toolName, v.capability_scopes, false)
       : null;
