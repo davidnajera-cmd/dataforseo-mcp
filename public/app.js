@@ -1353,7 +1353,7 @@ function renderTechnical(technical, sources = []) {
       <div class="row clarity"><strong>Rage clicks (24h)</strong><span>${displayValue(technical.rageClicks)}</span></div>
       <div class="row clarity"><strong>Excessive scroll (24h)</strong><span>${displayValue(technical.excessiveScroll)}</span></div>
       <div class="row clarity"><strong>Quickback clicks (24h)</strong><span>${displayValue(technical.quickbackClick)}</span></div>
-    ` : `<div class="empty-inline">UX behavior desde Clarity no disponible ahora mismo${claritySource?.message ? `: ${esc(claritySource.message)}` : "."}</div>`}
+    ` : `<div class="empty-inline">UX behavior desde Clarity no disponible ahora mismo${claritySource?.message ? `: ${esc(sourceMessage(claritySource.message))}` : "."}</div>`}
   `;
 }
 
