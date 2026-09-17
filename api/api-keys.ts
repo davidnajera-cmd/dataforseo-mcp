@@ -4,6 +4,12 @@ import { assertVariablesAdminToken } from "../src/runtime-config.js";
 import { isValidBundle } from "../src/bundles.js";
 import { isValidMcpCapabilityScope } from "../src/mcp-capabilities.js";
 
+export function parseRequestedCapabilityScopes(value: unknown): { valid: boolean; scopes: string[] } {
+  if (value === undefined) return { valid: true, scopes: [] };
+  if (!Array.isArray(value) || !value.every(isValidMcpCapabilityScope)) return { valid: false, scopes: [] };
+  return { valid: true, scopes: [...new Set(value)] };
+}
+
 export default async function handler(
   req: IncomingMessage & { body?: unknown; method?: string; headers: Record<string, string | string[] | undefined>; url?: string },
   res: ServerResponse
@@ -43,9 +49,13 @@ export default async function handler(
       if (!name) { send(res, 400, { error: "name_required" }); return; }
       const bundleScope = Array.isArray(body.bundle_scope) ? (body.bundle_scope as string[]).filter(isValidBundle) : undefined;
       const allowMutations = body.allow_mutations === true;
-      const capabilityScopes = Array.isArray(body.capability_scopes)
-        ? [...new Set(body.capability_scopes.filter(isValidMcpCapabilityScope))]
-        : undefined;
+      const parsedScopes = parseRequestedCapabilityScopes(body.capability_scopes);
+      if (!parsedScopes.valid) { send(res, 400, { error: "invalid_capability_scope" }); return; }
+      if (allowMutations && parsedScopes.scopes.length === 0) {
+        send(res, 400, { error: "mutation_scopes_required", hint: "Provide explicit capability_scopes for every new mutating key." });
+        return;
+      }
+      const capabilityScopes = parsedScopes.scopes.length > 0 ? parsedScopes.scopes : undefined;
       const created = await createApiKey(name, bundleScope, allowMutations, capabilityScopes);
       // The raw key is returned ONCE here. Caller must save it.
       send(res, 201, {
