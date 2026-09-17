@@ -25,6 +25,7 @@ import { registerLegacyAuditTools } from "./tools-legacy-audit.js";
 import { registerZernioTools } from "./tools-zernio.js";
 import { registerSocialIntelligenceTools } from "./tools-social-intelligence.js";
 import { registerGoogleBusinessHistoryTools } from "./tools-google-business-history.js";
+import { registerCapabilityTools } from "./tools-capabilities.js";
 import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
@@ -159,6 +160,8 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
   }
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
+  registerCapabilityTools(server);
+
   registerTools(server);
 
   // Google Search Console API tools

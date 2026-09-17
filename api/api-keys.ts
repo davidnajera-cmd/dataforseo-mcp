@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { createApiKey, listApiKeys, revokeApiKey } from "../src/api-key-auth.js";
 import { assertVariablesAdminToken } from "../src/runtime-config.js";
 import { isValidBundle } from "../src/bundles.js";
+import { isValidMcpCapabilityScope } from "../src/mcp-capabilities.js";
 
 export default async function handler(
   req: IncomingMessage & { body?: unknown; method?: string; headers: Record<string, string | string[] | undefined>; url?: string },
@@ -30,6 +31,7 @@ export default async function handler(
         revoked_at: r.revoked_at,
         request_count: Number(r.request_count),
         allow_mutations: r.allow_mutations,
+        capability_scopes: r.capability_scopes,
       }));
       send(res, 200, { keys: safe });
       return;
@@ -41,7 +43,10 @@ export default async function handler(
       if (!name) { send(res, 400, { error: "name_required" }); return; }
       const bundleScope = Array.isArray(body.bundle_scope) ? (body.bundle_scope as string[]).filter(isValidBundle) : undefined;
       const allowMutations = body.allow_mutations === true;
-      const created = await createApiKey(name, bundleScope, allowMutations);
+      const capabilityScopes = Array.isArray(body.capability_scopes)
+        ? [...new Set(body.capability_scopes.filter(isValidMcpCapabilityScope))]
+        : undefined;
+      const created = await createApiKey(name, bundleScope, allowMutations, capabilityScopes);
       // The raw key is returned ONCE here. Caller must save it.
       send(res, 201, {
         id: created.id,
@@ -49,6 +54,7 @@ export default async function handler(
         key: created.key,
         bundle_scope: bundleScope ?? null,
         allow_mutations: allowMutations,
+        capability_scopes: capabilityScopes ?? null,
         warning: "Esta es la única vez que verás la llave en texto plano. Guárdala ahora.",
       });
       return;
