@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { collectSocialDashboardData } from "../src/social-dashboard-data.js";
 import { normalizeFilters } from "../src/dashboard-data.js";
 import { getLatestSocialDashboardSnapshot, saveSocialDashboardSnapshot } from "../src/social-dashboard-store.js";
+import { assertDashboardSession } from "../src/dashboard-auth.js";
 
 export default async function handler(
   req: IncomingMessage & { query?: Record<string, string>; url?: string },
@@ -18,6 +19,7 @@ export default async function handler(
   }
 
   try {
+    assertDashboardSession(req);
     const url = new URL(req.url ?? "/api/social-dashboard", "http://localhost");
     const filters = normalizeFilters({
       country: url.searchParams.get("country") as never,
@@ -45,7 +47,7 @@ export default async function handler(
     res.end(JSON.stringify(data));
   } catch (error) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.writeHead(500);
+    res.writeHead(error instanceof Error && error.message === "dashboard_session_required" ? 401 : 500);
     res.end(JSON.stringify({
       error: "social_dashboard_failed",
       message: error instanceof Error ? error.message : "Unexpected social dashboard error",

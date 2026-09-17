@@ -4,6 +4,7 @@ import { assertVariablesAdminToken, clearRuntimeVariableCache } from "../src/run
 import { clearGoogleAccessTokenCache } from "../src/gsc-client.js";
 import { runAgent } from "../src/agent/pipeline.js";
 import { cleanupSlackBacklog } from "../src/slack-sync.js";
+import { assertDashboardSession } from "../src/dashboard-auth.js";
 
 export const config = { maxDuration: 300 };
 
@@ -17,6 +18,7 @@ export default async function handler(
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
   try {
+    assertDashboardSession(req);
     const url = new URL(req.url ?? "/api/backlog", "http://localhost");
     const action = url.searchParams.get("action") ?? "list";
 

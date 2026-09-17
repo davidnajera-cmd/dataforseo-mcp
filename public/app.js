@@ -6,6 +6,7 @@ const state = {
   executiveData: null,
   requestCounter: 0,
 };
+let adminToken = "";
 
 const modules = {
   executive: {
@@ -125,6 +126,9 @@ function esc(value) {
 const shell = document.querySelector(".shell");
 shell.dataset.module = state.module;
 const filters = document.querySelector("#filters");
+const accessGate = document.querySelector("#accessGate");
+const accessGateForm = document.querySelector("#accessGateForm");
+const accessGateError = document.querySelector("#accessGateError");
 const navItems = [...document.querySelectorAll(".nav-item")];
 const moduleTabs = [...document.querySelectorAll(".module-tab")];
 const navGroups = [...document.querySelectorAll("[data-nav-module]")];
@@ -187,12 +191,12 @@ filters.addEventListener("change", () => {
   else if (state.view !== "variables" && state.view !== "backlog") loadDashboard();
 });
 document.querySelector("#refreshVariables")?.addEventListener("click", () => loadVariables());
-document.querySelector("#adminToken")?.addEventListener("change", (event) => {
-  localStorage.setItem("seoVariablesAdminToken", event.target.value);
+document.querySelector("#adminToken")?.addEventListener("input", (event) => {
+  adminToken = event.target.value;
 });
 
 function setModule(module, options = {}) {
-  const { skipDefaultView = false } = options;
+  const { skipDefaultView = false, updateUrl = true } = options;
   state.module = module;
   shell.dataset.module = module;
   moduleTabs.forEach((button) => {
@@ -202,7 +206,7 @@ function setModule(module, options = {}) {
   });
   navGroups.forEach((group) => group.classList.toggle("hidden", group.dataset.navModule !== module));
   document.querySelector("#moduleEyebrow").textContent = modules[module].eyebrow;
-  if (!skipDefaultView) setView(modules[module].defaultView);
+  if (!skipDefaultView) setView(modules[module].defaultView, { updateUrl });
 }
 
 function createRequestToken() {
@@ -220,17 +224,20 @@ function isRequestCurrent(token) {
     && token.view === state.view;
 }
 
-function setView(view) {
+function setView(view, options = {}) {
+  const { updateUrl = true } = options;
+  if (!modules[state.module].views[view]) view = modules[state.module].defaultView;
   state.view = view;
   document.querySelector("#pageTitle").textContent = modules[state.module].views[view];
   navItems.forEach((button) => button.classList.toggle("is-active", button.dataset.module === state.module && button.dataset.view === view));
+  updateSectionVisibility();
+  if (updateUrl) writeViewToUrl();
   if (state.module === "executive") {
     loadExecutiveOverview();
     return;
   }
   if (state.module === "social") {
     if (view === "variables") {
-      updateSectionVisibility();
       loadVariables();
       return;
     }
@@ -246,7 +253,6 @@ function setView(view) {
     clearDateInputs();
     loadDashboard();
   } else {
-    updateSectionVisibility();
     if (view === "variables") loadVariables();
     if (view === "backlog") loadBacklog();
     if (view !== "variables" && view !== "backlog") loadDashboard();
@@ -2487,11 +2493,11 @@ async function loadBacklogStats() {
     const s = await res.json();
     const cards = [
       { label: "🛠 Recovery pendientes", value: s.recovery_pendiente, kind: "recovery" },
-      { label: "🚀 Growth pendientes", value: s.growth_pendiente, kind: "growth" },
+      { label: "Growth pendientes", value: s.growth_pendiente, kind: "growth" },
       { label: "🔒 Bloqueadas", value: s.total_blocked, kind: "blocked" },
       { label: "⏳ En progreso", value: s.total_en_progreso, kind: "progress" },
-      { label: "⏰ Vencidas", value: s.overdue, kind: s.overdue > 0 ? "warn" : "neutral" },
-      { label: "👤 Sin owner", value: s.no_owner, kind: s.no_owner > 5 ? "warn" : "neutral" },
+      { label: "Vencidas", value: s.overdue, kind: s.overdue > 0 ? "warn" : "neutral" },
+      { label: "Sin responsable", value: s.no_owner, kind: s.no_owner > 5 ? "warn" : "neutral" },
       { label: "📅 Sin due date", value: s.no_due_date, kind: s.no_due_date > 5 ? "warn" : "neutral" },
       { label: "🕒 Stale", value: s.stale, kind: "neutral" },
     ];
@@ -2560,14 +2566,14 @@ function renderTaskCard(row) {
     ${row.opportunity_score !== null && row.opportunity_score !== undefined ? `<small class="opp-score">Opp ${esc(Math.round(row.opportunity_score))}</small>` : ""}
   ` : "";
   const sourceBadge = row.source_type ? `<span class="source-badge source-${esc(row.source_type)}">${esc(row.source_type)}</span>` : "";
-  const riskBadge = row.risk_level && row.risk_level !== "low" ? `<span class="risk-badge risk-${esc(row.risk_level)}">⚠ ${esc(row.risk_level)}</span>` : "";
-  const reviewBadge = row.requires_human_review ? `<span class="review-badge">👤 review</span>` : "";
+  const riskBadge = row.risk_level && row.risk_level !== "low" ? `<span class="risk-badge risk-${esc(row.risk_level)}">Riesgo ${esc(row.risk_level)}</span>` : "";
+  const reviewBadge = row.requires_human_review ? `<span class="review-badge">Revisión humana</span>` : "";
   const actionBadge = row.action_type && row.action_type !== "execution" ? `<span class="action-badge action-${esc(row.action_type)}">${esc(row.action_type)}</span>` : "";
   const audienceBadge = row.audience === "estudiantes_actuales" ? `<span class="audience-badge audience-current">🎓 estudiantes actuales</span>` : "";
   const blockedChip = row.status === "blocked" ? `<span class="blocked-chip">🔒 bloqueada${row.blocked_by ? ` (por #${row.blocked_by.join(',#')})` : ""}</span>` : "";
-  const ownerChip = row.owner ? `<span class="owner-chip">👤 ${esc(row.owner)}</span>` : "";
+  const ownerChip = row.owner ? `<span class="owner-chip">Responsable: ${esc(row.owner)}</span>` : "";
   const dueChip = row.due_date ? `<span class="due-chip">📅 ${esc(row.due_date)}</span>` : "";
-  const phaseChip = row.phase === "recovery" ? `<span class="phase-chip phase-recovery">🛠 recovery</span>` : row.phase === "growth" ? `<span class="phase-chip phase-growth">🚀 growth</span>` : "";
+  const phaseChip = row.phase === "recovery" ? `<span class="phase-chip phase-recovery">Recovery</span>` : row.phase === "growth" ? `<span class="phase-chip phase-growth">Growth</span>` : "";
   return `
     <article class="task-card priority-${esc(row.priority)}${row.requires_human_review ? " needs-review" : ""}" data-id="${esc(row.id)}">
       <header>
@@ -2622,8 +2628,8 @@ async function openTaskModal(id) {
       <span class="category-pill">${esc(task.category)}</span>
       <span class="domain-tag">${esc(siteLabel(task.domain))}</span>
       ${task.action_type && task.action_type !== "execution" ? `<span class="action-badge action-${esc(task.action_type)}">${esc(task.action_type)}</span>` : ""}
-      ${task.risk_level && task.risk_level !== "low" ? `<span class="risk-badge risk-${esc(task.risk_level)}">⚠ riesgo ${esc(task.risk_level)}</span>` : ""}
-      ${task.requires_human_review ? `<span class="review-badge">👤 requiere revisión humana</span>` : ""}
+      ${task.risk_level && task.risk_level !== "low" ? `<span class="risk-badge risk-${esc(task.risk_level)}">Riesgo ${esc(task.risk_level)}</span>` : ""}
+      ${task.requires_human_review ? `<span class="review-badge">Requiere revisión humana</span>` : ""}
       ${task.source_type ? `<span class="source-badge source-${esc(task.source_type)}">${esc(task.source_type)}</span>` : ""}
       <button class="modal-close" type="button">×</button>
     </header>
@@ -2660,7 +2666,7 @@ async function openTaskModal(id) {
   modal.classList.add("visible");
   modal.querySelector(".modal-close").addEventListener("click", () => modal.classList.remove("visible"));
   modal.querySelector("#saveOpFields")?.addEventListener("click", async () => {
-    const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+    const token = adminToken;
     if (!token) { alert("Configura admin token primero."); return; }
     const body = {
       id: task.id,
@@ -2681,7 +2687,7 @@ async function openTaskModal(id) {
     btn.addEventListener("click", async () => {
       const status = btn.dataset.status;
       const notes = modal.querySelector("#taskNoteInput")?.value?.trim() || undefined;
-      const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+      const token = adminToken;
       if (!token) {
         alert("Necesitas configurar el admin token en la vista Variables primero.");
         return;
@@ -2716,7 +2722,7 @@ async function runAgentNow() {
   const status = document.querySelector("#agentStatus");
   const button = document.querySelector("#agentRunNow");
   if (!status || !button) return;
-  const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+  const token = adminToken;
   if (!token) {
     status.textContent = "Configura el admin token primero (vista Variables).";
     return;
@@ -2740,14 +2746,12 @@ async function runAgentNow() {
 }
 
 async function loadVariables() {
-  const input = document.querySelector("#adminToken");
-  if (input && !input.value) input.value = localStorage.getItem("seoVariablesAdminToken") || "";
   const container = document.querySelector("#variablesList");
   if (!container) return;
   container.innerHTML = `<p class="summary">Cargando variables...</p>`;
 
   try {
-    const response = await fetch("/api/variables");
+    const response = await fetch("/api/variables", { headers: { "x-admin-token": adminToken } });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const data = await response.json();
     renderVariables(data.variables);
@@ -2809,7 +2813,7 @@ async function deleteVariable(event) {
 }
 
 async function variablesRequest(url, options) {
-  const token = document.querySelector("#adminToken")?.value || localStorage.getItem("seoVariablesAdminToken") || "";
+  const token = adminToken;
   const response = await fetch(url, {
     ...options,
     headers: {
@@ -2841,7 +2845,7 @@ function snapshotAgeLabel(dateStr, staleAfterDays = 10) {
   const days = Math.floor((Date.now() - date.getTime()) / 86_400_000);
   if (days <= staleAfterDays) return { text: dateStr, stale: false };
   const ageText = days >= 60 ? `hace ${Math.round(days / 30)} meses` : `hace ${days} días`;
-  return { text: `${dateStr} — ⚠ ${ageText}`, stale: true };
+  return { text: `${dateStr} — Alerta: ${ageText}`, stale: true };
 }
 
 function snapshotDateHtml(dateStr, staleAfterDays = 10) {
@@ -2865,7 +2869,7 @@ function formatFreshness(value) {
   if (ageHours < 20) return `Actualizado ${dateLabel}`;
   const ageDays = Math.floor(ageHours / 24);
   const ageLabel = ageDays >= 1 ? `hace ${ageDays} ${ageDays === 1 ? "día" : "días"}` : `hace ${Math.round(ageHours)} h`;
-  return `Actualizado ${dateLabel} — ⚠ ${ageLabel}`;
+  return `Actualizado ${dateLabel} — Alerta: ${ageLabel}`;
 }
 
 function formatTrendLabel(value) {
@@ -2893,24 +2897,33 @@ function capitalize(value) {
   return value ? value.charAt(0).toUpperCase() + value.slice(1) : value;
 }
 
-// Deep-link: ?view=backlog&task=N opens that task's modal at load.
-(function applyDeepLinkOnLoad() {
+function writeViewToUrl() {
+  const url = new URL(window.location.href);
+  url.searchParams.set("module", state.module);
+  url.searchParams.set("view", state.view);
+  url.searchParams.delete("task");
+  window.history.pushState({}, "", url);
+}
+
+function restoreViewFromUrl({ task = true } = {}) {
   const params = new URLSearchParams(window.location.search);
-  const view = params.get("view");
+  const module = params.get("module");
+  const selectedModule = module && modules[module] ? module : "seo";
+  const requestedView = params.get("view");
+  const selectedView = requestedView && modules[selectedModule].views[requestedView]
+    ? requestedView
+    : modules[selectedModule].defaultView;
+  setModule(selectedModule, { skipDefaultView: true, updateUrl: false });
+  setView(selectedView, { updateUrl: false });
   const taskId = params.get("task");
-  if (view === "backlog") {
-    setView("backlog");
-    if (taskId && /^\d+$/.test(taskId)) {
-      setTimeout(() => openTaskModal(Number(taskId)), 1200);
-    }
+  if (task && selectedView === "backlog" && taskId && /^\d+$/.test(taskId)) {
+    setTimeout(() => openTaskModal(Number(taskId)), 1200);
   }
-})();
+}
 
-setModule("seo");
+window.addEventListener("popstate", () => restoreViewFromUrl({ task: false }));
 
-// One-shot check so a stalled/misauthenticated cron (the whole reason historical
-// data used to be 4 months stale) shows up on screen instead of only in Postgres.
-(async function loadPipelineHealth() {
+async function loadPipelineHealth() {
   const node = document.querySelector("#pipelineHealth");
   if (!node) return;
   try {
@@ -2926,4 +2939,38 @@ setModule("seo");
   } catch {
     node.textContent = "";
   }
-})();
+}
+
+async function bootDashboard() {
+  const response = await fetch("/api/dashboard-session", { credentials: "same-origin" });
+  if (!response.ok) {
+    if (accessGate && !accessGate.open) accessGate.showModal();
+    return;
+  }
+  restoreViewFromUrl();
+  loadPipelineHealth();
+}
+
+accessGateForm?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const input = document.querySelector("#dashboardAccessToken");
+  const token = input?.value?.trim();
+  if (!token) return;
+  accessGateError.textContent = "Verificando acceso…";
+  const response = await fetch("/api/dashboard-session", {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "x-dashboard-access-token": token },
+  });
+  if (!response.ok) {
+    accessGateError.textContent = "La clave no es válida. Inténtalo de nuevo.";
+    input?.focus();
+    return;
+  }
+  input.value = "";
+  accessGateError.textContent = "";
+  accessGate?.close();
+  bootDashboard();
+});
+
+bootDashboard();

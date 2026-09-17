@@ -12,6 +12,7 @@ export default async function handler(
 ) {
   try {
     if (req.method === "GET") {
+      assertVariablesAdminToken(header(req, "x-admin-token"));
       send(res, 200, { variables: await listRuntimeVariables() });
       return;
     }

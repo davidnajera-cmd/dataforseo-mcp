@@ -14,6 +14,19 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <dialog id="accessGate" class="access-gate" aria-labelledby="accessGateTitle">
+      <form id="accessGateForm" class="access-gate-card">
+        <p class="access-gate-kicker">DNA Music</p>
+        <h1 id="accessGateTitle">Growth Control</h1>
+        <p>Ingresa la clave de acceso del dashboard para consultar información operativa.</p>
+        <label>
+          Clave de acceso
+          <input id="dashboardAccessToken" type="password" autocomplete="current-password" required />
+        </label>
+        <p id="accessGateError" class="form-error" aria-live="polite"></p>
+        <button class="primary-button" type="submit">Entrar al dashboard</button>
+      </form>
+    </dialog>
     <div class="shell" data-sidebar="open">
       <div id="sidebarBackdrop" class="sidebar-backdrop" aria-hidden="true"></div>
       <aside class="sidebar" aria-label="Navegacion principal">
@@ -33,31 +46,52 @@
           <span class="nav-group-label">Executive</span>
           <button class="nav-item is-active" data-module="executive" data-view="executive_overview">Executive Overview</button>
         </nav>
-        <nav class="nav" data-nav-module="seo">
+        <nav class="nav" data-nav-module="seo" aria-label="Navegación SEO">
           <span class="nav-group-label">SEO</span>
           <button class="nav-item is-active" data-module="seo" data-view="overview">Overview SEO</button>
-          <button class="nav-item" data-module="seo" data-view="backlog">Backlog SEO</button>
-          <button class="nav-item" data-module="seo" data-view="monthly">Dashboard Mensual</button>
-          <button class="nav-item" data-module="seo" data-view="weekly">Dashboard Semanal</button>
-          <button class="nav-item" data-module="seo" data-view="content">Contenido</button>
-          <button class="nav-item" data-module="seo" data-view="keywords">Keywords</button>
-          <button class="nav-item" data-module="seo" data-view="ai">Visibilidad AI</button>
-          <button class="nav-item" data-module="seo" data-view="backlinks">Backlinks</button>
-          <button class="nav-item" data-module="seo" data-view="leads">Leads / Conversiones</button>
-          <button class="nav-item" data-module="seo" data-view="technical">Salud Tecnica</button>
-          <button class="nav-item" data-module="seo" data-view="comparison">Comparativo de sitios</button>
-          <button class="nav-item" data-module="seo" data-view="business">Insights Negocio</button>
-          <button class="nav-item" data-module="seo" data-view="variables">Variables</button>
+          <details class="nav-disclosure" open>
+            <summary>Rendimiento</summary>
+            <button class="nav-item" data-module="seo" data-view="monthly">Dashboard Mensual</button>
+            <button class="nav-item" data-module="seo" data-view="weekly">Dashboard Semanal</button>
+            <button class="nav-item" data-module="seo" data-view="content">Contenido</button>
+            <button class="nav-item" data-module="seo" data-view="keywords">Keywords</button>
+            <button class="nav-item" data-module="seo" data-view="technical">Salud Técnica</button>
+          </details>
+          <details class="nav-disclosure">
+            <summary>Inteligencia</summary>
+            <button class="nav-item" data-module="seo" data-view="ai">Visibilidad AI</button>
+            <button class="nav-item" data-module="seo" data-view="backlinks">Backlinks</button>
+            <button class="nav-item" data-module="seo" data-view="comparison">Comparativo de sitios</button>
+          </details>
+          <details class="nav-disclosure">
+            <summary>Plan de acción</summary>
+            <button class="nav-item" data-module="seo" data-view="backlog">Backlog SEO</button>
+            <button class="nav-item" data-module="seo" data-view="business">Insights de negocio</button>
+            <button class="nav-item" data-module="seo" data-view="leads">Leads y conversiones</button>
+          </details>
+          <details class="nav-disclosure">
+            <summary>Configuración</summary>
+            <button class="nav-item" data-module="seo" data-view="variables">Variables</button>
+          </details>
         </nav>
-        <nav class="nav hidden" data-nav-module="social">
+        <nav class="nav hidden" data-nav-module="social" aria-label="Navegación de redes sociales">
           <span class="nav-group-label">Social</span>
           <button class="nav-item" data-module="social" data-view="social_overview">Radar social</button>
-          <button class="nav-item" data-module="social" data-view="social_local">Presencia local</button>
-          <button class="nav-item" data-module="social" data-view="social_accounts">Canales y activos</button>
-          <button class="nav-item" data-module="social" data-view="social_publishing">Pipeline editorial</button>
-          <button class="nav-item" data-module="social" data-view="social_instagram">Instagram intelligence</button>
-          <button class="nav-item" data-module="social" data-view="social_tiktok">TikTok intelligence</button>
-          <button class="nav-item" data-module="social" data-view="variables">Variables</button>
+          <details class="nav-disclosure" open>
+            <summary>Operación</summary>
+            <button class="nav-item" data-module="social" data-view="social_publishing">Pipeline editorial</button>
+            <button class="nav-item" data-module="social" data-view="social_accounts">Canales y activos</button>
+            <button class="nav-item" data-module="social" data-view="social_local">Presencia local</button>
+          </details>
+          <details class="nav-disclosure">
+            <summary>Canales</summary>
+            <button class="nav-item" data-module="social" data-view="social_instagram">Instagram intelligence</button>
+            <button class="nav-item" data-module="social" data-view="social_tiktok">TikTok intelligence</button>
+          </details>
+          <details class="nav-disclosure">
+            <summary>Configuración</summary>
+            <button class="nav-item" data-module="social" data-view="variables">Variables</button>
+          </details>
         </nav>
         <div class="sidebar-footer">
           <span>Fuentes</span>
@@ -68,7 +102,9 @@
 
       <main class="workspace">
         <header class="topbar">
-          <button id="sidebarToggle" class="icon-button" aria-label="Toggle sidebar">☰</button>
+          <button id="sidebarToggle" class="icon-button" aria-label="Mostrar u ocultar navegación">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M4 7h16M4 12h16M4 17h16" /></svg>
+          </button>
           <div class="topbar-title">
             <span id="moduleEyebrow">Modulo SEO</span>
             <strong id="pageTitle">Overview SEO</strong>
@@ -550,14 +586,14 @@
                   <option value="manual">Manual</option>
                 </select>
                 <select id="backlogFilterTrack">
-                  <option value="recovery_focus" selected>🎯 Recovery Focus (default)</option>
+                  <option value="recovery_focus" selected>Recovery Focus (predeterminado)</option>
                   <option value="">Recovery + Growth</option>
-                  <option value="recovery">🛠 Recovery (post-migración)</option>
-                  <option value="growth">🚀 Growth (oportunidades)</option>
-                  <option value="config">⚙ Config (medición)</option>
-                  <option value="risky">⚠ Requiere revisión humana</option>
-                  <option value="unassigned">👤 Sin owner / sin due date</option>
-                  <option value="overdue">⏰ Vencidas</option>
+                  <option value="recovery">Recovery (post-migración)</option>
+                  <option value="growth">Growth (oportunidades)</option>
+                  <option value="config">Configuración (medición)</option>
+                  <option value="risky">Requiere revisión humana</option>
+                  <option value="unassigned">Sin responsable o fecha</option>
+                  <option value="overdue">Vencidas</option>
                 </select>
                 <select id="backlogSort">
                   <option value="score">Sort: Opportunity score</option>

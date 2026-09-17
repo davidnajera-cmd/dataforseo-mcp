@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { collectSeoDashboardData, normalizeFilters } from "../src/dashboard-data.js";
 import { getLatestDashboardSnapshot, listDashboardSnapshots, saveDashboardSnapshot } from "../src/dashboard-store.js";
+import { assertDashboardSession } from "../src/dashboard-auth.js";
 
 export default async function handler(
   req: IncomingMessage & { query?: Record<string, string>; url?: string },
@@ -17,6 +18,7 @@ export default async function handler(
   }
 
   try {
+    assertDashboardSession(req);
     const url = new URL(req.url ?? "/api/seo-dashboard", "http://localhost");
     const snapshotMode = url.searchParams.get("snapshots");
 
@@ -59,7 +61,7 @@ export default async function handler(
     res.end(JSON.stringify(data));
   } catch (error) {
     res.setHeader("Content-Type", "application/json; charset=utf-8");
-    res.writeHead(500);
+    res.writeHead(error instanceof Error && error.message === "dashboard_session_required" ? 401 : 500);
     res.end(JSON.stringify({
       error: "seo_dashboard_failed",
       message: error instanceof Error ? error.message : "Unexpected dashboard error",

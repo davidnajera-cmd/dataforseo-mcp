@@ -4,6 +4,7 @@ import { getBrief, listBriefs, listEntities, ensureResearchSchema, persistObserv
 import { neon } from "@neondatabase/serverless";
 import { assertVariablesAdminToken, clearRuntimeVariableCache } from "../src/runtime-config.js";
 import { clearGoogleAccessTokenCache } from "../src/gsc-client.js";
+import { assertDashboardSession } from "../src/dashboard-auth.js";
 
 export const config = { maxDuration: 300 };
 
@@ -17,6 +18,7 @@ export default async function handler(
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
   try {
+    assertDashboardSession(req);
     const url = new URL(req.url ?? "/api/research", "http://localhost");
     const action = url.searchParams.get("action") ?? "list";
 
