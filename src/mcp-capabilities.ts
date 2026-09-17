@@ -22,6 +22,10 @@ const READ_GSC: CapabilityOverride = {
 };
 
 const OVERRIDES: Record<string, CapabilityOverride> = {
+  mcp_execution_status: {
+    operation: "read", capability: "history:read", approval_required: false,
+    idempotent: true, freshness: "live", cost_tier: "included",
+  },
   gsc_sitemaps_submit: {
     operation: "write", capability: "gsc:sitemap:write", approval_required: true,
     idempotent: true, freshness: "live", cost_tier: "included",

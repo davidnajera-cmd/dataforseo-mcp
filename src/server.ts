@@ -133,7 +133,7 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - scrapegraph_* : AI-powered scraping de cualquier URL vía ScrapeGraphAI (smartscraper, searchscraper, markdownify). Requiere SGAI_API_KEY. De pago por créditos; no resuelve anti-bot fuerte por sí solo.
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
 
-export function createServer(options: { bundle?: BundleName } = {}): McpServer {
+export function createServer(options: { bundle?: BundleName; actorKeyId?: number } = {}): McpServer {
   const bundle: BundleName = options.bundle ?? "full";
   const server = new McpServer({
     name: bundle === "full" ? "SEO MCP Server" : `SEO MCP Server (${bundle} bundle)`,
@@ -160,7 +160,7 @@ export function createServer(options: { bundle?: BundleName } = {}): McpServer {
   }
 
   // DataForSEO API tools (SERP, Keywords, Backlinks, OnPage, Labs, etc.)
-  registerCapabilityTools(server);
+  registerCapabilityTools(server, options.actorKeyId);
 
   registerTools(server);
 

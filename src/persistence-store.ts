@@ -199,6 +199,31 @@ export async function finishMcpExecutionRun(input: { trace_id: string; status: "
   await sql`update mcp_execution_runs set status = ${input.status}, outcome_summary = ${input.outcome_summary === undefined ? null : JSON.stringify(input.outcome_summary)}::jsonb, cost_usd = ${input.cost_usd ?? null}, error_code = ${input.error_code ?? null}, completed_at = now() where trace_id = ${input.trace_id}`;
 }
 
+export type McpExecutionStatus = {
+  trace_id: string;
+  tool_name: string;
+  operation: string;
+  status: string;
+  cost_usd: string | null;
+  error_code: string | null;
+  started_at: string;
+  completed_at: string | null;
+};
+
+/** Returns only safe lifecycle metadata, scoped to the authenticated integration. */
+export async function getMcpExecutionStatus(traceId: string, actorKeyId: number): Promise<McpExecutionStatus | null> {
+  const sql = getPersistenceSql();
+  if (!sql) return null;
+  await ensurePersistenceSchema();
+  const rows = await sql`
+    select trace_id, tool_name, operation, status, cost_usd::text, error_code, started_at::text, completed_at::text
+    from mcp_execution_runs
+    where trace_id = ${traceId} and actor_key_id = ${actorKeyId}
+    limit 1
+  ` as McpExecutionStatus[];
+  return rows[0] ?? null;
+}
+
 export type KeywordUniverseRow = {
   id: number;
   keyword: string;
