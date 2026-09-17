@@ -3,9 +3,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
-import { authorizeMcpToolCall } from "../src/mcp-capabilities.js";
-import { redactExecutionArguments } from "../src/mcp-execution-trace.js";
-import { startMcpExecutionRun } from "../src/persistence-store.js";
+import { authorizeMcpToolCall, getMcpToolCapability } from "../src/mcp-capabilities.js";
+import { executionTraceFinalState, redactExecutionArguments } from "../src/mcp-execution-trace.js";
+import { finishMcpExecutionRun, startMcpExecutionRun } from "../src/persistence-store.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -51,7 +51,7 @@ export default async function handler(
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, mcp-session-id, x-api-key, authorization");
-  res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
+  res.setHeader("Access-Control-Expose-Headers", "mcp-session-id, x-mcp-trace-id");
   if (req.method === "OPTIONS") { res.writeHead(204); res.end(); return; }
 
   // Parse query string for bundle and auth strategy
@@ -85,6 +85,7 @@ export default async function handler(
   const apiKey = headerString(req.headers["x-api-key"])
     ?? extractBearer(headerString(req.headers["authorization"]));
   const requireKey = isMcpApiKeyRequired(bundle);
+  let completeTrace: (() => Promise<void>) | undefined;
 
   if (requireKey && !isUnauthenticatedConnectorProtocolRequest(body)) {
     const v = await validateApiKey(apiKey);
@@ -100,22 +101,37 @@ export default async function handler(
       return;
     }
     const toolName = requestedMcpToolName(body);
-    if (toolName) {
+    const trace = toolName ? (() => {
       const traceId = randomUUID();
       res.setHeader("x-mcp-trace-id", traceId);
-      void startMcpExecutionRun({ trace_id: traceId, tool_name: toolName, operation: "requested", args: redactExecutionArguments(body) });
-    }
+      return {
+        traceId,
+        started: startMcpExecutionRun({
+          trace_id: traceId,
+          tool_name: toolName,
+          operation: getMcpToolCapability(toolName).operation,
+          args: redactExecutionArguments(body),
+        }).catch(() => undefined),
+      };
+    })() : undefined;
+    completeTrace = async () => {
+      if (!trace) return;
+      await trace.started;
+      await finishMcpExecutionRun({ trace_id: trace.traceId, ...executionTraceFinalState(res.statusCode) }).catch(() => undefined);
+    };
     const scopedAuthorization = toolName && v.capability_scopes !== null
       ? authorizeMcpToolCall(toolName, v.capability_scopes, false)
       : null;
     if (scopedAuthorization && !scopedAuthorization.allowed) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden", reason: scopedAuthorization.reason, tool: toolName, required_capability: scopedAuthorization.required_capability }));
+      await completeTrace?.();
       return;
     }
     if (!scopedAuthorization && isMutatingMcpTool(toolName) && !v.allow_mutations) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden", reason: "mutation_permission_required", tool: toolName }));
+      await completeTrace?.();
       return;
     }
     const quota = await consumeMcpApiKeyQuota(apiKey!);
@@ -125,6 +141,7 @@ export default async function handler(
         "Retry-After": "60",
       });
       res.end(JSON.stringify({ error: "rate_limited", retry_after_seconds: 60 }));
+      await completeTrace?.();
       return;
     }
   }
@@ -135,7 +152,13 @@ export default async function handler(
   });
   await server.connect(transport);
 
-  await transport.handleRequest(req, res, body);
+  try {
+    await transport.handleRequest(req, res, body);
+    await completeTrace?.();
+  } catch (error) {
+    await completeTrace?.();
+    throw error;
+  }
 }
 
 function headerString(h: string | string[] | undefined): string | undefined {

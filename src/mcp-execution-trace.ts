@@ -1,5 +1,11 @@
 const SECRET_KEY = /(?:api[_-]?key|authorization|token|secret|password|cookie)/i;
 
+export function executionTraceFinalState(statusCode: number): { status: "completed" } | { status: "failed"; error_code: string } {
+  return statusCode >= 200 && statusCode < 400
+    ? { status: "completed" }
+    : { status: "failed", error_code: `http_${statusCode}` };
+}
+
 export function redactExecutionArguments(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactExecutionArguments);
   if (!value || typeof value !== "object") return value;
