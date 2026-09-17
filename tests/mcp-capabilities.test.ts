@@ -40,6 +40,13 @@ test("treats paid dispatch as a separately scoped operation", () => {
   assert.equal(capability.approval_required, true);
 });
 
+test("never classifies social publication as a read-only capability", () => {
+  const capability = getMcpToolCapability("zernio_posts_create");
+  assert.equal(capability.operation, "write");
+  assert.equal(capability.capability, "social:publish");
+  assert.equal(capability.approval_required, true);
+});
+
 test("preflight reports cost, approval and scope before an agent calls a tool", () => {
   assert.deepEqual(
     preflightMcpToolCall("apify_run_actor", ["research:paid_dispatch"]),
