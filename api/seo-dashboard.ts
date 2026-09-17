@@ -1,6 +1,6 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { collectSeoDashboardData, normalizeFilters } from "../src/dashboard-data.js";
-import { getLatestDashboardSnapshot, listDashboardSnapshots, saveDashboardSnapshot } from "../src/dashboard-store.js";
+import { getLatestCompatibleDashboardSnapshot, getLatestDashboardSnapshot, listDashboardSnapshots, saveDashboardSnapshot } from "../src/dashboard-store.js";
 import { assertDashboardSession } from "../src/dashboard-auth.js";
 
 export default async function handler(
@@ -48,6 +48,13 @@ export default async function handler(
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.writeHead(200);
         res.end(JSON.stringify(cached));
+        return;
+      }
+      const compatibleSnapshot = await getLatestCompatibleDashboardSnapshot(filters).catch(() => null);
+      if (compatibleSnapshot) {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.writeHead(200);
+        res.end(JSON.stringify(compatibleSnapshot));
         return;
       }
     }

@@ -62,6 +62,30 @@ export async function getLatestSocialDashboardSnapshot(filters: DashboardFilters
   return row.payload;
 }
 
+// See the equivalent SEO store helper. Date windows move daily, while a recent
+// snapshot for the same scope is still more useful than a blank dashboard.
+export async function getLatestCompatibleSocialDashboardSnapshot(filters: DashboardFilters, maxAgeMinutes = 7 * 24 * 60): Promise<SocialDashboardData | null> {
+  const sql = getSql();
+  if (!sql) return null;
+
+  await ensureSchema();
+  const rows = await sql`
+    select payload, generated_at
+    from social_dashboard_snapshots
+    where country = ${filters.country}
+      and timeframe = ${filters.timeframe}
+      and channel = ${filters.channel}
+    order by generated_at desc, created_at desc
+    limit 1
+  ` as Array<{ payload: SocialDashboardData; generated_at: string }>;
+
+  const row = rows[0];
+  if (!row) return null;
+  const ageMs = Date.now() - new Date(row.generated_at).getTime();
+  if (!Number.isFinite(ageMs) || ageMs > maxAgeMinutes * 60_000) return null;
+  return row.payload;
+}
+
 async function ensureSchema() {
   const sql = getSql();
   if (!sql || initialized) return;
