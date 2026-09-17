@@ -176,7 +176,7 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
 
 export function isToolInBundle(toolName: string, bundle: BundleName): boolean {
   if (bundle === "full") return true;
-  if (toolName.startsWith("mcp_capabilities_")) return true;
+  if (toolName.startsWith("mcp_capabilities_") || toolName === "mcp_tool_preflight") return true;
   const patterns = BUNDLE_PATTERNS[bundle];
   if (!patterns) return false;
   for (const p of patterns) {
