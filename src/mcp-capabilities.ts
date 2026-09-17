@@ -70,6 +70,15 @@ const KNOWN_READ_TOOLS = [
   "gsc_indexing_coverage_report",
 ];
 
+const VALID_CAPABILITY_SCOPES = new Set([
+  "*", "gsc:read", "gsc:sitemap:write", "gsc:property:write", "gsc:indexing:write",
+  "research:paid_dispatch", "agent:run", "backlog:sync", "history:read", "seo:read", "growth:read",
+]);
+
+export function isValidMcpCapabilityScope(value: unknown): value is string {
+  return typeof value === "string" && VALID_CAPABILITY_SCOPES.has(value);
+}
+
 /**
  * Describes the operational contract of a tool before an agent invokes it.
  * Unknown tools fail closed as a generic write: new provider integrations

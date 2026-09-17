@@ -3,6 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
+import { authorizeMcpToolCall } from "../src/mcp-capabilities.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 // Some tools (seo_legacy_redirect_audit, bulk URL inspection, Apify scrapers,
@@ -20,6 +21,10 @@ export function isMcpApiKeyRequired(_bundle: BundleName | undefined): boolean {
 
 export function isMcpRateLimitExceeded(requestCount: number): boolean {
   return requestCount > MCP_API_KEY_REQUESTS_PER_MINUTE;
+}
+
+export function isMcpToolAuthorized(toolName: string, capabilityScopes: readonly string[], allowLegacyMutations: boolean): boolean {
+  return authorizeMcpToolCall(toolName, capabilityScopes, allowLegacyMutations).allowed;
 }
 
 /**
@@ -92,7 +97,15 @@ export default async function handler(
       return;
     }
     const toolName = requestedMcpToolName(body);
-    if (isMutatingMcpTool(toolName) && !v.allow_mutations) {
+    const scopedAuthorization = toolName && v.capability_scopes !== null
+      ? authorizeMcpToolCall(toolName, v.capability_scopes, false)
+      : null;
+    if (scopedAuthorization && !scopedAuthorization.allowed) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "forbidden", reason: scopedAuthorization.reason, tool: toolName, required_capability: scopedAuthorization.required_capability }));
+      return;
+    }
+    if (!scopedAuthorization && isMutatingMcpTool(toolName) && !v.allow_mutations) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden", reason: "mutation_permission_required", tool: toolName }));
       return;
