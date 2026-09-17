@@ -427,6 +427,9 @@ function sourceMessage(message) {
   if (/PageSpeed API error|Lighthouse returned error/i.test(text)) {
     return "PageSpeed no respondió temporalmente; se reintentará en la próxima actualización.";
   }
+  if (/Clarity API error 429|Exceeded daily limit/i.test(text)) {
+    return "Microsoft Clarity alcanzó su límite diario; se reintentará en la próxima actualización.";
+  }
   return text;
 }
 
