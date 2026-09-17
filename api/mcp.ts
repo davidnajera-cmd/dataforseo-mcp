@@ -6,6 +6,7 @@ import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.
 import { authorizeMcpToolCall, getMcpToolCapability, requiresMcpIdempotency } from "../src/mcp-capabilities.js";
 import { executionRequestFingerprint, executionTraceFinalState, idempotencyKeyFingerprint, normalizeIdempotencyKey, normalizeTraceActorKeyId, redactExecutionArguments } from "../src/mcp-execution-trace.js";
 import { finishMcpExecutionRun, startMcpExecutionRun } from "../src/persistence-store.js";
+import { findOutOfScopeOwnedHosts } from "../src/mcp-domain-scope.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
@@ -111,6 +112,14 @@ export default async function handler(
       return;
     }
     const capability = toolName ? getMcpToolCapability(toolName) : undefined;
+    const outOfScopeHosts = toolName && v.domain_scope
+      ? findOutOfScopeOwnedHosts(toolName, body, v.domain_scope)
+      : [];
+    if (outOfScopeHosts.length > 0) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "forbidden", reason: "domain_not_in_key_scope", domains: outOfScopeHosts }));
+      return;
+    }
     if (capability && requiresMcpIdempotency(capability) && !idempotencyKey) {
       res.writeHead(400, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "idempotency_key_required", tool: toolName, hint: "Set x-mcp-idempotency-key before invoking this non-idempotent operation." }));

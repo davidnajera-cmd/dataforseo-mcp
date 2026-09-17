@@ -3,11 +3,17 @@ import { createApiKey, listApiKeys, revokeApiKey } from "../src/api-key-auth.js"
 import { assertVariablesAdminToken } from "../src/runtime-config.js";
 import { isValidBundle } from "../src/bundles.js";
 import { isValidMcpCapabilityScope } from "../src/mcp-capabilities.js";
+import { normalizeDomainScope } from "../src/mcp-domain-scope.js";
 
 export function parseRequestedCapabilityScopes(value: unknown): { valid: boolean; scopes: string[] } {
   if (value === undefined) return { valid: true, scopes: [] };
   if (!Array.isArray(value) || !value.every(isValidMcpCapabilityScope)) return { valid: false, scopes: [] };
   return { valid: true, scopes: [...new Set(value)] };
+}
+
+export function parseRequestedDomainScope(value: unknown): { valid: boolean; domains: string[] } {
+  if (value === undefined) return { valid: true, domains: [] };
+  return normalizeDomainScope(value);
 }
 
 export default async function handler(
@@ -38,6 +44,7 @@ export default async function handler(
         request_count: Number(r.request_count),
         allow_mutations: r.allow_mutations,
         capability_scopes: r.capability_scopes,
+        domain_scope: r.domain_scope,
       }));
       send(res, 200, { keys: safe });
       return;
@@ -55,8 +62,11 @@ export default async function handler(
         send(res, 400, { error: "mutation_scopes_required", hint: "Provide explicit capability_scopes for every new mutating key." });
         return;
       }
+      const parsedDomainScope = parseRequestedDomainScope(body.domain_scope);
+      if (!parsedDomainScope.valid) { send(res, 400, { error: "invalid_domain_scope" }); return; }
       const capabilityScopes = parsedScopes.scopes.length > 0 ? parsedScopes.scopes : undefined;
-      const created = await createApiKey(name, bundleScope, allowMutations, capabilityScopes);
+      const domainScope = parsedDomainScope.domains.length > 0 ? parsedDomainScope.domains : undefined;
+      const created = await createApiKey(name, bundleScope, allowMutations, capabilityScopes, domainScope);
       // The raw key is returned ONCE here. Caller must save it.
       send(res, 201, {
         id: created.id,
@@ -65,6 +75,7 @@ export default async function handler(
         bundle_scope: bundleScope ?? null,
         allow_mutations: allowMutations,
         capability_scopes: capabilityScopes ?? null,
+        domain_scope: domainScope ?? null,
         warning: "Esta es la única vez que verás la llave en texto plano. Guárdala ahora.",
       });
       return;
