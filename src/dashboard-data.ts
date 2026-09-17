@@ -716,7 +716,9 @@ async function loadPageSpeed(configs: CountryConfig[]) {
     return {
       live: false,
       error: true,
-      message: error instanceof Error ? error.message : "PageSpeed no respondio.",
+      // Provider responses can include opaque Lighthouse payloads. They are not
+      // actionable in the dashboard and make the executive summary unreadable.
+      message: "PageSpeed no respondió temporalmente; se reintentará en la próxima actualización.",
       score: null,
       lcp: null,
       inp: null,
