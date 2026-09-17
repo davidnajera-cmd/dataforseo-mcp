@@ -1,5 +1,10 @@
 const SECRET_KEY = /(?:api[_-]?key|authorization|token|secret|password|cookie)/i;
 
+/** A trace may reference an internal key row, never a raw key or key hash. */
+export function normalizeTraceActorKeyId(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 export function executionTraceFinalState(statusCode: number): { status: "completed" } | { status: "failed"; error_code: string } {
   return statusCode >= 200 && statusCode < 400
     ? { status: "completed" }

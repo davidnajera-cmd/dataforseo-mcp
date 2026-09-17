@@ -4,7 +4,7 @@ import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey 
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
 import { authorizeMcpToolCall, getMcpToolCapability } from "../src/mcp-capabilities.js";
-import { executionTraceFinalState, redactExecutionArguments } from "../src/mcp-execution-trace.js";
+import { executionTraceFinalState, normalizeTraceActorKeyId, redactExecutionArguments } from "../src/mcp-execution-trace.js";
 import { finishMcpExecutionRun, startMcpExecutionRun } from "../src/persistence-store.js";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, ServerResponse } from "node:http";
@@ -108,6 +108,7 @@ export default async function handler(
         traceId,
         started: startMcpExecutionRun({
           trace_id: traceId,
+          actor_key_id: normalizeTraceActorKeyId(v.id),
           tool_name: toolName,
           operation: getMcpToolCapability(toolName).operation,
           args: redactExecutionArguments(body),

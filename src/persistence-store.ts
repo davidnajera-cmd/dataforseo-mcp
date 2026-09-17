@@ -116,6 +116,7 @@ export async function ensurePersistenceSchema(): Promise<void> {
     create table if not exists mcp_execution_runs (
       id bigserial primary key,
       trace_id text unique not null,
+      actor_key_id bigint,
       tool_name text not null,
       operation text not null,
       status text not null,
@@ -127,7 +128,9 @@ export async function ensurePersistenceSchema(): Promise<void> {
       completed_at timestamptz
     )
   `;
+  await sql`alter table mcp_execution_runs add column if not exists actor_key_id bigint`;
   await sql`create index if not exists mcp_execution_runs_trace on mcp_execution_runs (trace_id)`;
+  await sql`create index if not exists mcp_execution_runs_actor_started on mcp_execution_runs (actor_key_id, started_at desc)`;
   await sql`create index if not exists mcp_execution_runs_tool_started on mcp_execution_runs (tool_name, started_at desc)`;
 
   await sql`
@@ -158,11 +161,11 @@ export async function ensurePersistenceSchema(): Promise<void> {
   schemaReady = true;
 }
 
-export async function startMcpExecutionRun(input: { trace_id: string; tool_name: string; operation: string; args: unknown }): Promise<void> {
+export async function startMcpExecutionRun(input: { trace_id: string; actor_key_id: number | null; tool_name: string; operation: string; args: unknown }): Promise<void> {
   const sql = getPersistenceSql();
   if (!sql) return;
   await ensurePersistenceSchema();
-  await sql`insert into mcp_execution_runs (trace_id, tool_name, operation, status, args) values (${input.trace_id}, ${input.tool_name}, ${input.operation}, 'running', ${JSON.stringify(input.args)}::jsonb)`;
+  await sql`insert into mcp_execution_runs (trace_id, actor_key_id, tool_name, operation, status, args) values (${input.trace_id}, ${input.actor_key_id}, ${input.tool_name}, ${input.operation}, 'running', ${JSON.stringify(input.args)}::jsonb)`;
 }
 
 export async function finishMcpExecutionRun(input: { trace_id: string; status: "completed" | "failed"; outcome_summary?: unknown; cost_usd?: number; error_code?: string }): Promise<void> {

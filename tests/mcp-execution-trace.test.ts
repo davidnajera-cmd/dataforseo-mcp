@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { executionTraceFinalState, redactExecutionArguments, summarizeExecutionOutcome } from "../src/mcp-execution-trace.js";
+import { executionTraceFinalState, normalizeTraceActorKeyId, redactExecutionArguments, summarizeExecutionOutcome } from "../src/mcp-execution-trace.js";
 
 test("redacts secrets before trace persistence", () => {
   assert.deepEqual(redactExecutionArguments({ url: "https://example.com", api_key: "secret", nested: { authorization: "Bearer value" } }), {
@@ -16,4 +16,10 @@ test("maps HTTP results to a safe terminal trace state", () => {
   assert.deepEqual(executionTraceFinalState(200), { status: "completed" });
   assert.deepEqual(executionTraceFinalState(403), { status: "failed", error_code: "http_403" });
   assert.deepEqual(executionTraceFinalState(503), { status: "failed", error_code: "http_503" });
+});
+
+test("only persists an internal positive API key identifier for trace attribution", () => {
+  assert.equal(normalizeTraceActorKeyId(42), 42);
+  assert.equal(normalizeTraceActorKeyId(0), null);
+  assert.equal(normalizeTraceActorKeyId("dnamcp_raw_secret"), null);
 });
