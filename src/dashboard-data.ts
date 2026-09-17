@@ -1216,11 +1216,16 @@ async function loadClarity(): Promise<ClaritySection> {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Clarity no respondio.";
     const isTransientUpstream = /Clarity API error 5\d\d:/.test(message);
+    const isRateLimited = /Clarity API error 429:|Exceeded daily limit/i.test(message);
     return {
       live: false,
-      error: !isTransientUpstream,
-      degraded: isTransientUpstream,
-      message: isTransientUpstream ? "Servicio externo temporalmente inestable." : message,
+      error: !isTransientUpstream && !isRateLimited,
+      degraded: isTransientUpstream || isRateLimited,
+      message: isRateLimited
+        ? "Microsoft Clarity alcanzó su límite diario; se reintentará en la próxima actualización."
+        : isTransientUpstream
+          ? "Servicio externo temporalmente inestable."
+          : message,
       deadClicks: null, rageClicks: null, excessiveScroll: null, quickbackClick: null,
     };
   }
