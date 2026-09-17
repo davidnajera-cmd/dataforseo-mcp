@@ -8,6 +8,7 @@ test("normalizes an owned-domain scope without accepting paths or malformed host
     domains: ["palosecoskool.com"],
   });
   assert.deepEqual(normalizeDomainScope(["not a domain"]), { valid: false, domains: [] });
+  assert.deepEqual(normalizeDomainScope(["https://palosecoskool.com/admin"]), { valid: false, domains: [] });
 });
 
 test("blocks GSC owned resources outside the API key domain scope", () => {
