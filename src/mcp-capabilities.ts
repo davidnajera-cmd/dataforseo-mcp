@@ -22,8 +22,20 @@ const READ_GSC: CapabilityOverride = {
 };
 
 const OVERRIDES: Record<string, CapabilityOverride> = {
+  mcp_capabilities_list: {
+    operation: "read", capability: "mcp:read", approval_required: false,
+    idempotent: true, freshness: "static", cost_tier: "included",
+  },
+  mcp_capabilities_search: {
+    operation: "read", capability: "mcp:read", approval_required: false,
+    idempotent: true, freshness: "static", cost_tier: "included",
+  },
+  mcp_tool_preflight: {
+    operation: "read", capability: "mcp:read", approval_required: false,
+    idempotent: true, freshness: "static", cost_tier: "included",
+  },
   mcp_execution_status: {
-    operation: "read", capability: "history:read", approval_required: false,
+    operation: "read", capability: "mcp:read", approval_required: false,
     idempotent: true, freshness: "live", cost_tier: "included",
   },
   gsc_sitemaps_submit: {
@@ -78,7 +90,7 @@ const KNOWN_READ_TOOLS = [
 
 const VALID_CAPABILITY_SCOPES = new Set([
   "*", "gsc:read", "gsc:sitemap:write", "gsc:property:write", "gsc:indexing:write",
-  "research:paid_dispatch", "agent:run", "backlog:sync", "history:read", "seo:read", "growth:read",
+  "research:paid_dispatch", "agent:run", "backlog:sync", "history:read", "seo:read", "growth:read", "mcp:read",
   "social:publish", "backlog:write", "local:write", "mutation:generic",
 ]);
 
@@ -154,6 +166,10 @@ export function authorizeMcpToolCall(
   allowLegacyMutations: boolean
 ): { allowed: true } | { allowed: false; reason: "capability_scope_required"; required_capability: string } {
   const capability = getMcpToolCapability(tool);
+  // These tools expose only static contracts or the caller's own safe trace
+  // metadata. They must remain callable so a narrowly scoped agent can
+  // discover its permissions and recover from a timeout.
+  if (capability.capability === "mcp:read") return { allowed: true };
   if (capabilityScopes.includes("*") || capabilityScopes.includes(capability.capability)) return { allowed: true };
   if (capabilityScopes.length === 0 && capability.operation === "read") return { allowed: true };
   if (capabilityScopes.length === 0 && allowLegacyMutations) return { allowed: true };
