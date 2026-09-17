@@ -113,6 +113,24 @@ export async function ensurePersistenceSchema(): Promise<void> {
   `;
 
   await sql`
+    create table if not exists mcp_execution_runs (
+      id bigserial primary key,
+      trace_id text unique not null,
+      tool_name text not null,
+      operation text not null,
+      status text not null,
+      args jsonb,
+      outcome_summary jsonb,
+      cost_usd numeric,
+      error_code text,
+      started_at timestamptz not null default now(),
+      completed_at timestamptz
+    )
+  `;
+  await sql`create index if not exists mcp_execution_runs_trace on mcp_execution_runs (trace_id)`;
+  await sql`create index if not exists mcp_execution_runs_tool_started on mcp_execution_runs (tool_name, started_at desc)`;
+
+  await sql`
     create table if not exists seo_web_leads (
       id bigserial primary key,
       external_id text,
@@ -138,6 +156,20 @@ export async function ensurePersistenceSchema(): Promise<void> {
   await sql`alter table seo_web_leads add column if not exists email text`;
 
   schemaReady = true;
+}
+
+export async function startMcpExecutionRun(input: { trace_id: string; tool_name: string; operation: string; args: unknown }): Promise<void> {
+  const sql = getPersistenceSql();
+  if (!sql) return;
+  await ensurePersistenceSchema();
+  await sql`insert into mcp_execution_runs (trace_id, tool_name, operation, status, args) values (${input.trace_id}, ${input.tool_name}, ${input.operation}, 'running', ${JSON.stringify(input.args)}::jsonb)`;
+}
+
+export async function finishMcpExecutionRun(input: { trace_id: string; status: "completed" | "failed"; outcome_summary?: unknown; cost_usd?: number; error_code?: string }): Promise<void> {
+  const sql = getPersistenceSql();
+  if (!sql) return;
+  await ensurePersistenceSchema();
+  await sql`update mcp_execution_runs set status = ${input.status}, outcome_summary = ${input.outcome_summary === undefined ? null : JSON.stringify(input.outcome_summary)}::jsonb, cost_usd = ${input.cost_usd ?? null}, error_code = ${input.error_code ?? null}, completed_at = now() where trace_id = ${input.trace_id}`;
 }
 
 export type KeywordUniverseRow = {
