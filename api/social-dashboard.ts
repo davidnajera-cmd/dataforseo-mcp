@@ -1,7 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { collectSocialDashboardData } from "../src/social-dashboard-data.js";
 import { normalizeFilters } from "../src/dashboard-data.js";
-import { getLatestSocialDashboardSnapshot, saveSocialDashboardSnapshot } from "../src/social-dashboard-store.js";
+import { getLatestCompatibleSocialDashboardSnapshot, getLatestSocialDashboardSnapshot, saveSocialDashboardSnapshot } from "../src/social-dashboard-store.js";
 import { assertDashboardSession } from "../src/dashboard-auth.js";
 
 export default async function handler(
@@ -35,6 +35,13 @@ export default async function handler(
         res.setHeader("Content-Type", "application/json; charset=utf-8");
         res.writeHead(200);
         res.end(JSON.stringify(cached));
+        return;
+      }
+      const compatibleSnapshot = await getLatestCompatibleSocialDashboardSnapshot(filters).catch(() => null);
+      if (compatibleSnapshot) {
+        res.setHeader("Content-Type", "application/json; charset=utf-8");
+        res.writeHead(200);
+        res.end(JSON.stringify(compatibleSnapshot));
         return;
       }
     }

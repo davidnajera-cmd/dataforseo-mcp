@@ -88,6 +88,32 @@ export async function getLatestDashboardSnapshot(filters: DashboardFilters, maxA
   return row.payload;
 }
 
+// The default date range rolls forward every day. A strict date lookup would
+// discard a healthy snapshot from yesterday and force the dashboard to wait on
+// every live provider before it can render. Keep the cadence, site and channel
+// fixed, but permit a recent prior range as a safe operational fallback.
+export async function getLatestCompatibleDashboardSnapshot(filters: DashboardFilters, maxAgeMinutes = 7 * 24 * 60): Promise<SeoDashboardData | null> {
+  const sql = getSql();
+  if (!sql) return null;
+
+  await ensureSchema();
+  const rows = await sql`
+    select payload, generated_at
+    from seo_dashboard_snapshots
+    where country = ${filters.country}
+      and timeframe = ${filters.timeframe}
+      and channel = ${filters.channel}
+    order by generated_at desc, created_at desc
+    limit 1
+  ` as Array<{ payload: SeoDashboardData; generated_at: string }>;
+
+  const row = rows[0];
+  if (!row) return null;
+  const ageMs = Date.now() - new Date(row.generated_at).getTime();
+  if (!Number.isFinite(ageMs) || ageMs > maxAgeMinutes * 60_000) return null;
+  return row.payload;
+}
+
 async function ensureSchema() {
   const sql = getSql();
   if (!sql || initialized) return;
