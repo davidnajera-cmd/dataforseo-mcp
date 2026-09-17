@@ -336,7 +336,7 @@ function setLoading(isLoading) {
 
 function render(data) {
   document.querySelector("#verdict").textContent = data.overview.verdict;
-  document.querySelector("#summary").textContent = data.overview.summary;
+  document.querySelector("#summary").textContent = sourceMessage(data.overview.summary);
   document.querySelector("#freshness").textContent = formatFreshness(data.generatedAt);
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
@@ -363,7 +363,7 @@ function renderExecutiveOverview(bundle) {
   const generatedAt = latestGeneratedAt([seo.generatedAt, social.generatedAt]);
   const combined = buildExecutiveOverviewModel(seo, social, intel);
   document.querySelector("#verdict").textContent = combined.verdict;
-  document.querySelector("#summary").textContent = combined.summary;
+  document.querySelector("#summary").textContent = sourceMessage(combined.summary);
   document.querySelector("#freshness").textContent = formatFreshness(generatedAt);
   renderSources(combined.sources);
   renderMetrics(combined.metrics);
@@ -390,7 +390,7 @@ function renderSocialDashboard(data) {
       : null;
   const intel = deriveSocialIntelligence(data.social, platformFilter);
   document.querySelector("#verdict").textContent = data.overview.verdict;
-  document.querySelector("#summary").textContent = data.overview.summary;
+  document.querySelector("#summary").textContent = sourceMessage(data.overview.summary);
   document.querySelector("#freshness").textContent = formatFreshness(data.generatedAt);
   renderSources(data.sources);
   renderMetrics(data.overview.metrics);
@@ -422,14 +422,23 @@ function toArray(value) {
   return Array.isArray(value) ? value : [];
 }
 
+function sourceMessage(message) {
+  const text = String(message || "");
+  if (/PageSpeed API error|Lighthouse returned error/i.test(text)) {
+    return "PageSpeed no respondió temporalmente; se reintentará en la próxima actualización.";
+  }
+  return text;
+}
+
 function renderSources(sources) {
   document.querySelector("#sourceDots").innerHTML = sources.map((source) => (
-    `<span class="source-dot ${source.status}" title="${source.name}: ${source.message}"></span>`
+    `<span class="source-dot ${source.status}" title="${source.name}: ${sourceMessage(source.message)}"></span>`
   )).join("");
 }
 
 function renderSeoExecutiveLayer(data) {
   const traffic = getTrafficReality(data);
+  const technicalSource = data.sources?.find((item) => item.name === "PageSpeed Insights");
   const deck = [
     {
       kicker: "Search Pulse",
@@ -476,7 +485,7 @@ function renderSeoExecutiveLayer(data) {
       sourceRows: (data.sources || []).map((source) => ({
         label: source.name,
         value: source.status,
-        note: source.message,
+        note: sourceMessage(source.message),
       })),
     },
   ];
@@ -485,7 +494,7 @@ function renderSeoExecutiveLayer(data) {
     { kicker: "Organic", title: "CTR promedio", value: data.overview.metrics?.[3]?.value ?? "Sin datos", note: data.overview.metrics?.[3]?.detail ?? "", status: "live" },
     { kicker: "Traffic", title: "Adquisición web", value: displayValue(traffic.acquisition), note: `${displayValue(traffic.operational)} portal/Q10 separados`, status: "live" },
     { kicker: "AI", title: "LLM visibility", value: displayValue(data.ai_visibility?.by_domain?.[0]?.google_mentions), note: data.ai_visibility?.note ?? "", status: data.ai_visibility?.has_data ? "live" : "pending" },
-    { kicker: "Risk", title: "Technical score", value: displayValue(data.technical?.score), note: data.sources?.find((item) => item.name === "Microsoft Clarity")?.message || "Sin alertas críticas", status: normalizeSignalStatus(data.sources?.find((item) => item.name === "Microsoft Clarity")?.status || "live") },
+    { kicker: "Risk", title: "Technical score", value: displayValue(data.technical?.score), note: sourceMessage(technicalSource?.message) || "Sin alertas críticas", status: normalizeSignalStatus(technicalSource?.status || "pending") },
   ]);
 }
 
@@ -541,7 +550,7 @@ function renderSocialExecutiveLayer(data, intel, platformFilter) {
       sourceRows: [
         { label: "Cuentas conectadas", value: displayValue(data.social?.connected_accounts), note: `${displayValue(data.social?.publish_ready_accounts)} listas para publicar` },
         { label: "Analytics activos", value: displayValue(data.social?.analytics_ready_accounts), note: `${displayValue(data.social?.published_posts)} posts publicados` },
-        ...toArray(data.sources).map((source) => ({ label: source.name, value: source.status, note: source.message })),
+        ...toArray(data.sources).map((source) => ({ label: source.name, value: source.status, note: sourceMessage(source.message) })),
       ],
     },
   ];
@@ -878,7 +887,7 @@ function renderExecutiveSourceBoard(sources) {
   target.innerHTML = `<div class="source-health-list">${toArray(sources).map((source) => `
     <div class="source-health-row">
       <strong>${esc(source.name)}</strong>
-      <span><strong>${esc(source.status)}</strong>${source.message ? ` <small>${esc(source.message)}</small>` : ""}</span>
+      <span><strong>${esc(source.status)}</strong>${source.message ? ` <small>${esc(sourceMessage(source.message))}</small>` : ""}</span>
     </div>
   `).join("")}</div>`;
 }
