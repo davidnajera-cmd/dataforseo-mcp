@@ -2917,6 +2917,9 @@ function writeViewToUrl() {
 
 function restoreViewFromUrl({ task = true } = {}) {
   const params = new URLSearchParams(window.location.search);
+  // A history entry can intentionally omit a filter to mean its form default.
+  // Reset first so Back/Forward never carries a stale value from the prior URL.
+  filters.reset();
   for (const name of ["country", "timeframe", "startDate", "endDate", "channel"]) {
     const value = params.get(name);
     if (value && filters.elements[name]) filters.elements[name].value = value;
