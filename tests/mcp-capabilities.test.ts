@@ -5,6 +5,7 @@ import {
   getMcpToolCapability,
   listMcpCapabilities,
   preflightMcpToolCall,
+  requiresMcpIdempotency,
   searchMcpCapabilities,
 } from "../src/mcp-capabilities.js";
 
@@ -57,10 +58,17 @@ test("preflight reports cost, approval and scope before an agent calls a tool", 
       required_capability: "research:paid_dispatch",
       approval_required: true,
       idempotent: false,
+      idempotency_required: true,
       freshness: "live",
       cost_tier: "variable",
     }
   );
+});
+
+test("requires idempotency for non-idempotent side effects but not idempotent writes", () => {
+  assert.equal(requiresMcpIdempotency(getMcpToolCapability("apify_run_actor")), true);
+  assert.equal(requiresMcpIdempotency(getMcpToolCapability("zernio_posts_create")), true);
+  assert.equal(requiresMcpIdempotency(getMcpToolCapability("gsc_sitemaps_submit")), false);
 });
 
 test("lists capabilities without exposing write tools in a read-only filter", () => {
