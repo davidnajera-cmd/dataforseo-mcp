@@ -186,6 +186,7 @@ function syncDateInputs(resolvedFilters) {
 }
 
 filters.addEventListener("change", () => {
+  writeViewToUrl();
   if (state.module === "executive") loadExecutiveOverview();
   else if (state.module === "social" && state.view !== "variables") loadSocialDashboard();
   else if (state.view !== "variables" && state.view !== "backlog") loadDashboard();
@@ -231,12 +232,13 @@ function setView(view, options = {}) {
   document.querySelector("#pageTitle").textContent = modules[state.module].views[view];
   navItems.forEach((button) => button.classList.toggle("is-active", button.dataset.module === state.module && button.dataset.view === view));
   updateSectionVisibility();
-  if (updateUrl) writeViewToUrl();
   if (state.module === "executive") {
+    if (updateUrl) writeViewToUrl();
     loadExecutiveOverview();
     return;
   }
   if (state.module === "social") {
+    if (updateUrl) writeViewToUrl();
     if (view === "variables") {
       loadVariables();
       return;
@@ -247,12 +249,15 @@ function setView(view, options = {}) {
   if (view === "weekly") {
     filters.elements.timeframe.value = "weekly";
     clearDateInputs();
+    if (updateUrl) writeViewToUrl();
     loadDashboard();
   } else if (view === "monthly") {
     filters.elements.timeframe.value = "monthly";
     clearDateInputs();
+    if (updateUrl) writeViewToUrl();
     loadDashboard();
   } else {
+    if (updateUrl) writeViewToUrl();
     if (view === "variables") loadVariables();
     if (view === "backlog") loadBacklog();
     if (view !== "variables" && view !== "backlog") loadDashboard();
@@ -2492,14 +2497,14 @@ async function loadBacklogStats() {
     if (!res.ok) return;
     const s = await res.json();
     const cards = [
-      { label: "🛠 Recovery pendientes", value: s.recovery_pendiente, kind: "recovery" },
+      { label: "Recovery pendientes", value: s.recovery_pendiente, kind: "recovery" },
       { label: "Growth pendientes", value: s.growth_pendiente, kind: "growth" },
-      { label: "🔒 Bloqueadas", value: s.total_blocked, kind: "blocked" },
-      { label: "⏳ En progreso", value: s.total_en_progreso, kind: "progress" },
+      { label: "Bloqueadas", value: s.total_blocked, kind: "blocked" },
+      { label: "En progreso", value: s.total_en_progreso, kind: "progress" },
       { label: "Vencidas", value: s.overdue, kind: s.overdue > 0 ? "warn" : "neutral" },
       { label: "Sin responsable", value: s.no_owner, kind: s.no_owner > 5 ? "warn" : "neutral" },
-      { label: "📅 Sin due date", value: s.no_due_date, kind: s.no_due_date > 5 ? "warn" : "neutral" },
-      { label: "🕒 Stale", value: s.stale, kind: "neutral" },
+      { label: "Sin fecha límite", value: s.no_due_date, kind: s.no_due_date > 5 ? "warn" : "neutral" },
+      { label: "Sin actualización", value: s.stale, kind: "neutral" },
     ];
     // eslint-disable-next-line no-unsanitized/property
     target.innerHTML = cards.map((c) => `
@@ -2569,10 +2574,10 @@ function renderTaskCard(row) {
   const riskBadge = row.risk_level && row.risk_level !== "low" ? `<span class="risk-badge risk-${esc(row.risk_level)}">Riesgo ${esc(row.risk_level)}</span>` : "";
   const reviewBadge = row.requires_human_review ? `<span class="review-badge">Revisión humana</span>` : "";
   const actionBadge = row.action_type && row.action_type !== "execution" ? `<span class="action-badge action-${esc(row.action_type)}">${esc(row.action_type)}</span>` : "";
-  const audienceBadge = row.audience === "estudiantes_actuales" ? `<span class="audience-badge audience-current">🎓 estudiantes actuales</span>` : "";
-  const blockedChip = row.status === "blocked" ? `<span class="blocked-chip">🔒 bloqueada${row.blocked_by ? ` (por #${row.blocked_by.join(',#')})` : ""}</span>` : "";
+  const audienceBadge = row.audience === "estudiantes_actuales" ? `<span class="audience-badge audience-current">Estudiantes actuales</span>` : "";
+  const blockedChip = row.status === "blocked" ? `<span class="blocked-chip">Bloqueada${row.blocked_by ? ` (por #${row.blocked_by.join(',#')})` : ""}</span>` : "";
   const ownerChip = row.owner ? `<span class="owner-chip">Responsable: ${esc(row.owner)}</span>` : "";
-  const dueChip = row.due_date ? `<span class="due-chip">📅 ${esc(row.due_date)}</span>` : "";
+  const dueChip = row.due_date ? `<span class="due-chip">Fecha límite: ${esc(row.due_date)}</span>` : "";
   const phaseChip = row.phase === "recovery" ? `<span class="phase-chip phase-recovery">Recovery</span>` : row.phase === "growth" ? `<span class="phase-chip phase-growth">Growth</span>` : "";
   return `
     <article class="task-card priority-${esc(row.priority)}${row.requires_human_review ? " needs-review" : ""}" data-id="${esc(row.id)}">
@@ -2660,7 +2665,7 @@ async function openTaskModal(id) {
       <label>Team area <input id="taskTeamInput" type="text" value="${esc(task.team_area ?? '')}" placeholder="SEO | dev | content | ops" /></label>
       <button class="small-button" id="saveOpFields" type="button">Guardar</button>
     </div>
-    ${task.blocked_by && task.blocked_by.length ? `<p class="blocked-note">🔒 Bloqueada por tareas: ${task.blocked_by.map((id) => `#${esc(id)}`).join(', ')}${task.blocked_reason ? '. ' + esc(task.blocked_reason) : ''}</p>` : ""}
+    ${task.blocked_by && task.blocked_by.length ? `<p class="blocked-note">Bloqueada por tareas: ${task.blocked_by.map((id) => `#${esc(id)}`).join(', ')}${task.blocked_reason ? '. ' + esc(task.blocked_reason) : ''}</p>` : ""}
     <textarea id="taskNoteInput" placeholder="Agregar nota (opcional al cambiar estado)"></textarea>
   `;
   modal.classList.add("visible");
@@ -2902,11 +2907,20 @@ function writeViewToUrl() {
   url.searchParams.set("module", state.module);
   url.searchParams.set("view", state.view);
   url.searchParams.delete("task");
+  for (const name of ["country", "timeframe", "startDate", "endDate", "channel"]) {
+    const value = filters.elements[name]?.value;
+    if (value && value !== "all") url.searchParams.set(name, value);
+    else url.searchParams.delete(name);
+  }
   window.history.pushState({}, "", url);
 }
 
 function restoreViewFromUrl({ task = true } = {}) {
   const params = new URLSearchParams(window.location.search);
+  for (const name of ["country", "timeframe", "startDate", "endDate", "channel"]) {
+    const value = params.get(name);
+    if (value && filters.elements[name]) filters.elements[name].value = value;
+  }
   const module = params.get("module");
   const selectedModule = module && modules[module] ? module : "seo";
   const requestedView = params.get("view");
