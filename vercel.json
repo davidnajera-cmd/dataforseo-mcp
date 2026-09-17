@@ -15,7 +15,7 @@
     { "source": "/sse", "destination": "/api/mcp" }
   ],
   "functions": {
-    "api/mcp.ts": { "maxDuration": 60 },
+    "api/mcp.ts": { "maxDuration": 300 },
     "api/seo-dashboard.ts": { "maxDuration": 60 },
     "api/social-dashboard.ts": { "maxDuration": 60 },
     "api/seo-connectivity.ts": { "maxDuration": 60 },

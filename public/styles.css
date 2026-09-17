@@ -131,7 +131,7 @@ select {
 
 .brand strong,
 .brand span,
-.topbar-title strong,
+.topbar-title h1,
 .topbar-title span {
   display: block;
 }
@@ -151,10 +151,39 @@ select {
   font-weight: 500;
 }
 
-.topbar-title strong {
+.topbar-title h1 {
   font-size: var(--text-2xl);
   line-height: 1.2;
   font-weight: 600;
+  margin: 0;
+}
+
+.skip-link {
+  position: fixed;
+  z-index: 20;
+  top: 12px;
+  left: 12px;
+  transform: translateY(-160%);
+  padding: 10px 14px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--paper);
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 .brand strong {
