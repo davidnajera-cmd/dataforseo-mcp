@@ -118,6 +118,15 @@ export function getMcpToolCapability(tool: string): McpToolCapability {
   return { tool, operation: "write", capability: "mutation:generic", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };
 }
 
+/**
+ * Paid dispatches and non-idempotent writes must carry a caller-generated
+ * idempotency key. This prevents a retrying agent from creating duplicate
+ * provider jobs, publications, or workflow runs.
+ */
+export function requiresMcpIdempotency(capability: McpToolCapability): boolean {
+  return capability.operation !== "read" && !capability.idempotent;
+}
+
 export function listMcpCapabilities(filter: { operation?: McpOperation } = {}): McpToolCapability[] {
   const names = [...KNOWN_READ_TOOLS, ...Object.keys(OVERRIDES)];
   return names
@@ -157,6 +166,7 @@ export function preflightMcpToolCall(tool: string, capabilityScopes: readonly st
     required_capability: capability.capability,
     approval_required: capability.approval_required,
     idempotent: capability.idempotent,
+    idempotency_required: requiresMcpIdempotency(capability),
     freshness: capability.freshness,
     cost_tier: capability.cost_tier,
     ...(authorization.allowed ? {} : { reason: authorization.reason }),

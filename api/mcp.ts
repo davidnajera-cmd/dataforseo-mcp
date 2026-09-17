@@ -3,7 +3,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
-import { authorizeMcpToolCall, getMcpToolCapability } from "../src/mcp-capabilities.js";
+import { authorizeMcpToolCall, getMcpToolCapability, requiresMcpIdempotency } from "../src/mcp-capabilities.js";
 import { executionRequestFingerprint, executionTraceFinalState, idempotencyKeyFingerprint, normalizeIdempotencyKey, normalizeTraceActorKeyId, redactExecutionArguments } from "../src/mcp-execution-trace.js";
 import { finishMcpExecutionRun, startMcpExecutionRun } from "../src/persistence-store.js";
 import { randomUUID } from "node:crypto";
@@ -108,6 +108,12 @@ export default async function handler(
       res.end(JSON.stringify({ error: "invalid_idempotency_key", hint: "Use 8-128 letters, digits, dots, colons, underscores, or hyphens." }));
       return;
     }
+    const capability = toolName ? getMcpToolCapability(toolName) : undefined;
+    if (capability && requiresMcpIdempotency(capability) && !idempotencyKey) {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "idempotency_key_required", tool: toolName, hint: "Set x-mcp-idempotency-key before invoking this non-idempotent operation." }));
+      return;
+    }
     const trace = toolName ? (() => {
       const traceId = randomUUID();
       res.setHeader("x-mcp-trace-id", traceId);
@@ -117,7 +123,7 @@ export default async function handler(
           trace_id: traceId,
           actor_key_id: normalizeTraceActorKeyId(v.id),
           tool_name: toolName,
-          operation: getMcpToolCapability(toolName).operation,
+          operation: capability!.operation,
           args: redactExecutionArguments(body),
           idempotency_key_hash: idempotencyKey ? idempotencyKeyFingerprint(idempotencyKey) : undefined,
           request_fingerprint: idempotencyKey ? executionRequestFingerprint(body) : undefined,
