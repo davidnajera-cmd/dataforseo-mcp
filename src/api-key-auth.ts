@@ -111,7 +111,7 @@ export async function revokeApiKey(id: number): Promise<boolean> {
 // Returns { valid: true, name, bundle_scope } if the key is active.
 // Returns { valid: false, reason } otherwise.
 // Side effect: increments request_count and updates last_used_at on success.
-export async function validateApiKey(rawKey: string | undefined): Promise<{ valid: true; name: string; bundle_scope: string[] | null; allow_mutations: boolean; capability_scopes: string[] | null } | { valid: false; reason: string }> {
+export async function validateApiKey(rawKey: string | undefined): Promise<{ valid: true; id: number; name: string; bundle_scope: string[] | null; allow_mutations: boolean; capability_scopes: string[] | null } | { valid: false; reason: string }> {
   if (!rawKey || !rawKey.startsWith(API_KEY_PREFIX)) {
     return { valid: false, reason: "missing_or_malformed_api_key" };
   }
@@ -130,7 +130,7 @@ export async function validateApiKey(rawKey: string | undefined): Promise<{ vali
   if (row.revoked_at) return { valid: false, reason: "key_revoked" };
   // Fire-and-forget update; don't block the request.
   sql`update seo_api_keys set last_used_at = now(), request_count = request_count + 1 where id = ${row.id}`.catch(() => {});
-  return { valid: true, name: row.name, bundle_scope: row.bundle_scope, allow_mutations: row.allow_mutations, capability_scopes: row.capability_scopes };
+  return { valid: true, id: row.id, name: row.name, bundle_scope: row.bundle_scope, allow_mutations: row.allow_mutations, capability_scopes: row.capability_scopes };
 }
 
 export async function consumeMcpApiKeyQuota(rawKey: string): Promise<{ allowed: boolean; requestCount: number }> {
