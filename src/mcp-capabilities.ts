@@ -1,3 +1,5 @@
+import { isMutatingMcpTool } from "./mcp-permissions.js";
+
 export type McpOperation = "read" | "write" | "paid_dispatch" | "workflow_run";
 export type McpFreshness = "live" | "historical" | "static";
 export type McpCostTier = "included" | "variable" | "paid";
@@ -73,6 +75,7 @@ const KNOWN_READ_TOOLS = [
 const VALID_CAPABILITY_SCOPES = new Set([
   "*", "gsc:read", "gsc:sitemap:write", "gsc:property:write", "gsc:indexing:write",
   "research:paid_dispatch", "agent:run", "backlog:sync", "history:read", "seo:read", "growth:read",
+  "social:publish", "backlog:write", "local:write", "mutation:generic",
 ]);
 
 export function isValidMcpCapabilityScope(value: unknown): value is string {
@@ -88,6 +91,21 @@ export function getMcpToolCapability(tool: string): McpToolCapability {
   const override = OVERRIDES[tool];
   if (override) return { tool, ...override };
   if (KNOWN_READ_TOOLS.includes(tool) || tool.startsWith("gsc_")) return { tool, ...READ_GSC };
+  if (isMutatingMcpTool(tool)) {
+    if (tool.startsWith("zernio_")) {
+      return { tool, operation: "write", capability: "social:publish", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };
+    }
+    if (tool.startsWith("backlog_")) {
+      return { tool, operation: "write", capability: "backlog:write", approval_required: true, idempotent: false, freshness: "live", cost_tier: "included" };
+    }
+    if (tool.startsWith("gbp_")) {
+      return { tool, operation: "write", capability: "local:write", approval_required: true, idempotent: false, freshness: "live", cost_tier: "included" };
+    }
+    if (tool.startsWith("apify_") || tool.startsWith("scrapegraph_")) {
+      return { tool, operation: "paid_dispatch", capability: "research:paid_dispatch", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };
+    }
+    return { tool, operation: "write", capability: "mutation:generic", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };
+  }
   if (tool.startsWith("history_")) {
     return { tool, operation: "read", capability: "history:read", approval_required: false, idempotent: true, freshness: "historical", cost_tier: "included" };
   }
@@ -97,7 +115,7 @@ export function getMcpToolCapability(tool: string): McpToolCapability {
   if (/^(?:zernio_|gbp_|backlog_|snapshot_|brand_|social_)/.test(tool)) {
     return { tool, operation: "read", capability: "growth:read", approval_required: false, idempotent: true, freshness: "live", cost_tier: "included" };
   }
-  return { tool, operation: "write", capability: "mutation:unclassified", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };
+  return { tool, operation: "write", capability: "mutation:generic", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };
 }
 
 export function listMcpCapabilities(filter: { operation?: McpOperation } = {}): McpToolCapability[] {
