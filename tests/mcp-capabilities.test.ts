@@ -5,6 +5,7 @@ import {
   getMcpToolCapability,
   listMcpCapabilities,
   preflightMcpToolCall,
+  searchMcpCapabilities,
 } from "../src/mcp-capabilities.js";
 
 test("describes read-only tools with freshness and no approval requirement", () => {
@@ -59,4 +60,9 @@ test("lists capabilities without exposing write tools in a read-only filter", ()
   const tools = listMcpCapabilities({ operation: "read" });
   assert.ok(tools.some((tool) => tool.tool === "gsc_search_analytics_query"));
   assert.ok(!tools.some((tool) => tool.tool === "gsc_sitemaps_submit"));
+});
+
+test("searches capabilities for agent tool discovery", () => {
+  const results = searchMcpCapabilities("sitemap write");
+  assert.deepEqual(results.map((tool) => tool.tool), ["gsc_sitemaps_delete", "gsc_sitemaps_submit"]);
 });
