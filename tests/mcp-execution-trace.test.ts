@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { executionTraceFinalState, normalizeTraceActorKeyId, redactExecutionArguments, summarizeExecutionOutcome } from "../src/mcp-execution-trace.js";
+import { executionTraceFinalState, executionRequestFingerprint, normalizeIdempotencyKey, normalizeTraceActorKeyId, redactExecutionArguments, summarizeExecutionOutcome } from "../src/mcp-execution-trace.js";
 
 test("redacts secrets before trace persistence", () => {
   assert.deepEqual(redactExecutionArguments({ url: "https://example.com", api_key: "secret", nested: { authorization: "Bearer value" } }), {
@@ -22,4 +22,14 @@ test("only persists an internal positive API key identifier for trace attributio
   assert.equal(normalizeTraceActorKeyId(42), 42);
   assert.equal(normalizeTraceActorKeyId(0), null);
   assert.equal(normalizeTraceActorKeyId("dnamcp_raw_secret"), null);
+});
+
+test("normalizes idempotency keys and fingerprints equivalent requests deterministically", () => {
+  assert.equal(normalizeIdempotencyKey("agent-run:2026-09-17:001"), "agent-run:2026-09-17:001");
+  assert.equal(normalizeIdempotencyKey("short"), null);
+  assert.equal(normalizeIdempotencyKey("invalid key with spaces"), null);
+  assert.equal(
+    executionRequestFingerprint({ method: "tools/call", params: { arguments: { b: 2, a: 1 } } }),
+    executionRequestFingerprint({ params: { arguments: { a: 1, b: 2 } }, method: "tools/call" })
+  );
 });
