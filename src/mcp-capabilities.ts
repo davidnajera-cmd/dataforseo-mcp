@@ -108,6 +108,15 @@ export function listMcpCapabilities(filter: { operation?: McpOperation } = {}): 
     .sort((a, b) => a.tool.localeCompare(b.tool));
 }
 
+export function searchMcpCapabilities(query: string): McpToolCapability[] {
+  const terms = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return listMcpCapabilities();
+  return listMcpCapabilities().filter((capability) => {
+    const haystack = `${capability.tool} ${capability.operation} ${capability.capability}`.toLowerCase();
+    return terms.every((term) => haystack.includes(term));
+  });
+}
+
 export function authorizeMcpToolCall(
   tool: string,
   capabilityScopes: readonly string[],
