@@ -49,8 +49,11 @@ function normalizeHost(value: unknown): string | null {
   const trimmed = value.trim().toLowerCase();
   if (!trimmed) return null;
   const gscDomain = trimmed.startsWith("sc-domain:") ? trimmed.slice("sc-domain:".length) : trimmed;
+  if (trimmed.startsWith("sc-domain:") && (gscDomain.includes("/") || gscDomain.includes("?") || gscDomain.includes("#"))) return null;
   try {
-    const hostname = new URL(gscDomain.includes("://") ? gscDomain : `https://${gscDomain}`).hostname.toLowerCase();
+    const url = new URL(gscDomain.includes("://") ? gscDomain : `https://${gscDomain}`);
+    if (url.pathname !== "/" || url.search || url.hash) return null;
+    const hostname = url.hostname.toLowerCase();
     return HOSTNAME.test(hostname) ? hostname.replace(/^www\./, "") : null;
   } catch {
     return null;
