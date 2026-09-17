@@ -29,6 +29,7 @@ export default async function handler(
         last_used_at: r.last_used_at,
         revoked_at: r.revoked_at,
         request_count: Number(r.request_count),
+        allow_mutations: r.allow_mutations,
       }));
       send(res, 200, { keys: safe });
       return;
@@ -39,13 +40,15 @@ export default async function handler(
       const name = String(body.name ?? "").trim();
       if (!name) { send(res, 400, { error: "name_required" }); return; }
       const bundleScope = Array.isArray(body.bundle_scope) ? (body.bundle_scope as string[]).filter(isValidBundle) : undefined;
-      const created = await createApiKey(name, bundleScope);
+      const allowMutations = body.allow_mutations === true;
+      const created = await createApiKey(name, bundleScope, allowMutations);
       // The raw key is returned ONCE here. Caller must save it.
       send(res, 201, {
         id: created.id,
         name: created.name,
         key: created.key,
         bundle_scope: bundleScope ?? null,
+        allow_mutations: allowMutations,
         warning: "Esta es la única vez que verás la llave en texto plano. Guárdala ahora.",
       });
       return;

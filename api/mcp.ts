@@ -2,6 +2,7 @@ import { createServer } from "../src/server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
+import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 // Some tools (seo_legacy_redirect_audit, bulk URL inspection, Apify scrapers,
@@ -88,6 +89,12 @@ export default async function handler(
     if (v.bundle_scope && bundle && !v.bundle_scope.includes(bundle)) {
       res.writeHead(403, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: "forbidden", reason: "bundle_not_in_key_scope", allowed_bundles: v.bundle_scope }));
+      return;
+    }
+    const toolName = requestedMcpToolName(body);
+    if (isMutatingMcpTool(toolName) && !v.allow_mutations) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "forbidden", reason: "mutation_permission_required", tool: toolName }));
       return;
     }
     const quota = await consumeMcpApiKeyQuota(apiKey!);
