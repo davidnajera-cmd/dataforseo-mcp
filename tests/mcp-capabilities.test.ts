@@ -34,6 +34,11 @@ test("requires an explicit granular capability for sensitive tool calls", () => 
   );
 });
 
+test("always permits authenticated access to safe MCP discovery and recovery tools", () => {
+  assert.deepEqual(authorizeMcpToolCall("mcp_tool_preflight", ["gsc:read"], false), { allowed: true });
+  assert.deepEqual(authorizeMcpToolCall("mcp_execution_status", ["gsc:read"], false), { allowed: true });
+});
+
 test("treats paid dispatch as a separately scoped operation", () => {
   const capability = getMcpToolCapability("apify_run_actor");
   assert.equal(capability.operation, "paid_dispatch");
