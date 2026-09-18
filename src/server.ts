@@ -27,6 +27,7 @@ import { registerSocialIntelligenceTools } from "./tools-social-intelligence.js"
 import { registerGoogleBusinessHistoryTools } from "./tools-google-business-history.js";
 import { registerCapabilityTools } from "./tools-capabilities.js";
 import { registerVideoEvidenceTools } from "./tools-video-evidence.js";
+import { registerSeoAuditEngineTools } from "./tools-seo-audit-engine.js";
 import { isToolInBundle, type BundleName } from "./bundles.js";
 
 const SERVER_INSTRUCTIONS = `# SEO MCP Server
@@ -88,6 +89,7 @@ If you are answering a question and your only source for a claim is a tool resul
 - "What is the best social posting cadence / timing?" -> zernio_analytics_best_time, zernio_analytics_posting_frequency, zernio_analytics_content_decay
 - "What do my social videos actually say?" -> social_youtube_transcript, serp_youtube_video_subtitles_live
 - "How can a public YouTube video inform a GEO brief safely?" -> video_evidence_analyze, then video_geo_brief (verify every claim independently)
+- "Run or review a full professional SEO audit" -> seo_audit_start, collect specialist evidence, then seo_consultant_review
 - "What programs/materias does DNA Music offer in CO?" -> brand_dna_offer_summary
 - "Which page should this query rank with?" -> brand_map_keyword_to_program
 - "Generate Course schema for a program" -> brand_generate_course_schema
@@ -132,6 +134,7 @@ Other prebuilt playbooks: "competitor_analysis", "content_opportunity_brief", "b
 - zernio_* : social media profiles, connected accounts, comments inbox, analytics, OAuth connect flows, generic publishing, and platform-specific Instagram/TikTok tools via Zernio
 - social_* : social intelligence scrapers (TikTok comments/content, Instagram scraping, YouTube transcripts)
 - video_evidence_* / video_geo_brief : Gemini video discovery with timestamped unverified evidence and verification-first GEO briefs
+- seo_audit_* / seo_consultant_review : bounded professional crawl plus evidence-first scoring, prioritization, and verification
 - apify_google_* / apify_link_* / apify_meta_* / apify_tripadvisor_* / apify_mcp_connector_* : Apify growth stack (multi-engine AI visibility, link prospecting, creator partnerships, Tripadvisor enrichment, MCP connector setup)
 - scrapegraph_* : AI-powered scraping de cualquier URL vía ScrapeGraphAI (smartscraper, searchscraper, markdownify). Requiere SGAI_API_KEY. De pago por créditos; no resuelve anti-bot fuerte por sí solo.
 - seo_workflow_playbook : returns step-by-step recipe for a named workflow`;
@@ -226,6 +229,9 @@ export function createServer(options: { bundle?: BundleName; actorKeyId?: number
 
   // Gemini YouTube analysis as evidence discovery, never automatic truth or skill creation
   registerVideoEvidenceTools(server, options.actorKeyId);
+
+  // Central evidence contract for specialist audit skills and audit reviews
+  registerSeoAuditEngineTools(server);
 
   // Apify growth stack: MCP connector setup + search + prospecting + brand collabs + Tripadvisor enrichment
   registerApifyGrowthTools(server);

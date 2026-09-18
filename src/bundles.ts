@@ -104,6 +104,9 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
 
   // Technical SEO + on-page + indexation + content audits
   seo: [
+    /^seo_audit_start$/,
+    /^seo_audit_scorecard$/,
+    /^seo_consultant_review$/,
     /^gsc_/,
     /^gbp_/,
     /^gbp_history_/,
@@ -161,6 +164,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
 
   // Agent operation: backlog, research briefs, agent runs, schemas, playbooks
   agent: [
+    /^seo_audit_scorecard$/,
+    /^seo_consultant_review$/,
     /^backlog_/,
     /^agent_runs_/,
     /^brand_/,

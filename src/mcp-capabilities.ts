@@ -78,6 +78,18 @@ const OVERRIDES: Record<string, CapabilityOverride> = {
     operation: "read", capability: "history:read", approval_required: false,
     idempotent: true, freshness: "historical", cost_tier: "included",
   },
+  seo_audit_start: {
+    operation: "paid_dispatch", capability: "research:paid_dispatch", approval_required: true,
+    idempotent: false, freshness: "live", cost_tier: "variable",
+  },
+  seo_audit_scorecard: {
+    operation: "read", capability: "seo:read", approval_required: false,
+    idempotent: true, freshness: "static", cost_tier: "included",
+  },
+  seo_consultant_review: {
+    operation: "read", capability: "seo:read", approval_required: false,
+    idempotent: true, freshness: "static", cost_tier: "included",
+  },
   agent_run_now: {
     operation: "workflow_run", capability: "agent:run", approval_required: true,
     idempotent: false, freshness: "live", cost_tier: "paid",
