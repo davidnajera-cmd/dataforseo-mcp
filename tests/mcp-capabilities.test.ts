@@ -56,6 +56,16 @@ test("requires paid-dispatch scope and idempotency for Gemini video analysis", (
   });
 });
 
+test("protects a full SEO crawl as a paid dispatch while keeping scorecards read-only", () => {
+  const crawl = getMcpToolCapability("seo_audit_start");
+  assert.equal(crawl.operation, "paid_dispatch");
+  assert.equal(crawl.capability, "research:paid_dispatch");
+  assert.equal(requiresMcpIdempotency(crawl), true);
+  const scorecard = getMcpToolCapability("seo_audit_scorecard");
+  assert.equal(scorecard.operation, "read");
+  assert.equal(scorecard.capability, "seo:read");
+});
+
 test("never classifies social publication as a read-only capability", () => {
   const capability = getMcpToolCapability("zernio_posts_create");
   assert.equal(capability.operation, "write");
