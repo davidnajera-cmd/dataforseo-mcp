@@ -14,4 +14,5 @@ test("requires explicit write permission for provider changes and paid dispatche
   assert.equal(isMutatingMcpTool("zernio_posts_create"), true);
   assert.equal(isMutatingMcpTool("apify_run_actor"), true);
   assert.equal(isMutatingMcpTool("agent_run_now"), true);
+  assert.equal(isMutatingMcpTool("video_evidence_analyze"), true);
 });

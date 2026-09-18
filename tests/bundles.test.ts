@@ -8,3 +8,9 @@ test("exposes safe MCP discovery tools in every constrained bundle", () => {
   assert.equal(isToolInBundle("mcp_tool_preflight", "agent"), true);
   assert.equal(isToolInBundle("mcp_execution_status", "pauta"), true);
 });
+
+test("keeps video evidence analysis in research and agent bundles", () => {
+  assert.equal(isToolInBundle("video_evidence_analyze", "research"), true);
+  assert.equal(isToolInBundle("video_geo_brief", "agent"), true);
+  assert.equal(isToolInBundle("video_evidence_analyze", "pauta"), false);
+});

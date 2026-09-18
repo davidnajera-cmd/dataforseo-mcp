@@ -72,6 +72,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^social_tiktok_comments$/,
     /^social_instagram_scraper$/,
     /^social_youtube_transcript$/,
+    /^video_evidence_/,
+    /^video_geo_brief$/,
     /^scrapegraph_/,
     /^social_intel_/,
     /^zernio_/,
@@ -96,6 +98,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^brand_/,
     /^history_/,
     /^seo_workflow_playbook$/,
+    /^video_evidence_/,
+    /^video_geo_brief$/,
   ],
 
   // Technical SEO + on-page + indexation + content audits
@@ -171,6 +175,8 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^gbp_history_/,
     /^gbp_backfill_/,
     /^apify_mcp_connector_/,
+    /^video_evidence_/,
+    /^video_geo_brief$/,
   ],
 };
 
