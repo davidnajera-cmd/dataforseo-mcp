@@ -1,5 +1,5 @@
 /** Restricts connector keys to read-only operations unless explicitly elevated. */
-const MUTATING_TOOL_NAME = /(?:^|_)(?:add|assign|backfill|cancel|cleanup|connect|create|delete|disconnect|enqueue|publish|remove|request|run|set|start|submit|sync|update|verify)(?:_|$)/;
+const MUTATING_TOOL_NAME = /(?:^|_)(?:add|analyze|assign|backfill|cancel|cleanup|connect|create|delete|disconnect|enqueue|publish|remove|request|run|set|start|submit|sync|update|verify)(?:_|$)/;
 
 export function isMutatingMcpTool(toolName: unknown): boolean {
   return typeof toolName === "string" && MUTATING_TOOL_NAME.test(toolName);

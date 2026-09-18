@@ -139,6 +139,20 @@ export async function ensurePersistenceSchema(): Promise<void> {
   await sql`create unique index if not exists mcp_execution_runs_idempotency on mcp_execution_runs (actor_key_id, tool_name, idempotency_key_hash) where idempotency_key_hash is not null`;
 
   await sql`
+    create table if not exists mcp_video_evidence (
+      id text primary key,
+      actor_key_id bigint not null,
+      source_url text not null,
+      purpose text not null,
+      language text,
+      model text not null,
+      evidence jsonb not null,
+      created_at timestamptz not null default now()
+    )
+  `;
+  await sql`create index if not exists mcp_video_evidence_actor_created on mcp_video_evidence (actor_key_id, created_at desc)`;
+
+  await sql`
     create table if not exists seo_web_leads (
       id bigserial primary key,
       external_id text,
@@ -221,6 +235,40 @@ export async function getMcpExecutionStatus(traceId: string, actorKeyId: number)
     where trace_id = ${traceId} and actor_key_id = ${actorKeyId}
     limit 1
   ` as McpExecutionStatus[];
+  return rows[0] ?? null;
+}
+
+export type McpVideoEvidenceRow = {
+  id: string;
+  source_url: string;
+  purpose: string;
+  language: string | null;
+  model: string;
+  evidence: unknown;
+  created_at: string;
+};
+
+export async function saveMcpVideoEvidence(input: Omit<McpVideoEvidenceRow, "created_at"> & { actor_key_id: number }): Promise<void> {
+  const sql = getPersistenceSql();
+  if (!sql) throw new Error("video_evidence_store_unavailable");
+  await ensurePersistenceSchema();
+  await sql`
+    insert into mcp_video_evidence (id, actor_key_id, source_url, purpose, language, model, evidence)
+    values (${input.id}, ${input.actor_key_id}, ${input.source_url}, ${input.purpose}, ${input.language}, ${input.model}, ${JSON.stringify(input.evidence)}::jsonb)
+  `;
+}
+
+/** Evidence is scoped to the integration that paid for and requested it. */
+export async function getMcpVideoEvidence(id: string, actorKeyId: number): Promise<McpVideoEvidenceRow | null> {
+  const sql = getPersistenceSql();
+  if (!sql) return null;
+  await ensurePersistenceSchema();
+  const rows = await sql`
+    select id, source_url, purpose, language, model, evidence, created_at::text
+    from mcp_video_evidence
+    where id = ${id} and actor_key_id = ${actorKeyId}
+    limit 1
+  ` as McpVideoEvidenceRow[];
   return rows[0] ?? null;
 }
 

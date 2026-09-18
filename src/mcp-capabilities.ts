@@ -66,6 +66,18 @@ const OVERRIDES: Record<string, CapabilityOverride> = {
     operation: "paid_dispatch", capability: "research:paid_dispatch", approval_required: true,
     idempotent: false, freshness: "live", cost_tier: "variable",
   },
+  video_evidence_analyze: {
+    operation: "paid_dispatch", capability: "research:paid_dispatch", approval_required: true,
+    idempotent: false, freshness: "live", cost_tier: "variable",
+  },
+  video_evidence_get: {
+    operation: "read", capability: "history:read", approval_required: false,
+    idempotent: true, freshness: "historical", cost_tier: "included",
+  },
+  video_geo_brief: {
+    operation: "read", capability: "history:read", approval_required: false,
+    idempotent: true, freshness: "historical", cost_tier: "included",
+  },
   agent_run_now: {
     operation: "workflow_run", capability: "agent:run", approval_required: true,
     idempotent: false, freshness: "live", cost_tier: "paid",

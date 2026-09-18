@@ -46,6 +46,16 @@ test("treats paid dispatch as a separately scoped operation", () => {
   assert.equal(capability.approval_required, true);
 });
 
+test("requires paid-dispatch scope and idempotency for Gemini video analysis", () => {
+  const capability = getMcpToolCapability("video_evidence_analyze");
+  assert.equal(capability.operation, "paid_dispatch");
+  assert.equal(capability.capability, "research:paid_dispatch");
+  assert.equal(requiresMcpIdempotency(capability), true);
+  assert.deepEqual(authorizeMcpToolCall("video_evidence_analyze", ["history:read"], false), {
+    allowed: false, reason: "capability_scope_required", required_capability: "research:paid_dispatch"
+  });
+});
+
 test("never classifies social publication as a read-only capability", () => {
   const capability = getMcpToolCapability("zernio_posts_create");
   assert.equal(capability.operation, "write");
