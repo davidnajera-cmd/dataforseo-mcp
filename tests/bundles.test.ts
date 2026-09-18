@@ -14,3 +14,9 @@ test("keeps video evidence analysis in research and agent bundles", () => {
   assert.equal(isToolInBundle("video_geo_brief", "agent"), true);
   assert.equal(isToolInBundle("video_evidence_analyze", "pauta"), false);
 });
+
+test("exposes the audit engine to SEO and agent workflows", () => {
+  assert.equal(isToolInBundle("seo_audit_start", "seo"), true);
+  assert.equal(isToolInBundle("seo_audit_scorecard", "agent"), true);
+  assert.equal(isToolInBundle("seo_audit_start", "research"), false);
+});
