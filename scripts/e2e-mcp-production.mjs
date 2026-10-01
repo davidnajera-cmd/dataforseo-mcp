@@ -6,7 +6,7 @@ const base = process.env.MCP_E2E_BASE_URL ?? "https://dataforseo-mcp-three.verce
 const redirectUri = "http://127.0.0.1:43123/callback";
 const post = (url, body, headers = {}) => fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body), redirect: "manual" });
 
-const key = await createApiKey(`Ephemeral production E2E ${new Date().toISOString()}`, ["claude", "seo"], false);
+const key = await createApiKey(`Ephemeral production E2E ${new Date().toISOString()}`, ["claude", "seo", "full"], false);
 try {
   const unauthenticated = await post(`${base}/mcp?bundle=claude`, { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} });
   assert.equal(unauthenticated.status, 401);
@@ -49,7 +49,17 @@ try {
   const result = JSON.parse(event);
   assert.equal(result.result?.isError, undefined);
   assert.match(result.result?.content?.[0]?.text ?? "", /"status"\s*:\s*301/);
-  console.log("MCP production OAuth E2E passed: authorization, PKCE exchange, refresh-token rotation, and authenticated tool call.");
+
+  const fullCatalog = await post(`${base}/mcp?bundle=full`, { jsonrpc: "2.0", id: 3, method: "tools/list", params: {} }, { authorization: `Bearer ${refreshedAccessToken}`, accept: "application/json, text/event-stream", "mcp-protocol-version": "2025-06-18" });
+  assert.equal(fullCatalog.status, 200);
+  const fullCatalogEvent = (await fullCatalog.text()).split("\n").find(line => line.startsWith("data: "))?.slice(6);
+  const fullCatalogResult = JSON.parse(fullCatalogEvent);
+  const toolNames = fullCatalogResult.result?.tools?.map(tool => tool.name) ?? [];
+  assert.ok(toolNames.length >= 300);
+  for (const toolName of ["ai_optimization_chatgpt_live", "ai_optimization_claude_live", "ai_optimization_gemini_live", "ai_optimization_perplexity_live"]) {
+    assert.ok(toolNames.includes(toolName), `missing full-catalog tool: ${toolName}`);
+  }
+  console.log("MCP production OAuth E2E passed: authorization, PKCE exchange, refresh-token rotation, authenticated tool call, and full tool catalog.");
 } finally {
   await revokeApiKey(key.id);
 }
