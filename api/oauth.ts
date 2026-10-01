@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { createOAuthAuthorizationCode, exchangeOAuthAuthorizationCode, isOAuthClientRedirectAllowed, registerOAuthClient, validateApiKey } from "../src/api-key-auth.js";
+import { createOAuthAuthorizationCode, exchangeOAuthAuthorizationCode, isOAuthClientRedirectAllowed, refreshOAuthAccessToken, registerOAuthClient, validateApiKey } from "../src/api-key-auth.js";
 
 const issuer = "https://dataforseo-mcp-three.vercel.app";
 
@@ -24,7 +24,7 @@ async function register(req: IncomingMessage & { body?: unknown }, res: ServerRe
     client_id: clientId,
     client_id_issued_at: Math.floor(Date.now() / 1000),
     redirect_uris: redirectUris,
-    grant_types: ["authorization_code"],
+    grant_types: ["authorization_code", "refresh_token"],
     response_types: ["code"],
     token_endpoint_auth_method: "none",
   });
@@ -54,12 +54,17 @@ async function authorize(req: IncomingMessage & { body?: unknown }, res: ServerR
 async function token(req: IncomingMessage & { body?: unknown }, res: ServerResponse) {
   if (req.method !== "POST") return send(res, 405, { error: "method_not_allowed" });
   const params = new URLSearchParams(await formBody(req));
+  if (params.get("grant_type") === "refresh_token") {
+    const refreshed = await refreshOAuthAccessToken({ refreshToken: params.get("refresh_token") ?? "", clientId: params.get("client_id") ?? "" });
+    if (!refreshed) return send(res, 400, { error: "invalid_grant" });
+    return send(res, 200, { access_token: refreshed.accessToken, refresh_token: refreshed.refreshToken, token_type: "Bearer", expires_in: 28800, scope: "mcp" });
+  }
   if (params.get("grant_type") !== "authorization_code") return send(res, 400, { error: "unsupported_grant_type" });
   const result = await exchangeOAuthAuthorizationCode({
     code: params.get("code") ?? "", clientId: params.get("client_id") ?? "", redirectUri: params.get("redirect_uri") ?? "", codeVerifier: params.get("code_verifier") ?? "",
   });
   if (!result) return send(res, 400, { error: "invalid_grant" });
-  send(res, 200, { access_token: result.accessToken, token_type: "Bearer", expires_in: 28800, scope: "mcp" });
+  send(res, 200, { access_token: result.accessToken, refresh_token: result.refreshToken, token_type: "Bearer", expires_in: 28800, scope: "mcp" });
 }
 
 function authorizationPage(input: { clientId: string; redirectUri: string; state: string; challenge: string; error?: string }) {

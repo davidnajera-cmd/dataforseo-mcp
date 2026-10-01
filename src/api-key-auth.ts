@@ -76,6 +76,8 @@ export async function ensureApiKeySchema(): Promise<void> {
   await sql`create table if not exists mcp_oauth_codes (code_hash text primary key, client_id text not null references mcp_oauth_clients(client_id) on delete cascade, redirect_uri text not null, api_key_id bigint not null references seo_api_keys(id) on delete cascade, code_challenge text not null, expires_at timestamptz not null, used_at timestamptz)`;
   await sql`create table if not exists mcp_oauth_tokens (token_hash text primary key, api_key_id bigint not null references seo_api_keys(id) on delete cascade, expires_at timestamptz not null, revoked_at timestamptz, created_at timestamptz not null default now())`;
   await sql`create index if not exists mcp_oauth_tokens_active on mcp_oauth_tokens (api_key_id, expires_at) where revoked_at is null`;
+  await sql`create table if not exists mcp_oauth_refresh_tokens (token_hash text primary key, api_key_id bigint not null references seo_api_keys(id) on delete cascade, client_id text not null references mcp_oauth_clients(client_id) on delete cascade, expires_at timestamptz not null, revoked_at timestamptz, used_at timestamptz, created_at timestamptz not null default now())`;
+  await sql`create index if not exists mcp_oauth_refresh_tokens_active on mcp_oauth_refresh_tokens (api_key_id, client_id, expires_at) where revoked_at is null and used_at is null`;
   initialized = true;
 }
 
@@ -179,7 +181,7 @@ export async function createOAuthAuthorizationCode(input: { clientId: string; re
   return code;
 }
 
-export async function exchangeOAuthAuthorizationCode(input: { code: string; clientId: string; redirectUri: string; codeVerifier: string }): Promise<{ accessToken: string; credential: McpCredential } | null> {
+export async function exchangeOAuthAuthorizationCode(input: { code: string; clientId: string; redirectUri: string; codeVerifier: string }): Promise<{ accessToken: string; refreshToken: string; credential: McpCredential } | null> {
   await ensureApiKeySchema();
   const sql = getSql();
   if (!sql) return null;
@@ -193,9 +195,38 @@ export async function exchangeOAuthAuthorizationCode(input: { code: string; clie
   if (!row || pkceChallenge(input.codeVerifier) !== row.code_challenge) return null;
   const consumed = await sql`update mcp_oauth_codes set used_at = now() where code_hash = ${hashKey(input.code)} and used_at is null returning api_key_id` as Array<{ api_key_id: number }>;
   if (consumed.length !== 1) return null;
+  const tokens = await issueOAuthTokenPair(row.api_key_id, input.clientId);
+  return { ...tokens, credential: row };
+}
+
+export async function refreshOAuthAccessToken(input: { refreshToken: string; clientId: string }): Promise<{ accessToken: string; refreshToken: string } | null> {
+  if (!input.refreshToken.startsWith("mcprt_")) return null;
+  await ensureApiKeySchema();
+  const sql = getSql();
+  if (!sql) return null;
+  // Rotate refresh tokens atomically. Replaying a consumed token cannot mint
+  // another session, even if two requests arrive concurrently.
+  const consumed = await sql`
+    update mcp_oauth_refresh_tokens t
+    set used_at = now(), revoked_at = now()
+    from seo_api_keys k
+    where t.token_hash = ${hashKey(input.refreshToken)} and t.client_id = ${input.clientId}
+      and t.api_key_id = k.id and t.used_at is null and t.revoked_at is null
+      and t.expires_at > now() and k.revoked_at is null
+    returning t.api_key_id
+  ` as Array<{ api_key_id: number }>;
+  const apiKeyId = consumed[0]?.api_key_id;
+  return apiKeyId ? issueOAuthTokenPair(apiKeyId, input.clientId) : null;
+}
+
+async function issueOAuthTokenPair(apiKeyId: number, clientId: string): Promise<{ accessToken: string; refreshToken: string }> {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL not configured");
   const accessToken = `mcpot_${randomBytes(32).toString("base64url")}`;
-  await sql`insert into mcp_oauth_tokens (token_hash, api_key_id, expires_at) values (${hashKey(accessToken)}, ${row.api_key_id}, now() + interval '8 hours')`;
-  return { accessToken, credential: row };
+  const refreshToken = `mcprt_${randomBytes(32).toString("base64url")}`;
+  await sql`insert into mcp_oauth_tokens (token_hash, api_key_id, expires_at) values (${hashKey(accessToken)}, ${apiKeyId}, now() + interval '8 hours')`;
+  await sql`insert into mcp_oauth_refresh_tokens (token_hash, api_key_id, client_id, expires_at) values (${hashKey(refreshToken)}, ${apiKeyId}, ${clientId}, now() + interval '30 days')`;
+  return { accessToken, refreshToken };
 }
 
 export async function validateMcpAccessToken(rawToken: string | undefined): Promise<({ valid: true } & McpCredential) | { valid: false; reason: string }> {
