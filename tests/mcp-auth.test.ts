@@ -16,7 +16,7 @@ test("rejects MCP requests that exceed the per-key minute quota", () => {
   assert.equal(isMcpRateLimitExceeded(60), false);
 });
 
-test("only permits unauthenticated non-executable connector protocol traffic", () => {
+test("recognizes non-executable connector protocol traffic", () => {
   assert.equal(isUnauthenticatedConnectorProtocolRequest({ method: "initialize" }), true);
   assert.equal(isUnauthenticatedConnectorProtocolRequest({ method: "tools/list" }), true);
   assert.equal(isUnauthenticatedConnectorProtocolRequest({ method: "notifications/initialized" }), true);
