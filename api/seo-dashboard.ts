@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import { collectSeoDashboardData, normalizeFilters } from "../src/dashboard-data.js";
+import { collectSeoDashboardData, normalizeFilters, shouldUseCompatibleDashboardSnapshot } from "../src/dashboard-data.js";
 import { getLatestCompatibleDashboardSnapshot, getLatestDashboardSnapshot, listDashboardSnapshots, saveDashboardSnapshot } from "../src/dashboard-store.js";
 import { assertDashboardSession } from "../src/dashboard-auth.js";
 
@@ -50,12 +50,17 @@ export default async function handler(
         res.end(JSON.stringify(cached));
         return;
       }
-      const compatibleSnapshot = await getLatestCompatibleDashboardSnapshot(filters).catch(() => null);
-      if (compatibleSnapshot) {
-        res.setHeader("Content-Type", "application/json; charset=utf-8");
-        res.writeHead(200);
-        res.end(JSON.stringify(compatibleSnapshot));
-        return;
+      if (shouldUseCompatibleDashboardSnapshot({
+        startDate: url.searchParams.get("startDate") ?? undefined,
+        endDate: url.searchParams.get("endDate") ?? undefined,
+      })) {
+        const compatibleSnapshot = await getLatestCompatibleDashboardSnapshot(filters).catch(() => null);
+        if (compatibleSnapshot) {
+          res.setHeader("Content-Type", "application/json; charset=utf-8");
+          res.writeHead(200);
+          res.end(JSON.stringify(compatibleSnapshot));
+          return;
+        }
       }
     }
     const data = await collectSeoDashboardData(filters);

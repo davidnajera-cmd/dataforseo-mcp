@@ -224,6 +224,30 @@ function computeDefaultDateRange(timeframe: Timeframe): { startDate: string; end
   return { startDate: addDays(endDate, -(windowDays - 1)), endDate };
 }
 
+function isIsoCalendarDate(value: string | undefined): value is string {
+  if (!value || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const date = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
+}
+
+// The browser can emit the two date changes independently. Keep the API's
+// canonical filters valid even if the fields momentarily arrive inverted.
+export function normalizeDashboardDateRange(
+  requestedStartDate: string | undefined,
+  requestedEndDate: string | undefined,
+  defaultRange: { startDate: string; endDate: string },
+): { startDate: string; endDate: string } {
+  const startDate = isIsoCalendarDate(requestedStartDate) ? requestedStartDate : defaultRange.startDate;
+  const endDate = isIsoCalendarDate(requestedEndDate) ? requestedEndDate : defaultRange.endDate;
+  return startDate <= endDate ? { startDate, endDate } : { startDate: endDate, endDate: startDate };
+}
+
+// A manually selected endpoint is a request for that exact period. The
+// rollover fallback is only safe for an untouched default dashboard load.
+export function shouldUseCompatibleDashboardSnapshot(input: Pick<Partial<DashboardFilters>, "startDate" | "endDate">): boolean {
+  return !input.startDate && !input.endDate;
+}
+
 function daysSince(isoDate: string | null): number | null {
   if (!isoDate) return null;
   const [year, month, day] = isoDate.split("-").map(Number);
@@ -264,12 +288,12 @@ type GscData = {
 export function normalizeFilters(input: Partial<DashboardFilters>): DashboardFilters {
   const timeframe: Timeframe = input.timeframe === "weekly" ? "weekly" : "monthly";
   const defaultRange = computeDefaultDateRange(timeframe);
+  const dateRange = normalizeDashboardDateRange(input.startDate, input.endDate, defaultRange);
   return {
     country: isCountry(input.country) ? input.country : DEFAULT_FILTERS.country,
     timeframe,
     channel: isChannel(input.channel) ? input.channel : DEFAULT_FILTERS.channel,
-    startDate: input.startDate || defaultRange.startDate,
-    endDate: input.endDate || defaultRange.endDate,
+    ...dateRange,
   };
 }
 
