@@ -18,7 +18,16 @@ async function register(req: IncomingMessage & { body?: unknown }, res: ServerRe
   const redirectUris = Array.isArray(body.redirect_uris) ? body.redirect_uris.filter(isSafeRedirectUri) : [];
   if (redirectUris.length === 0) return send(res, 400, { error: "invalid_redirect_uris" });
   const clientId = await registerOAuthClient(redirectUris);
-  send(res, 201, { client_id: clientId, client_id_issued_at: Math.floor(Date.now() / 1000), token_endpoint_auth_method: "none" });
+  // Echo the registered metadata. Claude's connector validates this response
+  // more strictly than the minimum RFC 7591 client_id-only response.
+  send(res, 201, {
+    client_id: clientId,
+    client_id_issued_at: Math.floor(Date.now() / 1000),
+    redirect_uris: redirectUris,
+    grant_types: ["authorization_code"],
+    response_types: ["code"],
+    token_endpoint_auth_method: "none",
+  });
 }
 
 async function authorize(req: IncomingMessage & { body?: unknown }, res: ServerResponse, url: URL) {
