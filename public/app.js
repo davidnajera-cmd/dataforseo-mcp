@@ -177,12 +177,11 @@ filters.elements.timeframe.addEventListener("change", clearDateInputs);
 
 function syncDateInputs(resolvedFilters) {
   if (!resolvedFilters) return;
-  if (resolvedFilters.startDate && document.activeElement !== filters.elements.startDate) {
-    filters.elements.startDate.value = resolvedFilters.startDate;
-  }
-  if (resolvedFilters.endDate && document.activeElement !== filters.elements.endDate) {
-    filters.elements.endDate.value = resolvedFilters.endDate;
-  }
+  // The API is the canonical source when the browser emits endpoints one at a
+  // time. Keep both visible fields aligned with that resolved range, including
+  // the field that initiated an inverted selection.
+  if (resolvedFilters.startDate) filters.elements.startDate.value = resolvedFilters.startDate;
+  if (resolvedFilters.endDate) filters.elements.endDate.value = resolvedFilters.endDate;
 }
 
 filters.addEventListener("change", () => {
