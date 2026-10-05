@@ -109,6 +109,7 @@ type SourceStatus = {
 };
 
 export type SeoDashboardData = {
+  cacheVersion: number;
   generatedAt: string;
   filters: DashboardFilters;
   overview: {
@@ -431,6 +432,7 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
     : "";
 
   return {
+    cacheVersion: 2,
     generatedAt: new Date().toISOString(),
     filters,
     overview: {
