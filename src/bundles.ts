@@ -12,7 +12,7 @@
 // A tool can be in multiple bundles. The matcher uses regex prefix or exact
 // name match. The 'full' bundle is the escape hatch — exposes everything.
 
-export type BundleName = "research" | "seo" | "pauta" | "agent" | "full";
+export type BundleName = "research" | "seo" | "claude" | "pauta" | "agent" | "chatgpt" | "full";
 
 export const BUNDLE_POSITIONING: Record<BundleName, { primaryLayer: "vendor-base" | "business-layer" | "mixed"; note: string }> = {
   research: {
@@ -21,7 +21,11 @@ export const BUNDLE_POSITIONING: Record<BundleName, { primaryLayer: "vendor-base
   },
   seo: {
     primaryLayer: "mixed",
-    note: "Technical SEO plus historical persistence and GSC. Main migration-watch bundle because it mixes vendor-base and business-layer tools.",
+    note: "Compact technical SEO workflow for Claude: audit, search performance, crawlability and speed. Use full for specialist-only tools.",
+  },
+  claude: {
+    primaryLayer: "mixed",
+    note: "OAuth-protected compact SEO workflow for Claude web connectors.",
   },
   pauta: {
     primaryLayer: "business-layer",
@@ -30,6 +34,10 @@ export const BUNDLE_POSITIONING: Record<BundleName, { primaryLayer: "vendor-base
   agent: {
     primaryLayer: "business-layer",
     note: "Automation bundle centered on backlog, history, brand knowledge, snapshots, and social inputs.",
+  },
+  chatgpt: {
+    primaryLayer: "business-layer",
+    note: "Compact, read-only-first discovery bundle for ChatGPT clients with constrained tool catalogs.",
   },
   full: {
     primaryLayer: "mixed",
@@ -102,39 +110,42 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^video_geo_brief$/,
   ],
 
-  // Technical SEO + on-page + indexation + content audits
+  // Compact technical SEO workflow. Claude loads tool schemas into context, so
+  // its default connector must remain small enough to execute a request.
   seo: [
     /^seo_audit_start$/,
     /^seo_audit_scorecard$/,
     /^seo_consultant_review$/,
-    /^gsc_/,
-    /^gbp_/,
-    /^gbp_history_/,
-    /^gbp_backfill_/,
-    /^site_verification_/,
-    /^gtm_/,
-    /^labs_google_/,
-    /^backlinks_/,
-    /^schema_/,
-    /^http_/,
-    /^redirect_/,
-    /^onpage_/,
-    /^pagespeed_/,
-    /^bing_/,
-    /^wayback_/,
-    /^log_/,
-    /^domain_/,
-    /^content_analysis_/,
-    /^history_/,
-    /^keyword_universe_/,
-    /^snapshot_/,
-    /^brand_/,
-    /^web_content_crawler$/,
+    /^gsc_site_health_report$/,
+    /^gsc_search_analytics_query$/,
+    /^gsc_keyword_opportunities$/,
+    /^gsc_sitemaps_list$/,
+    /^gsc_url_inspection$/,
+    /^backlinks_summary$/,
+    /^schema_validate_url$/,
+    /^http_headers_inspect$/,
+    /^http_robots_txt$/,
+    /^pagespeed_analyze_url$/,
+    /^history_domain_rankings$/,
     /^seo_workflow_playbook$/,
-    /^seo_legacy_redirect_audit$/,
-    /^apify_google_search_multi_engine$/,
-    /^apify_link_prospecting_/,
-    /^apify_tripadvisor_lead_enrichment$/,
+  ],
+
+  claude: [
+    /^seo_audit_start$/,
+    /^seo_audit_scorecard$/,
+    /^seo_consultant_review$/,
+    /^gsc_site_health_report$/,
+    /^gsc_search_analytics_query$/,
+    /^gsc_keyword_opportunities$/,
+    /^gsc_sitemaps_list$/,
+    /^gsc_url_inspection$/,
+    /^backlinks_summary$/,
+    /^schema_validate_url$/,
+    /^http_headers_inspect$/,
+    /^http_robots_txt$/,
+    /^pagespeed_analyze_url$/,
+    /^history_domain_rankings$/,
+    /^seo_workflow_playbook$/,
   ],
 
   // Competitive ads intelligence — for Maestro Pauta + research overlap
@@ -183,6 +194,27 @@ const BUNDLE_PATTERNS: Record<Exclude<BundleName, "full">, Array<RegExp | string
     /^video_evidence_/,
     /^video_geo_brief$/,
   ],
+
+  chatgpt: [
+    /^http_headers_inspect$/,
+    /^http_robots_txt$/,
+    /^gsc_site_health_report$/,
+    /^gsc_search_analytics_query$/,
+    /^gsc_keyword_opportunities$/,
+    /^gsc_search_analytics_compare$/,
+    /^gsc_sitemaps_list$/,
+    /^gsc_url_inspection$/,
+    /^pagespeed_analyze_url$/,
+    /^schema_validate_url$/,
+    /^schema_extract_url$/,
+    /^backlinks_summary$/,
+    /^backlinks_anchors$/,
+    /^history_domain_rankings$/,
+    /^history_traffic$/,
+    /^brand_dna_offer_summary$/,
+    /^brand_map_keyword_to_program$/,
+    /^seo_workflow_playbook$/,
+  ],
 };
 
 export function isToolInBundle(toolName: string, bundle: BundleName): boolean {
@@ -201,9 +233,9 @@ export function isToolInBundle(toolName: string, bundle: BundleName): boolean {
 }
 
 export function listBundles(): BundleName[] {
-  return ["research", "seo", "pauta", "agent", "full"];
+  return ["research", "seo", "claude", "pauta", "agent", "chatgpt", "full"];
 }
 
 export function isValidBundle(s: string | undefined): s is BundleName {
-  return s !== undefined && (["research", "seo", "pauta", "agent", "full"] as const).includes(s as BundleName);
+  return s !== undefined && (["research", "seo", "claude", "pauta", "agent", "chatgpt", "full"] as const).includes(s as BundleName);
 }

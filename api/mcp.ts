@@ -1,6 +1,6 @@
 import { createServer } from "../src/server.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey } from "../src/api-key-auth.js";
+import { MCP_API_KEY_REQUESTS_PER_MINUTE, consumeMcpApiKeyQuota, validateApiKey, validateMcpAccessToken } from "../src/api-key-auth.js";
 import { isValidBundle, type BundleName } from "../src/bundles.js";
 import { isMutatingMcpTool, requestedMcpToolName } from "../src/mcp-permissions.js";
 import { authorizeMcpToolCall, getMcpToolCapability, requiresMcpIdempotency } from "../src/mcp-capabilities.js";
@@ -62,7 +62,7 @@ export default async function handler(
   if (bundleParam) {
     if (!isValidBundle(bundleParam)) {
       res.writeHead(400, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "invalid_bundle", valid: ["research", "seo", "pauta", "agent", "full"] }));
+      res.end(JSON.stringify({ error: "invalid_bundle", valid: ["research", "seo", "claude", "pauta", "agent", "chatgpt", "full"] }));
       return;
     }
     bundle = bundleParam;
@@ -83,17 +83,24 @@ export default async function handler(
   // Auth: x-api-key header (preferred) OR Authorization: Bearer <key>.
   // The only unauthenticated exception is non-executable connector protocol
   // traffic required by clients before they apply static request headers.
-  const apiKey = headerString(req.headers["x-api-key"])
-    ?? extractBearer(headerString(req.headers["authorization"]));
+  const apiKey = headerString(req.headers["x-api-key"]);
+  const bearerToken = extractBearer(headerString(req.headers["authorization"]));
   const requireKey = isMcpApiKeyRequired(bundle);
   let completeTrace: (() => Promise<void>) | undefined;
   let actorKeyId: number | undefined;
 
-  if (requireKey && !isUnauthenticatedConnectorProtocolRequest(body)) {
-    const v = await validateApiKey(apiKey);
+  // Claude's web connector starts its OAuth flow only after a protected-resource
+  // challenge. The dedicated Claude profile is its OAuth endpoint; other profiles retain
+  // unauthenticated setup traffic for clients configured with static API keys.
+  const allowUnauthenticatedProtocol = bundle !== "claude" && isUnauthenticatedConnectorProtocolRequest(body);
+  if (requireKey && !allowUnauthenticatedProtocol) {
+    const v = apiKey ? await validateApiKey(apiKey) : await validateMcpAccessToken(bearerToken);
     if (!v.valid) {
-      res.writeHead(401, { "Content-Type": "application/json" });
-      res.end(JSON.stringify({ error: "unauthorized", reason: v.reason, hint: "Provide an API key via x-api-key header or Authorization: Bearer <key>" }));
+      res.writeHead(401, {
+        "Content-Type": "application/json",
+        "WWW-Authenticate": `Bearer resource_metadata="${oauthResourceMetadataUrl(req)}"`,
+      });
+      res.end(JSON.stringify({ error: "unauthorized", reason: v.reason, hint: "Authenticate through the MCP OAuth flow or provide x-api-key." }));
       return;
     }
     actorKeyId = normalizeTraceActorKeyId(v.id) ?? undefined;
@@ -181,7 +188,7 @@ export default async function handler(
       await completeTrace?.();
       return;
     }
-    const quota = await consumeMcpApiKeyQuota(apiKey!);
+    const quota = apiKey ? await consumeMcpApiKeyQuota(apiKey) : { allowed: true, requestCount: 1 };
     if (!quota.allowed || isMcpRateLimitExceeded(quota.requestCount)) {
       res.writeHead(429, {
         "Content-Type": "application/json",
@@ -217,4 +224,9 @@ function extractBearer(auth: string | undefined): string | undefined {
   if (!auth) return undefined;
   const m = auth.match(/^Bearer\s+(.+)$/i);
   return m ? m[1].trim() : undefined;
+}
+
+function oauthResourceMetadataUrl(req: IncomingMessage): string {
+  const host = headerString(req.headers.host) ?? "dataforseo-mcp-three.vercel.app";
+  return `https://${host}/.well-known/oauth-protected-resource/mcp`;
 }

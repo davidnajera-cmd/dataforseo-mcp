@@ -567,6 +567,26 @@ export async function getTrafficTrend(domain: string, source: "gsc" | "ga4", day
   ` as TrafficRow[];
 }
 
+export async function getTrafficRange(
+  domain: string,
+  source: "gsc" | "ga4",
+  startDate: string,
+  endDate: string,
+): Promise<TrafficRow[]> {
+  const sql = getPersistenceSql();
+  if (!sql) return [];
+  await ensurePersistenceSchema();
+  return await sql`
+    select date::text, domain, source, clicks, impressions, ctr, position, sessions, organic_sessions, conversions
+    from seo_traffic_daily
+    where domain = ${domain}
+      and source = ${source}
+      and date >= ${startDate}::date
+      and date <= ${endDate}::date
+    order by date asc
+  ` as TrafficRow[];
+}
+
 export type DomainRankingsSnapshot = {
   snapshot_date: string;
   domain: string;
