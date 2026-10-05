@@ -1,6 +1,12 @@
 import { neon } from "@neondatabase/serverless";
 import type { DashboardFilters, SeoDashboardData } from "./dashboard-data.js";
 
+export const SEO_DASHBOARD_CACHE_VERSION = 2;
+
+export function isCurrentDashboardSnapshot(snapshot: Partial<Pick<SeoDashboardData, "cacheVersion">>): boolean {
+  return snapshot.cacheVersion === SEO_DASHBOARD_CACHE_VERSION;
+}
+
 let client: ReturnType<typeof neon> | null = null;
 let initialized = false;
 
@@ -83,6 +89,7 @@ export async function getLatestDashboardSnapshot(filters: DashboardFilters, maxA
 
   const row = rows[0];
   if (!row) return null;
+  if (!isCurrentDashboardSnapshot(row.payload)) return null;
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
   if (!Number.isFinite(ageMs) || ageMs > maxAgeMinutes * 60_000) return null;
   return row.payload;
@@ -109,6 +116,7 @@ export async function getLatestCompatibleDashboardSnapshot(filters: DashboardFil
 
   const row = rows[0];
   if (!row) return null;
+  if (!isCurrentDashboardSnapshot(row.payload)) return null;
   const ageMs = Date.now() - new Date(row.generated_at).getTime();
   if (!Number.isFinite(ageMs) || ageMs > maxAgeMinutes * 60_000) return null;
   return row.payload;
