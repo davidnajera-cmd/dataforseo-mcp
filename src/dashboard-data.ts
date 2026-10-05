@@ -10,8 +10,7 @@ import {
   getLatestBacklinks,
   getBacklinksTrend,
   getLatestLlmVisibility,
-  getLatestTrafficSnapshot,
-  getTrafficTrend,
+  getTrafficRange,
   getLatestDomainRankings,
   getWebLeadStats,
   hasAnyWebLeads,
@@ -248,6 +247,16 @@ export function shouldUseCompatibleDashboardSnapshot(input: Pick<Partial<Dashboa
   return !input.startDate && !input.endDate;
 }
 
+type Ga4SeriesRow = { date: string; sessions: number; organic_sessions: number; conversions: number };
+
+export function selectGa4RowsForDashboardRange(
+  rows: Ga4SeriesRow[],
+  startDate: string,
+  endDate: string,
+): Ga4SeriesRow[] {
+  return rows.filter((row) => row.date >= startDate && row.date <= endDate);
+}
+
 function daysSince(isoDate: string | null): number | null {
   if (!isoDate) return null;
   const [year, month, day] = isoDate.split("-").map(Number);
@@ -316,7 +325,7 @@ export async function collectSeoDashboardData(input: Partial<DashboardFilters>):
       sources.push({ name: "PageSpeed Insights", status: sourceStatus(data), message: data.message });
       return data;
     }),
-    loadGa4(configs).then((data) => {
+    loadGa4(configs, filters).then((data) => {
       sources.push({ name: "Google Analytics 4", status: data.live ? "live" : data.error ? "error" : "pending", message: data.message });
       return data;
     }),
@@ -954,7 +963,34 @@ type Ga4DashboardSection = {
   };
 };
 
-async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
+type Ga4DailyReportRow = {
+  dimensionValues?: Array<{ value?: string }>;
+  metricValues?: Array<{ value?: string }>;
+};
+
+function mergeGa4DailyRows(
+  totalRows: Ga4DailyReportRow[],
+  organicRows: Ga4DailyReportRow[],
+  conversionRows: Ga4DailyReportRow[],
+): Ga4SeriesRow[] {
+  const byDate = new Map<string, Ga4SeriesRow>();
+  const addMetric = (rows: Ga4DailyReportRow[], field: keyof Omit<Ga4SeriesRow, "date">) => {
+    for (const row of rows) {
+      const rawDate = row.dimensionValues?.[0]?.value;
+      if (!rawDate || !/^\d{8}$/.test(rawDate)) continue;
+      const date = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
+      const current = byDate.get(date) ?? { date, sessions: 0, organic_sessions: 0, conversions: 0 };
+      current[field] = Number(row.metricValues?.[0]?.value ?? 0);
+      byDate.set(date, current);
+    }
+  };
+  addMetric(totalRows, "sessions");
+  addMetric(organicRows, "organic_sessions");
+  addMetric(conversionRows, "conversions");
+  return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date));
+}
+
+async function loadGa4(configs: CountryConfig[], filters: DashboardFilters): Promise<Ga4DashboardSection> {
   if (!await getRuntimeVariable("GOOGLE_REFRESH_TOKEN")) {
     return {
       live: false,
@@ -999,45 +1035,58 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
       });
       continue;
     }
-    // Try DB first
-    const cached = await getLatestTrafficSnapshot(config.domain, "ga4").catch(() => null);
-    if (cached) {
-      byDomain.push({ domain: config.domain, sessions: cached.sessions, organic_sessions: cached.organic_sessions, conversions: cached.conversions, date: cached.date, source_origin: "db" });
-      totalsSessions += cached.sessions ?? 0;
-      totalsOrganic += cached.organic_sessions ?? 0;
-      totalsConv += cached.conversions ?? 0;
+    // The dashboard's date selector is authoritative. Never substitute the
+    // latest daily snapshot or a rolling trend for an explicit interval.
+    const cachedRows = await getTrafficRange(config.domain, "ga4", filters.startDate, filters.endDate).catch(() => []);
+    if (cachedRows.length) {
+      const selectedRows = selectGa4RowsForDashboardRange(cachedRows.map((row) => ({
+        date: row.date,
+        sessions: row.sessions ?? 0,
+        organic_sessions: row.organic_sessions ?? 0,
+        conversions: row.conversions ?? 0,
+      })), filters.startDate, filters.endDate);
+      const latest = selectedRows.at(-1)!;
+      const sessions = selectedRows.reduce((sum, row) => sum + row.sessions, 0);
+      const organicSessions = selectedRows.reduce((sum, row) => sum + row.organic_sessions, 0);
+      const conversions = selectedRows.reduce((sum, row) => sum + row.conversions, 0);
+      byDomain.push({ domain: config.domain, sessions, organic_sessions: organicSessions, conversions, date: latest.date, source_origin: "db" });
+      totalsSessions += sessions;
+      totalsOrganic += organicSessions;
+      totalsConv += conversions;
       anyData = true;
-      const trend = await getTrafficTrend(config.domain, "ga4", 30).catch(() => []);
-      for (const row of trend) {
+      for (const row of selectedRows) {
         const key = row.date;
         const existing = seriesMap.get(key) ?? { sessions: 0, organic_sessions: 0, conversions: 0 };
-        existing.sessions += row.sessions ?? 0;
-        existing.organic_sessions += row.organic_sessions ?? 0;
-        existing.conversions += row.conversions ?? 0;
+        existing.sessions += row.sessions;
+        existing.organic_sessions += row.organic_sessions;
+        existing.conversions += row.conversions;
         seriesMap.set(key, existing);
       }
     } else {
-      // DB empty -> live
+      // Historical snapshots may not exist yet. Query GA4 for the exact
+      // interval instead of silently showing the most recent day.
       try {
         const property = config.ga4PropertyId.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
-        const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
         const hostExpression = ga4HostNameExpression(config.domain);
         const [total, organic, conversionsResult] = await Promise.all([
           ga4Post(`/${property}:runReport`, {
-            dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+            dateRanges: [{ startDate: filters.startDate, endDate: filters.endDate }],
+            dimensions: [{ name: "date" }],
             metrics: [{ name: "sessions" }],
             dimensionFilter: hostExpression,
-          }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+          }) as Promise<{ rows?: Ga4DailyReportRow[] }>,
           ga4Post(`/${property}:runReport`, {
-            dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+            dateRanges: [{ startDate: filters.startDate, endDate: filters.endDate }],
+            dimensions: [{ name: "date" }],
             metrics: [{ name: "sessions" }],
             dimensionFilter: ga4AndExpression(
               hostExpression,
               ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")
             ),
-          }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+          }) as Promise<{ rows?: Ga4DailyReportRow[] }>,
           ga4Post(`/${property}:runReport`, {
-            dateRanges: [{ startDate: yesterday, endDate: yesterday }],
+            dateRanges: [{ startDate: filters.startDate, endDate: filters.endDate }],
+            dimensions: [{ name: "date" }],
             metrics: [{ name: "eventCount" }],
             dimensionFilter: ga4AndExpression(
               hostExpression,
@@ -1048,18 +1097,23 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
                 },
               }
             ),
-          }) as Promise<{ rows?: Array<{ metricValues?: Array<{ value: string }> }> }>,
+          }) as Promise<{ rows?: Ga4DailyReportRow[] }>,
         ]);
-        const totalMv = total.rows?.[0]?.metricValues ?? [];
-        const organicMv = organic.rows?.[0]?.metricValues ?? [];
-        const convMv = conversionsResult.rows?.[0]?.metricValues ?? [];
-        const sessions = totalMv[0] ? Number(totalMv[0].value) : 0;
-        const organicSessions = organicMv[0] ? Number(organicMv[0].value) : 0;
-        const conversions = convMv[0] ? Number(convMv[0].value) : 0;
-        byDomain.push({ domain: config.domain, sessions, organic_sessions: organicSessions, conversions, date: yesterday, source_origin: "live" });
+        const liveRows = mergeGa4DailyRows(total.rows ?? [], organic.rows ?? [], conversionsResult.rows ?? []);
+        const sessions = liveRows.reduce((sum, row) => sum + row.sessions, 0);
+        const organicSessions = liveRows.reduce((sum, row) => sum + row.organic_sessions, 0);
+        const conversions = liveRows.reduce((sum, row) => sum + row.conversions, 0);
+        byDomain.push({ domain: config.domain, sessions, organic_sessions: organicSessions, conversions, date: liveRows.at(-1)?.date ?? null, source_origin: "live" });
         totalsSessions += sessions;
         totalsOrganic += organicSessions;
         totalsConv += conversions;
+        for (const row of liveRows) {
+          const existing = seriesMap.get(row.date) ?? { sessions: 0, organic_sessions: 0, conversions: 0 };
+          existing.sessions += row.sessions;
+          existing.organic_sessions += row.organic_sessions;
+          existing.conversions += row.conversions;
+          seriesMap.set(row.date, existing);
+        }
         anyData = true;
       } catch (error) {
         errors.push(`${config.domain}: ${error instanceof Error ? error.message : "GA4 error"}`);
@@ -1068,7 +1122,7 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
     }
 
     try {
-      const reality = await loadGa4RealityBreakdown(config);
+      const reality = await loadGa4RealityBreakdown(config, filters.endDate);
       realityByDomain.push(reality);
       totalsAcquisition += reality.acquisition_sessions ?? 0;
       totalsOrganicAcquisition += reality.organic_acquisition_sessions ?? 0;
@@ -1114,16 +1168,15 @@ async function loadGa4(configs: CountryConfig[]): Promise<Ga4DashboardSection> {
 
 type Ga4LandingRow = { page: string; sessions: number };
 
-async function loadGa4RealityBreakdown(config: CountryConfig) {
+async function loadGa4RealityBreakdown(config: CountryConfig, date: string) {
   const property = config.ga4PropertyId?.startsWith("properties/") ? config.ga4PropertyId : `properties/${config.ga4PropertyId}`;
-  const yesterday = new Date(Date.now() - 86400_000).toISOString().slice(0, 10);
   const hostExpression = ga4HostNameExpression(config.domain);
 
   const [allLandingPages, organicLandingPages] = await Promise.all([
-    runGa4LandingPageSessions(property, yesterday, hostExpression),
+    runGa4LandingPageSessions(property, date, hostExpression),
     runGa4LandingPageSessions(
       property,
-      yesterday,
+      date,
       ga4AndExpression(hostExpression, ga4ExactStringExpression("sessionDefaultChannelGroup", "Organic Search")) ?? hostExpression
     ),
   ]);
