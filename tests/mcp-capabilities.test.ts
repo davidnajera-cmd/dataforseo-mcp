@@ -23,6 +23,34 @@ test("describes read-only tools with freshness and no approval requirement", () 
   });
 });
 
+test("classifies bounded external lookups as reads so MCP clients do not need an idempotency header", () => {
+  for (const tool of [
+    "serpapi_google_search",
+    "serpapi_bing_search",
+    "keywords_google_search_volume_live",
+    "domain_whois",
+    "scrapegraph_smartscraper",
+    "scrapegraph_searchscraper",
+    "scrapegraph_markdownify",
+    "scrapegraph_crawl_status",
+  ]) {
+    const capability = getMcpToolCapability(tool);
+    assert.equal(capability.operation, "read", tool);
+    assert.equal(capability.capability, "seo:read", tool);
+    assert.equal(capability.approval_required, false, tool);
+    assert.equal(capability.idempotent, true, tool);
+    assert.equal(requiresMcpIdempotency(capability), false, tool);
+  }
+});
+
+test("keeps job-creating crawls protected as paid dispatches", () => {
+  const capability = getMcpToolCapability("scrapegraph_crawl_start");
+  assert.equal(capability.operation, "paid_dispatch");
+  assert.equal(capability.capability, "research:paid_dispatch");
+  assert.equal(capability.approval_required, true);
+  assert.equal(requiresMcpIdempotency(capability), true);
+});
+
 test("requires an explicit granular capability for sensitive tool calls", () => {
   assert.deepEqual(
     authorizeMcpToolCall("gsc_sitemaps_submit", ["gsc:read"], false),
