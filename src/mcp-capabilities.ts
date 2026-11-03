@@ -21,6 +21,11 @@ const READ_GSC: CapabilityOverride = {
   idempotent: true, freshness: "live", cost_tier: "included",
 };
 
+const READ_SEO: CapabilityOverride = {
+  operation: "read", capability: "seo:read", approval_required: false,
+  idempotent: true, freshness: "live", cost_tier: "variable",
+};
+
 const OVERRIDES: Record<string, CapabilityOverride> = {
   mcp_capabilities_list: {
     operation: "read", capability: "mcp:read", approval_required: false,
@@ -149,8 +154,11 @@ export function getMcpToolCapability(tool: string): McpToolCapability {
   if (tool.startsWith("history_")) {
     return { tool, operation: "read", capability: "history:read", approval_required: false, idempotent: true, freshness: "historical", cost_tier: "included" };
   }
-  if (/^(?:backlinks|labs_google|serp|pagespeed|clarity|ga4|schema|http|bing|wayback)_/.test(tool)) {
-    return { tool, operation: "read", capability: "seo:read", approval_required: false, idempotent: true, freshness: "live", cost_tier: "variable" };
+  // These tools may consume provider quota, but only retrieve data. Keeping
+  // them read-only lets MCP clients such as Claude invoke them without an HTTP
+  // idempotency header, while preserving idempotency for job creation above.
+  if (/^(?:backlinks|labs_google|serp(?:api)?|keywords|domain|pagespeed|clarity|ga4|schema|http|bing|wayback|scrapegraph)_/.test(tool)) {
+    return { tool, ...READ_SEO };
   }
   if (/^(?:zernio_|gbp_|backlog_|snapshot_|brand_|social_)/.test(tool)) {
     return { tool, operation: "read", capability: "growth:read", approval_required: false, idempotent: true, freshness: "live", cost_tier: "included" };
