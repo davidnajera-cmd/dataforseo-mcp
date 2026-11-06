@@ -33,6 +33,7 @@ test("classifies bounded external lookups as reads so MCP clients do not need an
     "scrapegraph_searchscraper",
     "scrapegraph_markdownify",
     "scrapegraph_crawl_status",
+    "ga4_run_report",
   ]) {
     const capability = getMcpToolCapability(tool);
     assert.equal(capability.operation, "read", tool);
@@ -41,6 +42,15 @@ test("classifies bounded external lookups as reads so MCP clients do not need an
     assert.equal(capability.idempotent, true, tool);
     assert.equal(requiresMcpIdempotency(capability), false, tool);
   }
+});
+
+test("classifies historical listings as reads without an idempotency header", () => {
+  const capability = getMcpToolCapability("keyword_universe_list");
+  assert.equal(capability.operation, "read");
+  assert.equal(capability.capability, "history:read");
+  assert.equal(capability.approval_required, false);
+  assert.equal(capability.idempotent, true);
+  assert.equal(requiresMcpIdempotency(capability), false);
 });
 
 test("keeps job-creating crawls protected as paid dispatches", () => {
