@@ -1,5 +1,6 @@
 import { post } from "../dataforseo-client.js";
 import { getPersistenceSql, ensurePersistenceSchema, KeywordUniverseRow } from "../persistence-store.js";
+import { mapWithConcurrency } from "../async-pool.js";
 
 const LOCATION_BY_COUNTRY: Record<string, number> = { co: 2170, mx: 2484 };
 
@@ -69,7 +70,7 @@ export async function captureRankings(scope: "core" | "non_core" | "all", snapsh
   const rows: RankingResult[] = [];
   const errors: Array<{ keyword: string; error: string }> = [];
 
-  for (const kw of universe) {
+  await mapWithConcurrency(universe, 3, async (kw) => {
     try {
       const ranking = await fetchRanking(kw.keyword, kw.domain, kw.country_code);
       const row: RankingResult = { keyword_id: kw.id, keyword: kw.keyword, domain: kw.domain, ...ranking };
@@ -82,7 +83,7 @@ export async function captureRankings(scope: "core" | "non_core" | "all", snapsh
     } catch (error) {
       errors.push({ keyword: kw.keyword, error: error instanceof Error ? error.message : "unknown" });
     }
-  }
+  });
 
   return { ok: rows.length, failed: errors.length, rows, errors };
 }
