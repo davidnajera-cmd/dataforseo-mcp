@@ -3,32 +3,32 @@ import { gscPost } from "../gsc-client.js";
 import { ga4Post } from "../ga4-client.js";
 import { GA4_CONVERSION_EVENT_NAMES, GA4_CLEAN_KEY_EVENTS_TIMESTAMP, ga4AndExpression, ga4ExactStringExpression, ga4HostNameExpression, ga4InListExpression } from "../ga4-site-filters.js";
 import { getRuntimeVariable } from "../runtime-config.js";
+import { SITE_CONTEXT_VARIABLES } from "../site-context-registry.js";
 import { getLatestBacklinks, getBacklinksTrend, getLatestDomainRankings, getLatestLlmVisibility, getTrafficTrend } from "../persistence-store.js";
 
 export type SiteContext = {
   domain: string;
   gscProperty: string | null;
   ga4PropertyId: string | null;
-  countryCode: "co" | "mx";
+  countryCode: string;
   locationCode: number;
 };
 
 export async function loadSiteContexts(): Promise<SiteContext[]> {
   const out: SiteContext[] = [];
-  const co_domain = await getRuntimeVariable("DNA_DOMAIN_CO");
-  const co_site = await getRuntimeVariable("DNA_SITE_CO");
-  const co_ga4 = (await getRuntimeVariable("GA4_PROPERTY_ID_CO")) ?? (await getRuntimeVariable("GA4_PROPERTY_ID")) ?? null;
-  if (co_domain) out.push({ domain: co_domain, gscProperty: co_site ?? null, ga4PropertyId: co_ga4, countryCode: "co", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_CO") ?? 2170) });
-
-  const mx_domain = await getRuntimeVariable("DNA_DOMAIN_MX");
-  const mx_site = await getRuntimeVariable("DNA_SITE_MX");
-  const mx_ga4 = (await getRuntimeVariable("GA4_PROPERTY_ID_MX")) ?? null;
-  if (mx_domain) out.push({ domain: mx_domain, gscProperty: mx_site ?? null, ga4PropertyId: mx_ga4, countryCode: "mx", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_MX") ?? 2484) });
-
-  const lta_domain = await getRuntimeVariable("DNA_DOMAIN_LTA");
-  const lta_site = await getRuntimeVariable("DNA_SITE_LTA");
-  const lta_ga4 = (await getRuntimeVariable("GA4_PROPERTY_ID_LTA")) ?? null;
-  if (lta_domain) out.push({ domain: lta_domain, gscProperty: lta_site ?? null, ga4PropertyId: lta_ga4, countryCode: "co", locationCode: Number(await getRuntimeVariable("DNA_LOCATION_LTA") ?? 2170) });
+  for (const site of SITE_CONTEXT_VARIABLES) {
+    const domain = await getRuntimeVariable(site.domainVar);
+    const gscProperty = await getRuntimeVariable(site.siteVar);
+    const ga4PropertyId = (await getRuntimeVariable(site.ga4Var))
+      ?? (site.ga4FallbackVar ? await getRuntimeVariable(site.ga4FallbackVar) : null);
+    if (domain) out.push({
+      domain,
+      gscProperty: gscProperty ?? null,
+      ga4PropertyId: ga4PropertyId ?? null,
+      countryCode: site.countryCode,
+      locationCode: Number(await getRuntimeVariable(site.locationVar) ?? site.defaultLocationCode),
+    });
+  }
 
   return out;
 }

@@ -136,6 +136,13 @@ export function getMcpToolCapability(tool: string): McpToolCapability {
   const override = OVERRIDES[tool];
   if (override) return { tool, ...override };
   if (KNOWN_READ_TOOLS.includes(tool) || tool.startsWith("gsc_")) return { tool, ...READ_GSC };
+  // GA4 reports and the keyword-universe listing only retrieve existing data.
+  // Their names contain verbs such as `run`, which the conservative generic
+  // classifier below treats as mutations unless we classify them first.
+  if (tool.startsWith("ga4_")) return { tool, ...READ_SEO };
+  if (tool === "keyword_universe_list" || tool === "snapshot_runs_list") {
+    return { tool, operation: "read", capability: "history:read", approval_required: false, idempotent: true, freshness: "historical", cost_tier: "included" };
+  }
   if (isMutatingMcpTool(tool)) {
     if (tool.startsWith("zernio_")) {
       return { tool, operation: "write", capability: "social:publish", approval_required: true, idempotent: false, freshness: "live", cost_tier: "variable" };

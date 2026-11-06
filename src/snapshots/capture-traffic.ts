@@ -3,29 +3,24 @@ import { ga4Post } from "../ga4-client.js";
 import { GA4_CONVERSION_EVENT_NAMES, ga4AndExpression, ga4ExactStringExpression, ga4HostNameExpression, ga4InListExpression } from "../ga4-site-filters.js";
 import { getPersistenceSql, ensurePersistenceSchema } from "../persistence-store.js";
 import { getRuntimeVariable } from "../runtime-config.js";
+import { SITE_CONTEXT_VARIABLES } from "../site-context-registry.js";
 
 type SiteConfig = {
   domain: string;
   gscProperty: string;
   ga4PropertyId: string | null;
+  countryCode: string;
 };
 
 async function loadSiteConfigs(): Promise<SiteConfig[]> {
   const configs: SiteConfig[] = [];
-  const co = await getRuntimeVariable("DNA_DOMAIN_CO");
-  const coSite = await getRuntimeVariable("DNA_SITE_CO");
-  const coProp = await getRuntimeVariable("GA4_PROPERTY_ID_CO") ?? await getRuntimeVariable("GA4_PROPERTY_ID");
-  if (co && coSite) configs.push({ domain: co, gscProperty: coSite, ga4PropertyId: coProp ?? null });
-
-  const mx = await getRuntimeVariable("DNA_DOMAIN_MX");
-  const mxSite = await getRuntimeVariable("DNA_SITE_MX");
-  const mxProp = await getRuntimeVariable("GA4_PROPERTY_ID_MX");
-  if (mx && mxSite) configs.push({ domain: mx, gscProperty: mxSite, ga4PropertyId: mxProp ?? null });
-
-  const lta = await getRuntimeVariable("DNA_DOMAIN_LTA");
-  const ltaSite = await getRuntimeVariable("DNA_SITE_LTA");
-  const ltaProp = await getRuntimeVariable("GA4_PROPERTY_ID_LTA");
-  if (lta && ltaSite) configs.push({ domain: lta, gscProperty: ltaSite, ga4PropertyId: ltaProp ?? null });
+  for (const site of SITE_CONTEXT_VARIABLES) {
+    const domain = await getRuntimeVariable(site.domainVar);
+    const gscProperty = await getRuntimeVariable(site.siteVar);
+    const ga4PropertyId = (await getRuntimeVariable(site.ga4Var))
+      ?? (site.ga4FallbackVar ? await getRuntimeVariable(site.ga4FallbackVar) : null);
+    if (domain && gscProperty) configs.push({ domain, gscProperty, ga4PropertyId: ga4PropertyId ?? null, countryCode: site.countryCode });
+  }
 
   return configs;
 }
@@ -168,7 +163,7 @@ export async function autoExpandUniverseFromGsc(daysBack: number = 7, perDomainL
   let skipped = 0;
 
   for (const site of sites) {
-    const countryCode = site.domain.endsWith(".mx") ? "mx" : "co";
+    const countryCode = site.countryCode;
     const existing = await sql`select count(*)::int as c from seo_keyword_universe where domain = ${site.domain}` as Array<{ c: number }>;
     if ((existing[0]?.c ?? 0) >= perDomainLimit) continue;
 
